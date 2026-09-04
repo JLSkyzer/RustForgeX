@@ -104,6 +104,30 @@ agent proscrit.
 rédigé, il n'est pas encore écrit. Le fait de « le remplir juste après » n'est pas une
 excuse : si la session s'interrompt entre les deux, la fiction est commitée.
 
+### 2026-09-05 | Une documentation affirmait une propriété que le code n'avait pas | Vérifier la propriété, pas l'intention
+
+`ProbeBuffer::flush` portait en tête de module « un flush n'alloue ni ne bloque
+(R-709) », et matérialisait un `Vec` par tick et par thread. Le commentaire décrivait
+l'exigence, pas l'implémentation, et personne — moi compris — ne l'avait relu en se
+demandant s'il était vrai.
+
+**Règle** : quand un commentaire affirme une propriété mesurable — n'alloue pas, ne
+bloque pas, ne lève pas — cette propriété se vérifie, par un test ou par la lecture de
+chaque appel effectué. Une exigence citée en commentaire n'est pas une preuve qu'elle
+est tenue ; c'est au mieux un rappel de ce qu'il faudra prouver.
+
+### 2026-09-05 | Un test d'allocation faussé par le parallélisme des tests | Une mesure globale au processus exige un binaire de test qui ne contient qu'elle
+
+Le test T-142 installe un allocateur global comptant les allocations. Deux tests
+cohabitaient dans le même binaire d'intégration : exécutés en parallèle, chacun
+comptait les allocations de l'autre, et les deux échouaient sur un chemin pourtant
+exempt d'allocation. Fusionner les deux en un seul test a suffi.
+
+**Règle** : toute mesure portant sur un état global au processus — allocateur, variable
+d'environnement, répertoire courant, horloge simulée — doit vivre dans un binaire de
+test qui ne contient qu'un seul test. Un échec de ce genre ressemble à un défaut du
+code mesuré, et c'est ainsi qu'on va corriger du code correct.
+
 ### 2026-09-04 | « Disconnected » attribué au mod alors que c'était l'authentification | Lire le log avant de supposer que le défaut vient de son propre code
 
 Le client était déconnecté du serveur de développement. Le réflexe aurait été de
