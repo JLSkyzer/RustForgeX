@@ -1,8 +1,8 @@
 package dev.rustforgex.bootstrap;
 
-import dev.rustforgex.bootstrap.NativeLoader.EchecChargement;
-import dev.rustforgex.bootstrap.NativeLoader.Plateforme;
-import dev.rustforgex.diag.CodeErreur;
+import dev.rustforgex.bootstrap.NativeLoader.LoadFailure;
+import dev.rustforgex.bootstrap.NativeLoader.Platform;
+import dev.rustforgex.diag.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,182 +31,182 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class NativeLoaderTest {
 
-    private static final Plateforme PLATEFORME = new Plateforme("windows-x86_64", "rfx_native.dll");
+    private static final Platform PLATFORM = new Platform("windows-x86_64", "rfx_native.dll");
 
     /** Source de ressources simulée, alimentée en mémoire. */
-    private static final class SourceSimulee implements NativeLoader.SourceRessources {
+    private static final class FakeSource implements NativeLoader.ResourceSource {
 
-        private final Map<String, byte[]> contenus = new HashMap<>();
+        private final Map<String, byte[]> contents = new HashMap<>();
 
-        void ajouter(String chemin, byte[] contenu) {
-            contenus.put(chemin, contenu);
+        void put(String path, byte[] content) {
+            contents.put(path, content);
         }
 
         @Override
-        public InputStream ouvrir(String chemin) {
-            byte[] c = contenus.get(chemin);
+        public InputStream open(String path) {
+            byte[] c = contents.get(path);
             return c == null ? null : new ByteArrayInputStream(c);
         }
     }
 
     /** Construit une source contenant un binaire et l'empreinte correspondante. */
-    private static SourceSimulee sourceValide(byte[] binaire) {
-        SourceSimulee source = new SourceSimulee();
-        source.ajouter(PLATEFORME.cheminRessource(), binaire);
-        source.ajouter(
-                PLATEFORME.cheminEmpreinte(),
-                (NativeLoader.condense(binaire) + "\n").getBytes(StandardCharsets.UTF_8));
+    private static FakeSource validSource(byte[] binary) {
+        FakeSource source = new FakeSource();
+        source.put(PLATFORM.resourcePath(), binary);
+        source.put(
+                PLATFORM.digestPath(),
+                (NativeLoader.digest(binary) + "\n").getBytes(StandardCharsets.UTF_8));
         return source;
     }
 
     @Test
     @DisplayName("T-120 : le binaire est extrait dans un chemin versionné par son empreinte")
-    void extractionEtEmpreinte(@TempDir Path racine) throws Exception {
-        byte[] binaire = "contenu-natif-simule".getBytes(StandardCharsets.UTF_8);
-        String empreinte = NativeLoader.condense(binaire);
+    void extractionAndDigest(@TempDir Path root) throws Exception {
+        byte[] binary = "contenu-natif-simule".getBytes(StandardCharsets.UTF_8);
+        String expected = NativeLoader.digest(binary);
 
-        Path extrait = new NativeLoader(sourceValide(binaire)).preparer(PLATEFORME, racine);
+        Path extracted = new NativeLoader(validSource(binary)).prepare(PLATFORM, root);
 
-        assertTrue(Files.isRegularFile(extrait), "le binaire doit avoir été extrait");
-        assertArrayEquals(binaire, Files.readAllBytes(extrait), "contenu identique à la source");
-        assertEquals(PLATEFORME.bibliotheque(), extrait.getFileName().toString());
+        assertTrue(Files.isRegularFile(extracted), "le binaire doit avoir été extrait");
+        assertArrayEquals(binary, Files.readAllBytes(extracted), "contenu identique à la source");
+        assertEquals(PLATFORM.library(), extracted.getFileName().toString());
         // R-301 : le répertoire parent est nommé d'après le condensé.
-        assertEquals(empreinte, extrait.getParent().getFileName().toString());
-        assertTrue(extrait.startsWith(racine), "l'extraction doit rester sous la racine fournie");
+        assertEquals(expected, extracted.getParent().getFileName().toString());
+        assertTrue(extracted.startsWith(root), "l'extraction doit rester sous la racine fournie");
     }
 
     @Test
     @DisplayName("T-120 : une extraction déjà valide est réutilisée telle quelle")
-    void extractionIdempotente(@TempDir Path racine) throws Exception {
-        byte[] binaire = "contenu-natif-simule".getBytes(StandardCharsets.UTF_8);
-        NativeLoader loader = new NativeLoader(sourceValide(binaire));
+    void extractionIsIdempotent(@TempDir Path root) throws Exception {
+        byte[] binary = "contenu-natif-simule".getBytes(StandardCharsets.UTF_8);
+        NativeLoader loader = new NativeLoader(validSource(binary));
 
-        Path premier = loader.preparer(PLATEFORME, racine);
-        long horodatage = Files.getLastModifiedTime(premier).toMillis();
-        Path second = loader.preparer(PLATEFORME, racine);
+        Path first = loader.prepare(PLATFORM, root);
+        long timestamp = Files.getLastModifiedTime(first).toMillis();
+        Path second = loader.prepare(PLATFORM, root);
 
-        assertEquals(premier, second, "le même chemin doit être réutilisé");
-        assertEquals(horodatage, Files.getLastModifiedTime(second).toMillis(),
+        assertEquals(first, second, "le même chemin doit être réutilisé");
+        assertEquals(timestamp, Files.getLastModifiedTime(second).toMillis(),
                 "le fichier valide ne doit pas être réécrit");
     }
 
     @Test
     @DisplayName("T-121 : un binaire altéré est rejeté avant tout chargement (R-300, E-1003)")
-    void binaireAltereRejete(@TempDir Path racine) {
-        SourceSimulee source = new SourceSimulee();
-        source.ajouter(PLATEFORME.cheminRessource(), "binaire-altere".getBytes(StandardCharsets.UTF_8));
+    void tamperedBinaryIsRejected(@TempDir Path root) {
+        FakeSource source = new FakeSource();
+        source.put(PLATFORM.resourcePath(), "binaire-altere".getBytes(StandardCharsets.UTF_8));
         // Empreinte d'un tout autre contenu : c'est exactement le cas d'une
         // substitution de binaire.
-        source.ajouter(
-                PLATEFORME.cheminEmpreinte(),
-                (NativeLoader.condense("binaire-legitime".getBytes(StandardCharsets.UTF_8)) + "\n")
+        source.put(
+                PLATFORM.digestPath(),
+                (NativeLoader.digest("binaire-legitime".getBytes(StandardCharsets.UTF_8)) + "\n")
                         .getBytes(StandardCharsets.UTF_8));
 
-        EchecChargement echec = assertThrows(EchecChargement.class,
-                () -> new NativeLoader(source).preparer(PLATEFORME, racine));
+        LoadFailure failure = assertThrows(LoadFailure.class,
+                () -> new NativeLoader(source).prepare(PLATFORM, root));
 
-        assertEquals(CodeErreur.HASH_NATIF_INVALIDE, echec.code());
-        assertTrue(Files.notExists(racine.resolve("native")),
+        assertEquals(ErrorCode.INVALID_NATIVE_DIGEST, failure.code());
+        assertTrue(Files.notExists(root.resolve("native")),
                 "aucun fichier ne doit avoir été écrit avant la vérification");
     }
 
     @Test
     @DisplayName("T-121 : une empreinte illisible est rejetée")
-    void empreinteIllisibleRejetee(@TempDir Path racine) {
-        SourceSimulee source = new SourceSimulee();
-        source.ajouter(PLATEFORME.cheminRessource(), "peu importe".getBytes(StandardCharsets.UTF_8));
-        source.ajouter(PLATEFORME.cheminEmpreinte(), "pas-un-condense".getBytes(StandardCharsets.UTF_8));
+    void unreadableDigestIsRejected(@TempDir Path root) {
+        FakeSource source = new FakeSource();
+        source.put(PLATFORM.resourcePath(), "peu importe".getBytes(StandardCharsets.UTF_8));
+        source.put(PLATFORM.digestPath(), "pas-un-condense".getBytes(StandardCharsets.UTF_8));
 
-        EchecChargement echec = assertThrows(EchecChargement.class,
-                () -> new NativeLoader(source).preparer(PLATEFORME, racine));
-        assertEquals(CodeErreur.HASH_NATIF_INVALIDE, echec.code());
+        LoadFailure failure = assertThrows(LoadFailure.class,
+                () -> new NativeLoader(source).prepare(PLATFORM, root));
+        assertEquals(ErrorCode.INVALID_NATIVE_DIGEST, failure.code());
     }
 
     @Test
     @DisplayName("T-121 : un binaire absent donne E-1005 et non une erreur de hash")
-    void binaireAbsentSignale(@TempDir Path racine) {
-        EchecChargement echec = assertThrows(EchecChargement.class,
-                () -> new NativeLoader(new SourceSimulee()).preparer(PLATEFORME, racine));
-        assertEquals(CodeErreur.NATIF_ABSENT, echec.code());
+    void missingBinaryIsReported(@TempDir Path root) {
+        LoadFailure failure = assertThrows(LoadFailure.class,
+                () -> new NativeLoader(new FakeSource()).prepare(PLATFORM, root));
+        assertEquals(ErrorCode.NATIVE_MISSING, failure.code());
     }
 
     @Test
     @DisplayName("T-122 : une racine non inscriptible bascule sur le répertoire temporaire (R-302)")
-    void repliSurLeRepertoireTemporaire(@TempDir Path racine) throws Exception {
-        byte[] binaire = "contenu-pour-repli".getBytes(StandardCharsets.UTF_8);
+    void fallsBackToTemporaryDirectory(@TempDir Path root) throws Exception {
+        byte[] binary = "contenu-pour-repli".getBytes(StandardCharsets.UTF_8);
         // Une racine occupée par un fichier régulier rend impossible la création du
         // sous-répertoire « native » : c'est le comportement qu'oppose aussi un
         // montage en lecture seule, reproduit ici de façon portable.
-        Path racineBloquee = racine.resolve("bloquee");
-        Files.writeString(racineBloquee, "ceci est un fichier, pas un repertoire");
+        Path blocked = root.resolve("blocked");
+        Files.writeString(blocked, "ceci est un fichier, pas un repertoire");
 
-        Path extrait = new NativeLoader(sourceValide(binaire)).preparer(PLATEFORME, racineBloquee);
+        Path extracted = new NativeLoader(validSource(binary)).prepare(PLATFORM, blocked);
 
-        Path repli = Path.of(System.getProperty("java.io.tmpdir")).resolve("rustforgex");
-        assertTrue(extrait.toAbsolutePath().startsWith(repli.toAbsolutePath()),
-                "l'extraction aurait dû basculer sous " + repli + ", obtenu " + extrait);
-        assertArrayEquals(binaire, Files.readAllBytes(extrait));
+        Path fallback = Path.of(System.getProperty("java.io.tmpdir")).resolve("rustforgex");
+        assertTrue(extracted.toAbsolutePath().startsWith(fallback.toAbsolutePath()),
+                "l'extraction aurait dû basculer sous " + fallback + ", obtenu " + extracted);
+        assertArrayEquals(binary, Files.readAllBytes(extracted));
 
-        Files.deleteIfExists(extrait);
+        Files.deleteIfExists(extracted);
     }
 
     @Test
     @DisplayName("T-122 : aucun emplacement inscriptible donne un échec propre, jamais une exception brute")
-    void aucunEmplacementInscriptible(@TempDir Path racine) throws Exception {
-        byte[] binaire = "contenu".getBytes(StandardCharsets.UTF_8);
-        Path bloquee = racine.resolve("bloquee");
-        Files.writeString(bloquee, "fichier");
+    void noWritableLocationFailsCleanly(@TempDir Path root) throws Exception {
+        byte[] binary = "contenu".getBytes(StandardCharsets.UTF_8);
+        Path blocked = root.resolve("blocked");
+        Files.writeString(blocked, "fichier");
 
         // En pointant le repli sur le même chemin bloqué, plus aucun emplacement
         // n'est utilisable : l'échec doit rester contrôlé.
-        String ancien = System.getProperty("java.io.tmpdir");
+        String previous = System.getProperty("java.io.tmpdir");
         try {
-            System.setProperty("java.io.tmpdir", bloquee.toString());
-            EchecChargement echec = assertThrows(EchecChargement.class,
-                    () -> new NativeLoader(sourceValide(binaire)).preparer(PLATEFORME, bloquee));
-            assertEquals(CodeErreur.CHARGEMENT_ECHOUE, echec.code());
+            System.setProperty("java.io.tmpdir", blocked.toString());
+            LoadFailure failure = assertThrows(LoadFailure.class,
+                    () -> new NativeLoader(validSource(binary)).prepare(PLATFORM, blocked));
+            assertEquals(ErrorCode.LOAD_FAILED, failure.code());
         } finally {
-            System.setProperty("java.io.tmpdir", ancien);
+            System.setProperty("java.io.tmpdir", previous);
         }
     }
 
     @Test
     @DisplayName("T-123 : deux versions du binaire coexistent sans conflit (R-301)")
-    void deuxVersionsCoexistent(@TempDir Path racine) throws Exception {
+    void twoVersionsCoexist(@TempDir Path root) throws Exception {
         byte[] version1 = "binaire-version-1".getBytes(StandardCharsets.UTF_8);
         byte[] version2 = "binaire-version-2-plus-longue".getBytes(StandardCharsets.UTF_8);
 
-        Path extrait1 = new NativeLoader(sourceValide(version1)).preparer(PLATEFORME, racine);
-        Path extrait2 = new NativeLoader(sourceValide(version2)).preparer(PLATEFORME, racine);
+        Path first = new NativeLoader(validSource(version1)).prepare(PLATFORM, root);
+        Path second = new NativeLoader(validSource(version2)).prepare(PLATFORM, root);
 
-        assertNotEquals(extrait1, extrait2, "chaque version doit avoir son propre chemin");
-        assertTrue(Files.isRegularFile(extrait1), "la première version doit subsister");
-        assertArrayEquals(version1, Files.readAllBytes(extrait1));
-        assertArrayEquals(version2, Files.readAllBytes(extrait2));
+        assertNotEquals(first, second, "chaque version doit avoir son propre chemin");
+        assertTrue(Files.isRegularFile(first), "la première version doit subsister");
+        assertArrayEquals(version1, Files.readAllBytes(first));
+        assertArrayEquals(version2, Files.readAllBytes(second));
     }
 
     @Test
     @DisplayName("Les plateformes cibles du build sont reconnues, les autres refusées")
-    void detectionDesPlateformes() {
-        assertEquals(Optional.of(new Plateforme("windows-x86_64", "rfx_native.dll")),
-                NativeLoader.plateforme("Windows 11", "amd64"));
-        assertEquals(Optional.of(new Plateforme("linux-x86_64", "librfx_native.so")),
-                NativeLoader.plateforme("Linux", "x86_64"));
-        assertEquals(Optional.of(new Plateforme("linux-aarch64", "librfx_native.so")),
-                NativeLoader.plateforme("Linux", "aarch64"));
+    void platformDetection() {
+        assertEquals(Optional.of(new Platform("windows-x86_64", "rfx_native.dll")),
+                NativeLoader.platform("Windows 11", "amd64"));
+        assertEquals(Optional.of(new Platform("linux-x86_64", "librfx_native.so")),
+                NativeLoader.platform("Linux", "x86_64"));
+        assertEquals(Optional.of(new Platform("linux-aarch64", "librfx_native.so")),
+                NativeLoader.platform("Linux", "aarch64"));
 
         // Aucune plateforme non prévue par le build ne doit être devinée.
-        assertEquals(Optional.empty(), NativeLoader.plateforme("Mac OS X", "aarch64"));
-        assertEquals(Optional.empty(), NativeLoader.plateforme("Windows 10", "x86"));
-        assertEquals(Optional.empty(), NativeLoader.plateforme("SunOS", "sparc"));
+        assertEquals(Optional.empty(), NativeLoader.platform("Mac OS X", "aarch64"));
+        assertEquals(Optional.empty(), NativeLoader.platform("Windows 10", "x86"));
+        assertEquals(Optional.empty(), NativeLoader.platform("SunOS", "sparc"));
     }
 
     @Test
     @DisplayName("Le condensé est celui de SHA-256, en hexadécimal minuscule")
-    void condenseConformeASha256() {
+    void digestMatchesSha256() {
         // Vecteur de test public de SHA-256 pour la chaîne vide.
         assertEquals(
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                NativeLoader.condense(new byte[0]));
+                NativeLoader.digest(new byte[0]));
     }
 }

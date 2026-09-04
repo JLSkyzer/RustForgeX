@@ -21,7 +21,7 @@ mod windows;
 
 /// Resultat brut d'une sonde specifique a une plateforme.
 #[derive(Debug, Clone, Copy, Default)]
-struct SondeSysteme {
+struct SystemProbe {
     physical_cores: u16,
     l3_bytes: u64,
     numa_nodes: u8,
@@ -34,51 +34,51 @@ struct SondeSysteme {
 /// La sonde ne dure que quelques millisecondes : elle n'interroge que des compteurs
 /// systeme, sans allocation notable ni entree-sortie bloquante (T-482 : < 150 ms).
 #[must_use]
-pub fn sonder() -> (HardwareClass, ProbeCoverage) {
+pub fn probe() -> (HardwareClass, ProbeCoverage) {
     let mut hw = HardwareClass::default();
-    let mut couverture = ProbeCoverage::default();
+    let mut coverage = ProbeCoverage::default();
 
     // Coeurs logiques : disponible sur toutes les plateformes supportees.
     if let Ok(n) = std::thread::available_parallelism() {
         hw.logical_cores = u16::try_from(n.get()).unwrap_or(u16::MAX);
     }
 
-    let sys = sonde_systeme();
+    let sys = system_probe();
     hw.physical_cores = sys.physical_cores;
     hw.l3_bytes = sys.l3_bytes;
     hw.numa_nodes = sys.numa_nodes;
     hw.mem_total_bytes = sys.mem_total_bytes;
 
-    couverture.cores = hw.logical_cores > 0 && hw.physical_cores > 0;
-    couverture.l3 = hw.l3_bytes > 0;
-    couverture.numa = hw.numa_nodes > 0;
-    couverture.mem_total = hw.mem_total_bytes > 0;
+    coverage.cores = hw.logical_cores > 0 && hw.physical_cores > 0;
+    coverage.l3 = hw.l3_bytes > 0;
+    coverage.numa = hw.numa_nodes > 0;
+    coverage.mem_total = hw.mem_total_bytes > 0;
 
-    hw.simd = detecter_simd();
-    couverture.simd = simd_detectable();
+    hw.simd = detect_simd();
+    coverage.simd = simd_detectable();
 
-    hw.core_kinds = topologie(hw.physical_cores, hw.logical_cores);
-    couverture.topology = !matches!(hw.core_kinds, CoreTopology::Unknown);
+    hw.core_kinds = topology(hw.physical_cores, hw.logical_cores);
+    coverage.topology = !matches!(hw.core_kinds, CoreTopology::Unknown);
 
-    (hw, couverture)
+    (hw, coverage)
 }
 
 #[cfg(target_os = "windows")]
-fn sonde_systeme() -> SondeSysteme {
-    windows::sonder()
+fn system_probe() -> SystemProbe {
+    windows::probe()
 }
 
 #[cfg(target_os = "linux")]
-fn sonde_systeme() -> SondeSysteme {
-    linux::sonder()
+fn system_probe() -> SystemProbe {
+    linux::probe()
 }
 
 /// Plateformes sans sonde dediee : aucun champ systeme n'est mesure, et la couverture
 /// le declare. Le runtime reste parfaitement fonctionnel (contrat agent 6.1 : ne pas
 /// deviner une mesure manquante).
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn sonde_systeme() -> SondeSysteme {
-    SondeSysteme::default()
+fn system_probe() -> SystemProbe {
+    SystemProbe::default()
 }
 
 /// Determine la nature des coeurs.
@@ -87,7 +87,7 @@ fn sonde_systeme() -> SondeSysteme {
 /// coeurs physiques est homogene (SMT uniforme). Tout autre rapport revele des coeurs
 /// de natures differentes, mais le decompte par nature n'est pas derivable de ces
 /// deux seuls nombres : la topologie est alors declaree inconnue plutot que devinee.
-fn topologie(physical: u16, logical: u16) -> CoreTopology {
+fn topology(physical: u16, logical: u16) -> CoreTopology {
     if physical == 0 || logical == 0 || logical < physical {
         return CoreTopology::Unknown;
     }
@@ -100,7 +100,7 @@ fn topologie(physical: u16, logical: u16) -> CoreTopology {
 
 /// Detecte les jeux d'instructions vectorielles disponibles.
 #[must_use]
-fn detecter_simd() -> SimdCaps {
+fn detect_simd() -> SimdCaps {
     #[cfg(target_arch = "x86_64")]
     {
         SimdCaps {
@@ -139,10 +139,10 @@ mod tests {
 
     /// T-481 : detection correcte des coeurs.
     #[test]
-    fn les_coeurs_sont_detectes_et_coherents() {
-        let (hw, couverture) = sonder();
+    fn cores_are_detected_and_consistent() {
+        let (hw, coverage) = probe();
         assert!(hw.logical_cores > 0, "au moins un coeur logique");
-        assert!(couverture.cores, "les coeurs doivent etre mesures");
+        assert!(coverage.cores, "les coeurs doivent etre mesures");
         assert!(hw.physical_cores > 0, "au moins un coeur physique");
         assert!(
             hw.logical_cores >= hw.physical_cores,
@@ -154,13 +154,13 @@ mod tests {
 
     /// T-482 : duree de sonde inferieure a 150 ms.
     #[test]
-    fn la_sonde_tient_dans_son_budget() {
-        let debut = Instant::now();
-        let _ = sonder();
-        let duree = debut.elapsed();
+    fn probe_fits_within_its_budget() {
+        let start = Instant::now();
+        let _ = probe();
+        let elapsed = start.elapsed();
         assert!(
-            duree.as_millis() < 150,
-            "sonde trop lente : {duree:?} (budget 150 ms)"
+            elapsed.as_millis() < 150,
+            "sonde trop lente : {elapsed:?} (budget 150 ms)"
         );
     }
 
@@ -170,9 +170,9 @@ mod tests {
     /// d'une execution a l'autre, ce qui satisfait largement le seuil de 20 %. Les
     /// couts mesures, eux, sont evalues cote Java.
     #[test]
-    fn les_mesures_sont_stables_entre_executions() {
-        let (a, ca) = sonder();
-        let (b, cb) = sonder();
+    fn measurements_are_stable_across_runs() {
+        let (a, ca) = probe();
+        let (b, cb) = probe();
         assert_eq!(
             a, b,
             "la sonde doit etre deterministe sur une machine donnee"
@@ -181,8 +181,8 @@ mod tests {
     }
 
     #[test]
-    fn aucun_champ_non_mesure_n_est_declare_couvert() {
-        let (hw, c) = sonder();
+    fn no_unmeasured_field_is_declared_covered() {
+        let (hw, c) = probe();
         assert_eq!(c.l3, hw.l3_bytes > 0);
         assert_eq!(c.numa, hw.numa_nodes > 0);
         assert_eq!(c.mem_total, hw.mem_total_bytes > 0);
@@ -194,21 +194,21 @@ mod tests {
     }
 
     #[test]
-    fn la_topologie_n_est_jamais_devinee() {
-        assert_eq!(topologie(0, 8), CoreTopology::Unknown);
-        assert_eq!(topologie(8, 0), CoreTopology::Unknown);
+    fn topology_is_never_guessed() {
+        assert_eq!(topology(0, 8), CoreTopology::Unknown);
+        assert_eq!(topology(8, 0), CoreTopology::Unknown);
         // Plus de coeurs physiques que de logiques : incoherent, donc inconnu.
-        assert_eq!(topologie(16, 8), CoreTopology::Unknown);
+        assert_eq!(topology(16, 8), CoreTopology::Unknown);
         // Rapport non entier : coeurs de natures differentes, decompte indeterminable.
-        assert_eq!(topologie(10, 12), CoreTopology::Unknown);
-        assert_eq!(topologie(8, 16), CoreTopology::Homogeneous { cores: 8 });
-        assert_eq!(topologie(8, 8), CoreTopology::Homogeneous { cores: 8 });
+        assert_eq!(topology(10, 12), CoreTopology::Unknown);
+        assert_eq!(topology(8, 16), CoreTopology::Homogeneous { cores: 8 });
+        assert_eq!(topology(8, 8), CoreTopology::Homogeneous { cores: 8 });
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn sse2_est_la_ligne_de_base_sur_x86_64() {
-        let (hw, c) = sonder();
+    fn sse2_is_the_x86_64_baseline() {
+        let (hw, c) = probe();
         assert!(hw.simd.sse2);
         assert!(!hw.simd.neon);
         assert!(c.simd);

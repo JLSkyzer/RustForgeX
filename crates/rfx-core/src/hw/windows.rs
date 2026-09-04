@@ -18,7 +18,7 @@
 
 #![allow(unsafe_code)]
 
-use super::SondeSysteme;
+use super::SystemProbe;
 
 /// `SYSTEM_LOGICAL_PROCESSOR_INFORMATION.Relationship` : coeur physique.
 const RELATION_PROCESSOR_CORE: u32 = 0;
@@ -110,11 +110,11 @@ extern "system" {
 }
 
 /// Sonde la machine. Un echec systeme laisse les champs concernes a zero.
-pub(super) fn sonder() -> SondeSysteme {
-    let mut s = SondeSysteme::default();
-    if let Some(infos) = infos_processeur() {
+pub(super) fn probe() -> SystemProbe {
+    let mut s = SystemProbe::default();
+    if let Some(entries) = processor_info() {
         let mut l3_max = 0_u64;
-        for info in &infos {
+        for info in &entries {
             match info.relationship {
                 RELATION_PROCESSOR_CORE => {
                     s.physical_cores = s.physical_cores.saturating_add(1);
@@ -137,22 +137,22 @@ pub(super) fn sonder() -> SondeSysteme {
         }
         s.l3_bytes = l3_max;
     }
-    s.mem_total_bytes = memoire_totale();
+    s.mem_total_bytes = total_memory();
     s
 }
 
 /// Recupere la table des informations processeur, ou `None` si le systeme refuse.
-fn infos_processeur() -> Option<Vec<LogicalProcessorInformation>> {
-    let mut longueur: u32 = 0;
+fn processor_info() -> Option<Vec<LogicalProcessorInformation>> {
+    let mut length: u32 = 0;
 
     // Premier appel : le systeme renseigne la taille necessaire et echoue
     // volontairement. Le pointeur nul est explicitement admis par l'API dans ce cas.
     // SAFETY : `longueur` est une variable locale valide pendant tout l'appel.
-    unsafe { GetLogicalProcessorInformation(core::ptr::null_mut(), &mut longueur) };
+    unsafe { GetLogicalProcessorInformation(core::ptr::null_mut(), &mut length) };
 
-    let taille = core::mem::size_of::<LogicalProcessorInformation>();
-    let elements = longueur as usize / taille;
-    if elements == 0 {
+    let entry_size = core::mem::size_of::<LogicalProcessorInformation>();
+    let count = length as usize / entry_size;
+    if count == 0 {
         return None;
     }
 
@@ -161,34 +161,34 @@ fn infos_processeur() -> Option<Vec<LogicalProcessorInformation>> {
         relationship: 0,
         info: InfoUnion { reserved: [0; 2] },
     };
-    let mut tampon = vec![zero; elements];
+    let mut buffer = vec![zero; count];
 
     // SAFETY : `tampon` possede exactement `longueur` octets contigus et vit
     // au-dela de l'appel ; `longueur` est la taille reclamee par le systeme.
-    let ok = unsafe { GetLogicalProcessorInformation(tampon.as_mut_ptr(), &mut longueur) };
+    let ok = unsafe { GetLogicalProcessorInformation(buffer.as_mut_ptr(), &mut length) };
     if ok == 0 {
         return None;
     }
 
     // Le systeme peut avoir ecrit moins d'elements que la capacite allouee.
-    let ecrits = (longueur as usize / taille).min(tampon.len());
-    tampon.truncate(ecrits);
-    Some(tampon)
+    let written = (length as usize / entry_size).min(buffer.len());
+    buffer.truncate(written);
+    Some(buffer)
 }
 
 /// Memoire physique totale en octets, ou `0` si le systeme refuse.
-fn memoire_totale() -> u64 {
-    let mut statut = MemoryStatusEx {
+fn total_memory() -> u64 {
+    let mut status = MemoryStatusEx {
         length: u32::try_from(core::mem::size_of::<MemoryStatusEx>()).unwrap_or(0),
         ..MemoryStatusEx::default()
     };
     // SAFETY : `statut` est une structure locale `#[repr(C)]` correctement
     // dimensionnee via son champ `length`, comme l'exige l'API.
-    let ok = unsafe { GlobalMemoryStatusEx(&mut statut) };
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
     if ok == 0 {
         0
     } else {
-        statut.total_phys
+        status.total_phys
     }
 }
 
@@ -197,7 +197,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_disposition_des_structures_correspond_a_win32() {
+    fn struct_layout_matches_win32() {
         // Dispositions attendues sur x86-64 : toute divergence signalerait une
         // erreur de transcription des en-tetes Win32.
         assert_eq!(core::mem::size_of::<LogicalProcessorInformation>(), 32);
@@ -208,8 +208,8 @@ mod tests {
     }
 
     #[test]
-    fn la_sonde_windows_mesure_la_machine() {
-        let s = sonder();
+    fn windows_probe_measures_the_machine() {
+        let s = probe();
         assert!(s.physical_cores > 0, "coeurs physiques non detectes");
         assert!(s.mem_total_bytes > 0, "memoire totale non detectee");
         assert!(s.numa_nodes > 0, "aucun noeud NUMA detecte");

@@ -1,12 +1,12 @@
 package dev.rustforgex.bootstrap;
 
-import dev.rustforgex.bootstrap.Bootstrap.Contexte;
-import dev.rustforgex.bootstrap.Bootstrap.Etat;
-import dev.rustforgex.bootstrap.Bootstrap.Rapport;
-import dev.rustforgex.bootstrap.NativeLoader.Plateforme;
-import dev.rustforgex.bridge.PontNatif;
+import dev.rustforgex.bootstrap.Bootstrap.Context;
+import dev.rustforgex.bootstrap.Bootstrap.Report;
+import dev.rustforgex.bootstrap.Bootstrap.State;
+import dev.rustforgex.bootstrap.NativeLoader.Platform;
+import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.config.Configuration;
-import dev.rustforgex.diag.CodeErreur;
+import dev.rustforgex.diag.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,19 +31,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Tests T-110 à T-114 de C-02 (Bootstrap). */
 class BootstrapTest {
 
-    private static final Plateforme PLATEFORME = new Plateforme("windows-x86_64", "rfx_native.dll");
-    private static final byte[] BINAIRE = "binaire-natif-simule".getBytes(StandardCharsets.UTF_8);
+    private static final Platform PLATFORM = new Platform("windows-x86_64", "rfx_native.dll");
+    private static final byte[] BINARY = "binaire-natif-simule".getBytes(StandardCharsets.UTF_8);
 
     /** Pont simulé : consigne les appels et rend des codes contrôlés. */
-    private static class PontSimule implements PontNatif {
+    private static class FakeBridge implements NativeBridge {
 
         int abi = 1;
-        long handleAttribue = 0x5246_5800_0000_0001L;
-        int sondes;
-        int appelsNoop;
+        long handleToReturn = 0x5246_5800_0000_0001L;
+        int probes;
+        int noopCalls;
         int jniCallNs = -1;
         int ffiBatchNsPerKb = -1;
-        byte[] configRecue;
+        byte[] receivedConfig;
 
         @Override
         public int abiVersion() {
@@ -52,8 +52,8 @@ class BootstrapTest {
 
         @Override
         public long init(byte[] configCbor) {
-            configRecue = configCbor;
-            return handleAttribue;
+            receivedConfig = configCbor;
+            return handleToReturn;
         }
 
         @Override
@@ -63,26 +63,26 @@ class BootstrapTest {
 
         @Override
         public int noop(long handle) {
-            appelsNoop++;
+            noopCalls++;
             return 0;
         }
 
         @Override
         public int hwProbe(long handle) {
-            sondes++;
+            probes++;
             return 0;
         }
 
         @Override
-        public int hwSetFfiCosts(long handle, int appel, int lot) {
-            jniCallNs = appel;
-            ffiBatchNsPerKb = lot;
+        public int hwSetFfiCosts(long handle, int callCost, int batchCost) {
+            jniCallNs = callCost;
+            ffiBatchNsPerKb = batchCost;
             return 0;
         }
 
         @Override
-        public long transferProbe(long handle, ByteBuffer tampon, int longueur) {
-            return longueur;
+        public long transferProbe(long handle, ByteBuffer buffer, int length) {
+            return length;
         }
 
         @Override
@@ -97,218 +97,212 @@ class BootstrapTest {
     }
 
     /** Source de ressources simulée contenant un binaire et son empreinte. */
-    private static NativeLoader.SourceRessources sourceValide() {
-        Map<String, byte[]> contenus = new HashMap<>();
-        contenus.put(PLATEFORME.cheminRessource(), BINAIRE);
-        contenus.put(
-                PLATEFORME.cheminEmpreinte(),
-                NativeLoader.condense(BINAIRE).getBytes(StandardCharsets.UTF_8));
-        return chemin -> {
-            byte[] c = contenus.get(chemin);
+    private static NativeLoader.ResourceSource validSource() {
+        Map<String, byte[]> contents = new HashMap<>();
+        contents.put(PLATFORM.resourcePath(), BINARY);
+        contents.put(
+                PLATFORM.digestPath(),
+                NativeLoader.digest(BINARY).getBytes(StandardCharsets.UTF_8));
+        return path -> {
+            byte[] c = contents.get(path);
             return c == null ? null : new ByteArrayInputStream(c);
         };
     }
 
     /** Source vide : le binaire natif est absent du JAR. */
-    private static NativeLoader.SourceRessources sourceVide() {
-        return chemin -> (InputStream) null;
+    private static NativeLoader.ResourceSource emptySource() {
+        return path -> (InputStream) null;
     }
 
-    private static Contexte contexte(
-            Path racine,
+    private static Context context(
+            Path root,
             Configuration configuration,
-            NativeLoader.SourceRessources source,
-            PontNatif pont) {
-        return new Contexte(
-                racine,
+            NativeLoader.ResourceSource source,
+            NativeBridge bridge) {
+        return new Context(
+                root,
                 configuration,
                 false,
-                Optional.of(PLATEFORME),
+                Optional.of(PLATFORM),
                 new NativeLoader(source),
-                bibliotheque -> { /* chargement simulé : rien à faire */ },
-                pont);
+                library -> { /* chargement simulé : rien à faire */ },
+                bridge);
     }
 
     @BeforeEach
-    void reinitialiser() {
-        Bootstrap.reinitialiserPourTests();
+    void reset() {
+        Bootstrap.resetForTests();
     }
 
     @Test
     @DisplayName("T-110 : démarrage nominal jusqu'à READY")
-    void demarrageNominal(@TempDir Path racine) {
-        PontSimule pont = new PontSimule();
+    void nominalStartup(@TempDir Path root) {
+        FakeBridge bridge = new FakeBridge();
 
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceValide(), pont));
+        Report r = Bootstrap.start(context(root, Configuration.defaults(), validSource(), bridge));
 
-        assertEquals(Etat.READY, r.etat(), r.message());
-        assertTrue(r.pret());
+        assertEquals(State.READY, r.state(), r.message());
+        assertTrue(r.ready());
         assertNull(r.code(), "un démarrage nominal ne porte aucun code d'erreur");
-        assertEquals(pont.handleAttribue, r.handle());
-        assertTrue(Files.isRegularFile(r.bibliotheque()), "le binaire doit avoir été extrait");
+        assertEquals(bridge.handleToReturn, r.handle());
+        assertTrue(Files.isRegularFile(r.library()), "le binaire doit avoir été extrait");
 
         // La séquence a bien sondé le matériel et publié des coûts mesurés (C-45).
-        assertEquals(1, pont.sondes);
-        assertTrue(pont.appelsNoop >= CalibrationFfi.APPELS_MESURES,
-                "la calibration doit exécuter au moins " + CalibrationFfi.APPELS_MESURES + " appels");
-        assertTrue(pont.jniCallNs >= 0, "le coût d'appel doit avoir été publié");
-        assertTrue(pont.ffiBatchNsPerKb >= 0, "le coût de transfert doit avoir été publié");
-        assertNotEquals(0, pont.configRecue.length, "la configuration doit avoir été transmise");
+        assertEquals(1, bridge.probes);
+        assertTrue(bridge.noopCalls >= FfiCalibration.MEASURED_CALLS,
+                "la calibration doit exécuter au moins " + FfiCalibration.MEASURED_CALLS + " appels");
+        assertTrue(bridge.jniCallNs >= 0, "le coût d'appel doit avoir été publié");
+        assertTrue(bridge.ffiBatchNsPerKb >= 0, "le coût de transfert doit avoir été publié");
+        assertNotEquals(0, bridge.receivedConfig.length, "la configuration doit avoir été transmise");
     }
 
     @Test
     @DisplayName("T-110 : le démarrage tient dans son budget de temps")
-    void demarrageRapide(@TempDir Path racine) {
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceValide(), new PontSimule()));
+    void startupIsFast(@TempDir Path root) {
+        Report r = Bootstrap.start(
+                context(root, Configuration.defaults(), validSource(), new FakeBridge()));
 
-        assertEquals(Etat.READY, r.etat());
+        assertEquals(State.READY, r.state());
         // Critère d'acceptation de C-02 : moins de 300 ms hors extraction initiale.
         // L'extraction ayant lieu ici, la marge retenue reste large.
-        assertTrue(r.dureeMs() < 3_000,
-                "démarrage anormalement long : " + r.dureeMs() + " ms");
+        assertTrue(r.durationMs() < 3_000, "démarrage anormalement long : " + r.durationMs() + " ms");
     }
 
     @Test
     @DisplayName("T-111 : binaire natif absent, le mod passe en DEGRADED (FM-04, E-1005)")
-    void natifAbsentDegrade(@TempDir Path racine) {
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceVide(), new PontSimule()));
+    void missingNativeDegrades(@TempDir Path root) {
+        Report r = Bootstrap.start(
+                context(root, Configuration.defaults(), emptySource(), new FakeBridge()));
 
-        assertEquals(Etat.DEGRADED, r.etat());
-        assertEquals(CodeErreur.NATIF_ABSENT, r.code());
+        assertEquals(State.DEGRADED, r.state());
+        assertEquals(ErrorCode.NATIVE_MISSING, r.code());
         assertEquals(0, r.handle(), "aucun handle ne doit être publié");
     }
 
     @Test
     @DisplayName("T-111 : plateforme non supportée, DEGRADED avec un message explicite")
-    void plateformeNonSupporteeDegrade(@TempDir Path racine) {
-        Contexte c = new Contexte(
-                racine,
-                Configuration.parDefaut(),
+    void unsupportedPlatformDegrades(@TempDir Path root) {
+        Context c = new Context(
+                root,
+                Configuration.defaults(),
                 false,
                 Optional.empty(),
-                new NativeLoader(sourceValide()),
-                bibliotheque -> { },
-                new PontSimule());
+                new NativeLoader(validSource()),
+                library -> { },
+                new FakeBridge());
 
-        Rapport r = Bootstrap.demarrer(c);
+        Report r = Bootstrap.start(c);
 
-        assertEquals(Etat.DEGRADED, r.etat());
-        assertEquals(CodeErreur.NATIF_ABSENT, r.code());
+        assertEquals(State.DEGRADED, r.state());
+        assertEquals(ErrorCode.NATIVE_MISSING, r.code());
         assertTrue(r.message().contains("Plateforme non supportée"), r.message());
     }
 
     @Test
-    @DisplayName("T-112 : ABI incompatible, le mod passe en DISABLED sans aucun appel natif (FM-06, E-1002)")
-    void abiIncompatibleDesactive(@TempDir Path racine) {
-        PontSimule pont = new PontSimule();
-        pont.abi = 2;
+    @DisplayName("T-112 : ABI incompatible, DISABLED sans aucun appel natif (FM-06, E-1002)")
+    void incompatibleAbiDisables(@TempDir Path root) {
+        FakeBridge bridge = new FakeBridge();
+        bridge.abi = 2;
 
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceValide(), pont));
+        Report r = Bootstrap.start(context(root, Configuration.defaults(), validSource(), bridge));
 
-        assertEquals(Etat.DISABLED, r.etat());
-        assertEquals(CodeErreur.ABI_INCOMPATIBLE, r.code());
-        assertNull(pont.configRecue, "R-702 : aucun appel après un handshake refusé");
-        assertEquals(0, pont.sondes);
+        assertEquals(State.DISABLED, r.state());
+        assertEquals(ErrorCode.ABI_INCOMPATIBLE, r.code());
+        assertNull(bridge.receivedConfig, "R-702 : aucun appel après un handshake refusé");
+        assertEquals(0, bridge.probes);
         assertEquals(0, r.handle());
     }
 
     @Test
     @DisplayName("T-113 : répertoire non inscriptible, le mod reste jouable")
-    void repertoireNonInscriptibleDegrade(@TempDir Path racine) throws Exception {
+    void unwritableDirectoryDegrades(@TempDir Path root) throws Exception {
         // Racine occupée par un fichier : ni la racine ni le repli ne sont utilisables.
-        Path bloquee = racine.resolve("bloquee");
-        Files.writeString(bloquee, "fichier");
+        Path blocked = root.resolve("blocked");
+        Files.writeString(blocked, "fichier");
 
-        String ancienTmp = System.getProperty("java.io.tmpdir");
+        String previousTmp = System.getProperty("java.io.tmpdir");
         try {
-            System.setProperty("java.io.tmpdir", bloquee.toString());
-            Rapport r = Bootstrap.demarrer(
-                    contexte(bloquee, Configuration.parDefaut(), sourceValide(), new PontSimule()));
+            System.setProperty("java.io.tmpdir", blocked.toString());
+            Report r = Bootstrap.start(
+                    context(blocked, Configuration.defaults(), validSource(), new FakeBridge()));
 
-            assertEquals(Etat.DEGRADED, r.etat());
-            assertEquals(CodeErreur.CHARGEMENT_ECHOUE, r.code());
+            assertEquals(State.DEGRADED, r.state());
+            assertEquals(ErrorCode.LOAD_FAILED, r.code());
         } finally {
-            System.setProperty("java.io.tmpdir", ancienTmp);
+            System.setProperty("java.io.tmpdir", previousTmp);
         }
     }
 
     @Test
     @DisplayName("T-114 : une seconde initialisation est refusée (E-1004)")
-    void doubleInitialisationRefusee(@TempDir Path racine) {
-        Contexte c = contexte(racine, Configuration.parDefaut(), sourceValide(), new PontSimule());
+    void doubleInitializationIsRefused(@TempDir Path root) {
+        Context c = context(root, Configuration.defaults(), validSource(), new FakeBridge());
 
-        assertEquals(Etat.READY, Bootstrap.demarrer(c).etat());
+        assertEquals(State.READY, Bootstrap.start(c).state());
 
-        Rapport second = Bootstrap.demarrer(c);
-        assertEquals(Etat.DISABLED, second.etat());
-        assertEquals(CodeErreur.DOUBLE_INIT, second.code());
+        Report second = Bootstrap.start(c);
+        assertEquals(State.DISABLED, second.state());
+        assertEquals(ErrorCode.DOUBLE_INIT, second.code());
     }
 
     @Test
     @DisplayName("Un binaire altéré interdit l'activation (FM-08, E-1003)")
-    void binaireAltereDesactive(@TempDir Path racine) {
-        Map<String, byte[]> contenus = new HashMap<>();
-        contenus.put(PLATEFORME.cheminRessource(), "binaire-substitue".getBytes(StandardCharsets.UTF_8));
-        contenus.put(
-                PLATEFORME.cheminEmpreinte(),
-                NativeLoader.condense(BINAIRE).getBytes(StandardCharsets.UTF_8));
-        NativeLoader.SourceRessources altere = chemin -> {
-            byte[] c = contenus.get(chemin);
+    void tamperedBinaryDisables(@TempDir Path root) {
+        Map<String, byte[]> contents = new HashMap<>();
+        contents.put(PLATFORM.resourcePath(), "binaire-substitue".getBytes(StandardCharsets.UTF_8));
+        contents.put(PLATFORM.digestPath(), NativeLoader.digest(BINARY).getBytes(StandardCharsets.UTF_8));
+        NativeLoader.ResourceSource tampered = path -> {
+            byte[] c = contents.get(path);
             return c == null ? null : new ByteArrayInputStream(c);
         };
 
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), altere, new PontSimule()));
+        Report r = Bootstrap.start(context(root, Configuration.defaults(), tampered, new FakeBridge()));
 
-        assertEquals(Etat.DISABLED, r.etat(), "un binaire altéré ne doit jamais être activé");
-        assertEquals(CodeErreur.HASH_NATIF_INVALIDE, r.code());
+        assertEquals(State.DISABLED, r.state(), "un binaire altéré ne doit jamais être activé");
+        assertEquals(ErrorCode.INVALID_NATIVE_DIGEST, r.code());
     }
 
     @Test
     @DisplayName("enabled = false désactive tout sans toucher au natif")
-    void desactivationParConfiguration(@TempDir Path racine) throws Exception {
-        Path fichier = racine.resolve("rustforgex.toml");
-        Files.writeString(fichier, """
+    void disabledByConfiguration(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rustforgex.toml");
+        Files.writeString(file, """
                 [general]
                 enabled = false
                 """);
-        Configuration desactive = Configuration.charger(fichier, cle -> null);
-        PontSimule pont = new PontSimule();
+        Configuration disabled = Configuration.load(file, key -> null);
+        FakeBridge bridge = new FakeBridge();
 
-        Rapport r = Bootstrap.demarrer(contexte(racine, desactive, sourceValide(), pont));
+        Report r = Bootstrap.start(context(root, disabled, validSource(), bridge));
 
-        assertEquals(Etat.DISABLED, r.etat());
+        assertEquals(State.DISABLED, r.state());
         assertNull(r.code(), "une désactivation volontaire n'est pas une erreur");
-        assertNull(r.bibliotheque(), "aucun binaire ne doit avoir été extrait");
-        assertNull(pont.configRecue, "aucun appel natif ne doit avoir eu lieu");
+        assertNull(r.library(), "aucun binaire ne doit avoir été extrait");
+        assertNull(bridge.receivedConfig, "aucun appel natif ne doit avoir eu lieu");
     }
 
     @Test
     @DisplayName("Une erreur inattendue dégrade au lieu de remonter jusqu'à Forge")
-    void erreurInattendueConfinee(@TempDir Path racine) {
-        PontNatif pontFautif = new PontSimule() {
+    void unexpectedErrorIsContained(@TempDir Path root) {
+        NativeBridge faultyBridge = new FakeBridge() {
             @Override
             public int abiVersion() {
                 throw new IllegalStateException("panne simulée du pont");
             }
         };
 
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceValide(), pontFautif));
+        Report r = Bootstrap.start(
+                context(root, Configuration.defaults(), validSource(), faultyBridge));
 
-        assertEquals(Etat.DEGRADED, r.etat(), "le jeu doit rester jouable");
+        assertEquals(State.DEGRADED, r.state(), "le jeu doit rester jouable");
         assertTrue(r.message().contains("panne simulée"), r.message());
     }
 
     @Test
     @DisplayName("Le rapport journalise chaque étape franchie")
-    void journalDesEtapes(@TempDir Path racine) {
-        Rapport r = Bootstrap.demarrer(
-                contexte(racine, Configuration.parDefaut(), sourceValide(), new PontSimule()));
+    void journalRecordsEveryStep(@TempDir Path root) {
+        Report r = Bootstrap.start(
+                context(root, Configuration.defaults(), validSource(), new FakeBridge()));
 
         assertFalse(r.journal().isEmpty());
         assertTrue(r.journal().stream().anyMatch(l -> l.startsWith("INIT")));

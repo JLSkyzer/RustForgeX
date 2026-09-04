@@ -1,7 +1,7 @@
 package dev.rustforgex.config;
 
 import dev.rustforgex.bridge.Cbor;
-import dev.rustforgex.config.OptionConfig.TypeValeur;
+import dev.rustforgex.config.OptionConfig.ValueType;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -47,10 +47,10 @@ public final class Configuration {
     public static final int SCHEMA = 1;
 
     /** Préfixe des propriétés système de surcharge (PARTIE 28.4). */
-    public static final String PREFIXE_SURCHARGE = "rustforgex.";
+    public static final String OVERRIDE_PREFIX = "rustforgex.";
 
     /** Chemin du fichier, relatif à la racine de travail du mod. */
-    public static final String CHEMIN_FICHIER = "config/rustforgex.toml";
+    public static final String FILE_PATH = "config/rustforgex.toml";
 
     /** Modes de fonctionnement (PARTIE 28.3). */
     public static final List<String> MODES =
@@ -58,30 +58,30 @@ public final class Configuration {
 
     /** Schéma normatif : toute option a un défaut, une plage et une description. */
     private static final List<OptionConfig> SCHEMA_OPTIONS = List.of(
-            OptionConfig.booleen("general", "enabled", true,
+            OptionConfig.booleanOption("general", "enabled", true,
                     "false = RUSTFORGE-X ne fait rien du tout", false),
             OptionConfig.enumeration("general", "mode", "balanced", MODES,
                     "Profil de risque et d'agressivité des décisions", true),
-            OptionConfig.booleen("general", "side_client", true,
+            OptionConfig.booleanOption("general", "side_client", true,
                     "Activer le runtime sur le client", false),
-            OptionConfig.booleen("general", "side_server", true,
+            OptionConfig.booleanOption("general", "side_server", true,
                     "Activer le runtime sur le serveur dédié", false),
-            OptionConfig.entier("memory", "max_native_mb", 512, 16, 16384,
+            OptionConfig.integerOption("memory", "max_native_mb", 512, 16, 16384,
                     "Plafond de mémoire native, en mébioctets", false),
-            OptionConfig.booleen("telemetry", "enabled", true,
+            OptionConfig.booleanOption("telemetry", "enabled", true,
                     "Collecte locale des métriques. Aucune donnée ne quitte la machine", true),
-            OptionConfig.entier("runtime", "panic_threshold", 3, 1, 100,
+            OptionConfig.integerOption("runtime", "panic_threshold", 3, 1, 100,
                     "Panics tolérées pour un sous-système avant sa désactivation", true));
 
-    private final Map<String, Object> valeurs;
-    private final List<String> avertissements;
-    private final Map<String, String> clesInconnues;
+    private final Map<String, Object> values;
+    private final List<String> warnings;
+    private final Map<String, String> unknownKeys;
 
     private Configuration(
-            Map<String, Object> valeurs, List<String> avertissements, Map<String, String> clesInconnues) {
-        this.valeurs = Map.copyOf(valeurs);
-        this.avertissements = List.copyOf(avertissements);
-        this.clesInconnues = Map.copyOf(clesInconnues);
+            Map<String, Object> values, List<String> warnings, Map<String, String> unknownKeys) {
+        this.values = Map.copyOf(values);
+        this.warnings = List.copyOf(warnings);
+        this.unknownKeys = Map.copyOf(unknownKeys);
     }
 
     /** @return le schéma normatif complet. */
@@ -89,18 +89,21 @@ public final class Configuration {
         return SCHEMA_OPTIONS;
     }
 
-    /** @return la description d'une option, si elle appartient au schéma. */
-    public static Optional<OptionConfig> option(String chemin) {
-        return SCHEMA_OPTIONS.stream().filter(o -> o.chemin().equals(chemin)).findFirst();
+    /**
+     * @param path chemin complet de l'option
+     * @return la description de l'option, si elle appartient au schéma
+     */
+    public static Optional<OptionConfig> option(String path) {
+        return SCHEMA_OPTIONS.stream().filter(o -> o.path().equals(path)).findFirst();
     }
 
     /** @return une configuration composée uniquement des valeurs par défaut. */
-    public static Configuration parDefaut() {
-        Map<String, Object> valeurs = new LinkedHashMap<>();
+    public static Configuration defaults() {
+        Map<String, Object> values = new LinkedHashMap<>();
         for (OptionConfig o : SCHEMA_OPTIONS) {
-            valeurs.put(o.chemin(), o.defaut());
+            values.put(o.path(), o.defaultValue());
         }
-        return new Configuration(valeurs, List.of(), Map.of());
+        return new Configuration(values, List.of(), Map.of());
     }
 
     /**
@@ -110,102 +113,102 @@ public final class Configuration {
      * valeur hors plage ou de type incorrect est rejetée avec un message précis et
      * remplacée par le défaut, jamais par un comportement indéfini (PARTIE 28.5).
      *
-     * @param fichier chemin du fichier {@code rustforgex.toml}
-     * @param proprietesSysteme accès aux propriétés système, injectable pour les tests
+     * @param file chemin du fichier {@code rustforgex.toml}
+     * @param systemProperties accès aux propriétés système, injectable pour les tests
      * @return la configuration effective, porteuse de ses avertissements
      */
-    public static Configuration charger(Path fichier, UnaryOperator<String> proprietesSysteme) {
-        List<String> avertissements = new ArrayList<>();
-        Map<String, String> brut = new LinkedHashMap<>();
+    public static Configuration load(Path file, UnaryOperator<String> systemProperties) {
+        List<String> warnings = new ArrayList<>();
+        Map<String, String> raw = new LinkedHashMap<>();
 
-        if (Files.isRegularFile(fichier)) {
+        if (Files.isRegularFile(file)) {
             try {
-                brut.putAll(TomlPlat.lire(Files.readString(fichier, StandardCharsets.UTF_8)));
+                raw.putAll(FlatToml.read(Files.readString(file, StandardCharsets.UTF_8)));
             } catch (IOException e) {
-                avertissements.add(
+                warnings.add(
                         "Fichier de configuration illisible (" + e.getMessage()
                                 + ") : les valeurs par défaut s'appliquent.");
             }
         } else {
             try {
-                ecrireParDefaut(fichier);
+                writeDefaults(file);
             } catch (IOException e) {
-                avertissements.add(
+                warnings.add(
                         "Création du fichier de configuration impossible (" + e.getMessage()
                                 + ") : les valeurs par défaut s'appliquent, sans persistance.");
             }
         }
 
-        Map<String, Object> valeurs = new LinkedHashMap<>();
+        Map<String, Object> values = new LinkedHashMap<>();
         for (OptionConfig o : SCHEMA_OPTIONS) {
-            String chemin = o.chemin();
-            Object valeur = o.defaut();
+            String path = o.path();
+            Object value = o.defaultValue();
 
-            String duFichier = brut.remove(chemin);
-            if (duFichier != null) {
-                valeur = analyser(o, duFichier, "fichier", avertissements).orElse(o.defaut());
+            String fromFile = raw.remove(path);
+            if (fromFile != null) {
+                value = parse(o, fromFile, "fichier", warnings).orElse(o.defaultValue());
             }
 
             // Priorité la plus forte : la propriété système (PARTIE 28.4).
-            String surcharge = proprietesSysteme.apply(PREFIXE_SURCHARGE + chemin);
-            if (surcharge != null) {
-                valeur = analyser(o, surcharge, "propriété système", avertissements).orElse(valeur);
+            String override = systemProperties.apply(OVERRIDE_PREFIX + path);
+            if (override != null) {
+                value = parse(o, override, "propriété système", warnings).orElse(value);
             }
 
-            valeurs.put(chemin, valeur);
+            values.put(path, value);
         }
 
-        // R-591 : ce qui reste dans `brut` est inconnu du schéma. La valeur est
+        // R-591 : ce qui reste dans `raw` est inconnu du schéma. La valeur est
         // conservée pour être réécrite telle quelle, et signalée.
-        brut.remove("schema");
-        for (String cle : brut.keySet()) {
-            avertissements.add(
-                    "Option inconnue conservée sans effet : « " + cle
+        raw.remove("schema");
+        for (String key : raw.keySet()) {
+            warnings.add(
+                    "Option inconnue conservée sans effet : « " + key
                             + " ». Elle appartient peut-être à un jalon ultérieur.");
         }
 
-        return new Configuration(valeurs, avertissements, brut);
+        return new Configuration(values, warnings, raw);
     }
 
     /** Analyse une valeur textuelle selon le type et la plage de l'option. */
-    private static Optional<Object> analyser(
-            OptionConfig o, String texte, String origine, List<String> avertissements) {
+    private static Optional<Object> parse(
+            OptionConfig o, String text, String origin, List<String> warnings) {
 
-        String valeur = texte.trim();
+        String value = text.trim();
         switch (o.type()) {
-            case BOOLEEN -> {
-                if (valeur.equals("true")) {
+            case BOOLEAN -> {
+                if (value.equals("true")) {
                     return Optional.of(Boolean.TRUE);
                 }
-                if (valeur.equals("false")) {
+                if (value.equals("false")) {
                     return Optional.of(Boolean.FALSE);
                 }
-                avertissements.add(rejet(o, valeur, origine, "attendu true ou false"));
+                warnings.add(rejection(o, value, origin, "attendu true ou false"));
                 return Optional.empty();
             }
-            case ENTIER -> {
-                long nombre;
+            case INTEGER -> {
+                long number;
                 try {
-                    nombre = Long.parseLong(valeur);
+                    number = Long.parseLong(value);
                 } catch (NumberFormatException e) {
-                    avertissements.add(rejet(o, valeur, origine, "attendu un entier"));
+                    warnings.add(rejection(o, value, origin, "attendu un entier"));
                     return Optional.empty();
                 }
-                if (nombre < o.min() || nombre > o.max()) {
-                    avertissements.add(
-                            rejet(o, valeur, origine, "hors de la plage " + o.plageLisible()));
+                if (number < o.min() || number > o.max()) {
+                    warnings.add(
+                            rejection(o, value, origin, "hors de la plage " + o.readableRange()));
                     return Optional.empty();
                 }
-                return Optional.of(nombre);
+                return Optional.of(number);
             }
-            case TEXTE -> {
-                String sansGuillemets = deguillemeter(valeur);
-                if (!o.valeursAdmises().isEmpty() && !o.valeursAdmises().contains(sansGuillemets)) {
-                    avertissements.add(
-                            rejet(o, sansGuillemets, origine, "valeurs admises : " + o.plageLisible()));
+            case TEXT -> {
+                String unquoted = unquote(value);
+                if (!o.allowedValues().isEmpty() && !o.allowedValues().contains(unquoted)) {
+                    warnings.add(
+                            rejection(o, unquoted, origin, "valeurs admises : " + o.readableRange()));
                     return Optional.empty();
                 }
-                return Optional.of(sansGuillemets);
+                return Optional.of(unquoted);
             }
             default -> {
                 return Optional.empty();
@@ -213,25 +216,30 @@ public final class Configuration {
         }
     }
 
-    private static String rejet(OptionConfig o, String valeur, String origine, String raison) {
-        return "Valeur rejetée pour « " + o.chemin() + " » (" + origine + ") : « " + valeur
-                + " » — " + raison + ". Valeur par défaut appliquée : " + o.defaut() + ".";
+    private static String rejection(OptionConfig o, String value, String origin, String reason) {
+        return "Valeur rejetée pour « " + o.path() + " » (" + origin + ") : « " + value
+                + " » — " + reason + ". Valeur par défaut appliquée : " + o.defaultValue() + ".";
     }
 
-    private static String deguillemeter(String valeur) {
-        if (valeur.length() >= 2 && valeur.startsWith("\"") && valeur.endsWith("\"")) {
-            return valeur.substring(1, valeur.length() - 1);
+    private static String unquote(String value) {
+        if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+            return value.substring(1, value.length() - 1);
         }
-        return valeur;
+        return value;
     }
 
-    /** Écrit le fichier de configuration commenté, avec toutes les valeurs par défaut. */
-    public static void ecrireParDefaut(Path fichier) throws IOException {
-        Path parent = fichier.getParent();
+    /**
+     * Écrit le fichier de configuration commenté, avec toutes les valeurs par défaut.
+     *
+     * @param file chemin du fichier à créer
+     * @throws IOException si le fichier ne peut pas être écrit
+     */
+    public static void writeDefaults(Path file) throws IOException {
+        Path parent = file.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Files.writeString(fichier, rendreToml(parDefaut()), StandardCharsets.UTF_8);
+        Files.writeString(file, renderToml(defaults()), StandardCharsets.UTF_8);
     }
 
     /**
@@ -240,107 +248,110 @@ public final class Configuration {
      * @param configuration configuration à sérialiser
      * @return le contenu du fichier
      */
-    public static String rendreToml(Configuration configuration) {
-        StringBuilder sortie = new StringBuilder();
-        sortie.append("# Configuration de RUSTFORGE-X\n")
+    public static String renderToml(Configuration configuration) {
+        StringBuilder out = new StringBuilder();
+        out.append("# Configuration de RUSTFORGE-X\n")
                 .append("# Cahier des charges, PARTIE 28. Toute valeur hors plage est rejetee,\n")
                 .append("# signalee dans les journaux et remplacee par le defaut.\n")
-                .append("# Surcharge possible au lancement : -D").append(PREFIXE_SURCHARGE)
+                .append("# Surcharge possible au lancement : -D").append(OVERRIDE_PREFIX)
                 .append("<section>.<cle>=<valeur>\n\n")
                 .append("schema = ").append(SCHEMA).append('\n');
 
-        String sectionCourante = null;
+        String currentSection = null;
         for (OptionConfig o : SCHEMA_OPTIONS) {
-            if (!o.section().equals(sectionCourante)) {
-                sectionCourante = o.section();
-                sortie.append("\n[").append(sectionCourante).append("]\n");
+            if (!o.section().equals(currentSection)) {
+                currentSection = o.section();
+                out.append("\n[").append(currentSection).append("]\n");
             }
-            sortie.append("# ").append(o.description()).append('\n');
-            sortie.append("# valeurs : ").append(o.plageLisible());
-            if (!o.rechargeableAChaud()) {
-                sortie.append("  (redemarrage requis)");
+            out.append("# ").append(o.description()).append('\n');
+            out.append("# valeurs : ").append(o.readableRange());
+            if (!o.hotReloadable()) {
+                out.append("  (redemarrage requis)");
             }
-            sortie.append('\n');
-            sortie.append(o.cle()).append(" = ")
-                    .append(formater(configuration.valeurs.get(o.chemin())))
+            out.append('\n');
+            out.append(o.key()).append(" = ")
+                    .append(format(configuration.values.get(o.path())))
                     .append('\n');
         }
 
-        if (!configuration.clesInconnues.isEmpty()) {
-            sortie.append("\n# Options inconnues de cette version, conservees telles quelles (R-591).\n");
-            sortie.append("[inconnues]\n");
-            for (Map.Entry<String, String> e : configuration.clesInconnues.entrySet()) {
-                sortie.append("# ").append(e.getKey()).append(" = ").append(e.getValue()).append('\n');
+        if (!configuration.unknownKeys.isEmpty()) {
+            out.append("\n# Options inconnues de cette version, conservees telles quelles (R-591).\n");
+            out.append("[inconnues]\n");
+            for (Map.Entry<String, String> e : configuration.unknownKeys.entrySet()) {
+                out.append("# ").append(e.getKey()).append(" = ").append(e.getValue()).append('\n');
             }
         }
-        return sortie.toString();
+        return out.toString();
     }
 
-    private static String formater(Object valeur) {
-        return valeur instanceof String texte ? '"' + texte + '"' : String.valueOf(valeur);
+    private static String format(Object value) {
+        return value instanceof String text ? '"' + text + '"' : String.valueOf(value);
     }
 
     /**
-     * @param chemin chemin complet de l'option, par exemple {@code general.enabled}
+     * @param path chemin complet de l'option, par exemple {@code general.enabled}
      * @return la valeur booléenne de l'option
      * @throws IllegalArgumentException si l'option n'existe pas ou n'est pas booléenne
      */
-    public boolean booleen(String chemin) {
-        return (Boolean) valeurTypee(chemin, TypeValeur.BOOLEEN);
+    public boolean getBoolean(String path) {
+        return (Boolean) typedValue(path, ValueType.BOOLEAN);
     }
 
     /**
-     * @param chemin chemin complet de l'option
+     * @param path chemin complet de l'option
      * @return la valeur entière de l'option
      * @throws IllegalArgumentException si l'option n'existe pas ou n'est pas entière
      */
-    public long entier(String chemin) {
-        return (Long) valeurTypee(chemin, TypeValeur.ENTIER);
+    public long getLong(String path) {
+        return (Long) typedValue(path, ValueType.INTEGER);
     }
 
     /**
-     * @param chemin chemin complet de l'option
+     * @param path chemin complet de l'option
      * @return la valeur textuelle de l'option
      * @throws IllegalArgumentException si l'option n'existe pas ou n'est pas textuelle
      */
-    public String texte(String chemin) {
-        return (String) valeurTypee(chemin, TypeValeur.TEXTE);
+    public String getString(String path) {
+        return (String) typedValue(path, ValueType.TEXT);
     }
 
-    private Object valeurTypee(String chemin, TypeValeur attendu) {
-        OptionConfig o = option(chemin).orElseThrow(
-                () -> new IllegalArgumentException("option absente du schéma : " + chemin));
-        if (o.type() != attendu) {
+    private Object typedValue(String path, ValueType expected) {
+        OptionConfig o = option(path).orElseThrow(
+                () -> new IllegalArgumentException("option absente du schéma : " + path));
+        if (o.type() != expected) {
             throw new IllegalArgumentException(
-                    "option « " + chemin + " » de type " + o.type() + ", lue comme " + attendu);
+                    "option « " + path + " » de type " + o.type() + ", lue comme " + expected);
         }
-        Object valeur = valeurs.get(chemin);
+        Object value = values.get(path);
         // Une valeur manquante signalerait une incohérence interne du schéma, jamais
         // une saisie utilisateur : celle-ci est toujours remplacée par le défaut.
-        return valeur != null ? valeur : o.defaut();
+        return value != null ? value : o.defaultValue();
     }
 
     /** @return les messages produits au chargement : valeurs rejetées, clés inconnues. */
-    public List<String> avertissements() {
-        return avertissements;
+    public List<String> warnings() {
+        return warnings;
     }
 
     /** @return les clés inconnues du schéma, conservées telles quelles (R-591). */
-    public Map<String, String> clesInconnues() {
-        return clesInconnues;
+    public Map<String, String> unknownKeys() {
+        return unknownKeys;
     }
 
-    /** @return {@code true} si RUSTFORGE-X doit s'activer sur ce côté. */
-    public boolean activeSur(boolean coteClient) {
-        if (!booleen("general.enabled")) {
+    /**
+     * @param clientSide {@code true} pour le côté client
+     * @return {@code true} si RUSTFORGE-X doit s'activer sur ce côté
+     */
+    public boolean enabledOn(boolean clientSide) {
+        if (!getBoolean("general.enabled")) {
             return false;
         }
-        return coteClient ? booleen("general.side_client") : booleen("general.side_server");
+        return clientSide ? getBoolean("general.side_client") : getBoolean("general.side_server");
     }
 
     /** @return le mode de fonctionnement, en minuscules (PARTIE 28.3). */
     public String mode() {
-        return texte("general.mode").toLowerCase(Locale.ROOT);
+        return getString("general.mode").toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -352,19 +363,19 @@ public final class Configuration {
      *
      * @return le blob à passer à {@code rfx_init}
      */
-    public byte[] versCborNatif() {
-        Map<String, Object> table = Cbor.table();
+    public byte[] toNativeCbor() {
+        Map<String, Object> table = Cbor.map();
         table.put("schema", SCHEMA);
-        table.put("enabled", booleen("general.enabled"));
-        table.put("mode", modeNatif(mode()));
-        table.put("max_native_mb", entier("memory.max_native_mb"));
-        table.put("telemetry_enabled", booleen("telemetry.enabled"));
-        table.put("panic_threshold", entier("runtime.panic_threshold"));
-        return Cbor.encoder(table);
+        table.put("enabled", getBoolean("general.enabled"));
+        table.put("mode", nativeMode(mode()));
+        table.put("max_native_mb", getLong("memory.max_native_mb"));
+        table.put("telemetry_enabled", getBoolean("telemetry.enabled"));
+        table.put("panic_threshold", getLong("runtime.panic_threshold"));
+        return Cbor.encode(table);
     }
 
     /** Convertit un libellé de mode TOML vers le nom de variante attendu par le natif. */
-    private static String modeNatif(String mode) {
+    private static String nativeMode(String mode) {
         return switch (mode) {
             case "safe" -> "Safe";
             case "performance" -> "Performance";

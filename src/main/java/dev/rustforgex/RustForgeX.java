@@ -1,8 +1,8 @@
 package dev.rustforgex;
 
 import com.mojang.logging.LogUtils;
-import dev.rustforgex.command.CommandesRfx;
-import dev.rustforgex.forge.GardeHook;
+import dev.rustforgex.command.RfxCommands;
+import dev.rustforgex.forge.HookGuard;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -33,7 +33,7 @@ import java.nio.file.Path;
  *
  * <p>Ce que ce composant fait à ce jalon : démarrer le runtime (C-02), vérifier la
  * version de Forge (FM-01), enregistrer {@code /rfx status} (C-38) et arrêter proprement
- * le runtime. Chaque accroche est protégée par une {@link GardeHook} : une exception de
+ * le runtime. Chaque accroche est protégée par un {@link HookGuard} : une exception de
  * RUSTFORGE-X ne doit jamais empêcher le jeu de démarrer ou de tourner (FM-02).
  */
 @Mod(RustForgeX.MODID)
@@ -44,14 +44,14 @@ public class RustForgeX {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private final GardeHook gardeDemarrage = new GardeHook("setup", LOGGER::warn);
-    private final GardeHook gardeCommandes = new GardeHook("registerCommands", LOGGER::warn);
-    private final GardeHook gardeArret = new GardeHook("serverStopping", LOGGER::warn);
+    private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
+    private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
+    private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
 
     /** Construit le mod et s'attache aux deux bus d'événements de Forge. */
     public RustForgeX() {
-        IEventBus busMod = FMLJavaModLoadingContext.get().getModEventBus();
-        busMod.addListener(this::surSetupCommun);
+        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        modBus.addListener(this::onCommonSetup);
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -61,35 +61,35 @@ public class RustForgeX {
      * <p>{@code enqueueWork} garantit l'exécution sur le fil principal de chargement,
      * après que Forge a terminé la construction de tous les mods.
      *
-     * @param evenement événement de setup commun
+     * @param event événement de setup commun
      */
-    private void surSetupCommun(final FMLCommonSetupEvent evenement) {
-        evenement.enqueueWork(() -> gardeDemarrage.executer(this::demarrerRuntime));
+    private void onCommonSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> startupGuard.run(this::startRuntime));
     }
 
     /** Séquence de démarrage : configuration, vérification de Forge, C-02. */
-    private void demarrerRuntime() {
-        Path racine = FMLPaths.GAMEDIR.get().resolve(MODID);
-        boolean coteClient = FMLEnvironment.dist.isClient();
-        String versionForge = ForgeVersion.getVersion();
+    private void startRuntime() {
+        Path root = FMLPaths.GAMEDIR.get().resolve(MODID);
+        boolean clientSide = FMLEnvironment.dist.isClient();
+        String forgeVersion = ForgeVersion.getVersion();
 
-        RuntimeRfx runtime = RuntimeRfx.demarrer(racine, coteClient, versionForge);
+        RfxRuntime runtime = RfxRuntime.start(root, clientSide, forgeVersion);
 
-        for (String avertissement : runtime.avertissements()) {
-            LOGGER.warn("Configuration : {}", avertissement);
+        for (String warning : runtime.warnings()) {
+            LOGGER.warn("Configuration : {}", warning);
         }
-        for (String etape : runtime.rapport().journal()) {
-            LOGGER.debug("Démarrage : {}", etape);
+        for (String step : runtime.report().journal()) {
+            LOGGER.debug("Démarrage : {}", step);
         }
 
-        if (runtime.actif()) {
+        if (runtime.active()) {
             LOGGER.info("RUSTFORGE-X actif ({} ms) : {}",
-                    runtime.rapport().dureeMs(), runtime.rapport().message());
+                    runtime.report().durationMs(), runtime.report().message());
         } else {
             // Un démarrage non nominal n'est pas une erreur du jeu : il doit être
             // lisible sans être alarmant, et dire explicitement que rien n'est cassé.
             LOGGER.warn("RUSTFORGE-X inactif ({}) : {} Le jeu tourne normalement, sans RUSTFORGE-X.",
-                    runtime.rapport().etat(), runtime.rapport().message());
+                    runtime.report().state(), runtime.report().message());
         }
     }
 
@@ -99,11 +99,11 @@ public class RustForgeX {
      * <p>Priorité la plus haute : l'enregistrement doit avoir lieu avant qu'un autre
      * mod ne puisse perturber le répartiteur (PARTIE 5.1).
      *
-     * @param evenement événement d'enregistrement des commandes
+     * @param event événement d'enregistrement des commandes
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void surEnregistrementCommandes(final RegisterCommandsEvent evenement) {
-        gardeCommandes.executer(() -> CommandesRfx.enregistrer(evenement.getDispatcher()));
+    public void onRegisterCommands(final RegisterCommandsEvent event) {
+        commandsGuard.run(() -> RfxCommands.register(event.getDispatcher()));
     }
 
     /**
@@ -111,14 +111,14 @@ public class RustForgeX {
      *
      * <p>Priorité la plus basse : RUSTFORGE-X se retire après tous les autres mods.
      *
-     * @param evenement événement d'arrêt du serveur
+     * @param event événement d'arrêt du serveur
      */
     @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void surArretServeur(final ServerStoppingEvent evenement) {
-        gardeArret.executer(() -> {
-            RuntimeRfx runtime = RuntimeRfx.instance();
+    public void onServerStopping(final ServerStoppingEvent event) {
+        shutdownGuard.run(() -> {
+            RfxRuntime runtime = RfxRuntime.instance();
             if (runtime != null) {
-                runtime.arreter();
+                runtime.shutdown();
                 LOGGER.info("RUSTFORGE-X arrêté proprement.");
             }
         });

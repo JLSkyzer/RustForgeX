@@ -11,13 +11,13 @@ use core::fmt;
 
 /// Severite d'un code d'erreur, telle que definie en annexe A.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severite {
+pub enum Severity {
     /// Degradation locale, le systeme continue.
-    Mineure,
+    Minor,
     /// Fonctionnalite perdue ou sous-systeme desactive.
-    Majeure,
+    Major,
     /// Le runtime refuse de s'activer ou s'arrete.
-    Critique,
+    Critical,
 }
 
 /// Code d'erreur normatif (annexe A.2).
@@ -32,52 +32,50 @@ pub enum ErrorCode {
     /// `E-1004` : double initialisation du runtime. Majeure, la seconde est refusee.
     DoubleInit,
     /// `E-3001` : panic Rust capturee a la frontiere FFI. Majeure.
-    PanicCapturee,
+    PanicCaught,
     /// `E-3002` : depassement du budget memoire natif. Majeure.
-    BudgetMemoireDepasse,
+    MemoryBudgetExceeded,
     /// `E-3004` : invariant viole. Critique, mene a `HALTED` avec dump.
-    InvariantViole,
+    InvariantViolated,
     /// Argument invalide fourni par l'appelant Java : pointeur nul, longueur
     /// aberrante, tampon de sortie trop petit, handle inconnu.
     ///
     /// Ce code ne figure pas en annexe A.2 : il ne decrit pas une defaillance du
     /// runtime mais un usage incorrect de l'ABI, toujours d'origine interne au
     /// projet, et il est traite comme un defaut de programmation (PARTIE 19.2).
-    ArgumentInvalide,
+    InvalidArgument,
 }
 
 impl ErrorCode {
     /// Numero normatif du code, sans le prefixe `E-`.
     ///
-    /// `ArgumentInvalide` n'ayant pas de numero en annexe A.2, il emprunte le
+    /// `InvalidArgument` n'ayant pas de numero en annexe A.2, il emprunte le
     /// numero reserve `1000`, non attribue par le cahier des charges.
     #[must_use]
-    pub fn numero(self) -> i32 {
+    pub fn number(self) -> i32 {
         match self {
-            Self::ArgumentInvalide => 1000,
+            Self::InvalidArgument => 1000,
             Self::AbiIncompatible => 1002,
             Self::DoubleInit => 1004,
-            Self::PanicCapturee => 3001,
-            Self::BudgetMemoireDepasse => 3002,
-            Self::InvariantViole => 3004,
+            Self::PanicCaught => 3001,
+            Self::MemoryBudgetExceeded => 3002,
+            Self::InvariantViolated => 3004,
         }
     }
 
     /// Valeur renvoyee a travers la frontiere FFI : le numero, negatif (R-701).
     #[must_use]
-    pub fn code_ffi(self) -> i32 {
-        -self.numero()
+    pub fn ffi_code(self) -> i32 {
+        -self.number()
     }
 
     /// Severite du code, telle que definie en annexe A.2.
     #[must_use]
-    pub fn severite(self) -> Severite {
+    pub fn severity(self) -> Severity {
         match self {
-            Self::ArgumentInvalide => Severite::Mineure,
-            Self::DoubleInit | Self::PanicCapturee | Self::BudgetMemoireDepasse => {
-                Severite::Majeure
-            }
-            Self::AbiIncompatible | Self::InvariantViole => Severite::Critique,
+            Self::InvalidArgument => Severity::Minor,
+            Self::DoubleInit | Self::PanicCaught | Self::MemoryBudgetExceeded => Severity::Major,
+            Self::AbiIncompatible | Self::InvariantViolated => Severity::Critical,
         }
     }
 
@@ -85,19 +83,19 @@ impl ErrorCode {
     #[must_use]
     pub fn description(self) -> &'static str {
         match self {
-            Self::ArgumentInvalide => "argument invalide a la frontiere FFI",
+            Self::InvalidArgument => "argument invalide a la frontiere FFI",
             Self::AbiIncompatible => "version d'ABI incompatible",
             Self::DoubleInit => "double initialisation du runtime",
-            Self::PanicCapturee => "panic Rust capturee a la frontiere FFI",
-            Self::BudgetMemoireDepasse => "depassement du budget memoire natif",
-            Self::InvariantViole => "invariant viole",
+            Self::PanicCaught => "panic Rust capturee a la frontiere FFI",
+            Self::MemoryBudgetExceeded => "depassement du budget memoire natif",
+            Self::InvariantViolated => "invariant viole",
         }
     }
 }
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "E-{} ({})", self.numero(), self.description())
+        write!(f, "E-{} ({})", self.number(), self.description())
     }
 }
 
@@ -108,57 +106,51 @@ pub const OK: i32 = 0;
 mod tests {
     use super::*;
 
+    const ALL: [ErrorCode; 6] = [
+        ErrorCode::InvalidArgument,
+        ErrorCode::AbiIncompatible,
+        ErrorCode::DoubleInit,
+        ErrorCode::PanicCaught,
+        ErrorCode::MemoryBudgetExceeded,
+        ErrorCode::InvariantViolated,
+    ];
+
     /// T-008 : tous les codes d'erreur sont documentes et **uniques**.
     #[test]
-    fn les_numeros_de_code_sont_uniques() {
-        let codes = [
-            ErrorCode::ArgumentInvalide,
-            ErrorCode::AbiIncompatible,
-            ErrorCode::DoubleInit,
-            ErrorCode::PanicCapturee,
-            ErrorCode::BudgetMemoireDepasse,
-            ErrorCode::InvariantViole,
-        ];
-        let mut numeros: Vec<i32> = codes.iter().map(|c| c.numero()).collect();
-        numeros.sort_unstable();
-        let avant = numeros.len();
-        numeros.dedup();
+    fn error_numbers_are_unique() {
+        let mut numbers: Vec<i32> = ALL.iter().map(|c| c.number()).collect();
+        numbers.sort_unstable();
+        let before = numbers.len();
+        numbers.dedup();
         assert_eq!(
-            numeros.len(),
-            avant,
+            numbers.len(),
+            before,
             "deux codes d'erreur partagent un numero"
         );
     }
 
     #[test]
-    fn les_codes_ffi_sont_negatifs_et_distincts_du_succes() {
-        for c in [
-            ErrorCode::ArgumentInvalide,
-            ErrorCode::AbiIncompatible,
-            ErrorCode::DoubleInit,
-            ErrorCode::PanicCapturee,
-            ErrorCode::BudgetMemoireDepasse,
-            ErrorCode::InvariantViole,
-        ] {
-            assert!(c.code_ffi() < 0, "{c} doit se transmettre en negatif");
-            assert_ne!(c.code_ffi(), OK);
+    fn ffi_codes_are_negative_and_distinct_from_success() {
+        for c in ALL {
+            assert!(c.ffi_code() < 0, "{c} doit se transmettre en negatif");
+            assert_ne!(c.ffi_code(), OK);
         }
     }
 
     #[test]
-    fn les_numeros_correspondent_a_l_annexe_a2() {
-        assert_eq!(ErrorCode::AbiIncompatible.numero(), 1002);
-        assert_eq!(ErrorCode::DoubleInit.numero(), 1004);
-        assert_eq!(ErrorCode::PanicCapturee.numero(), 3001);
-        assert_eq!(ErrorCode::BudgetMemoireDepasse.numero(), 3002);
-        assert_eq!(ErrorCode::InvariantViole.numero(), 3004);
+    fn numbers_match_appendix_a2() {
+        assert_eq!(ErrorCode::AbiIncompatible.number(), 1002);
+        assert_eq!(ErrorCode::DoubleInit.number(), 1004);
+        assert_eq!(ErrorCode::PanicCaught.number(), 3001);
+        assert_eq!(ErrorCode::MemoryBudgetExceeded.number(), 3002);
+        assert_eq!(ErrorCode::InvariantViolated.number(), 3004);
     }
 
     #[test]
-    fn les_severites_correspondent_a_l_annexe_a2() {
-        assert_eq!(ErrorCode::AbiIncompatible.severite(), Severite::Critique);
-        assert_eq!(ErrorCode::InvariantViole.severite(), Severite::Critique);
-        assert_eq!(ErrorCode::DoubleInit.severite(), Severite::Majeure);
-        assert_eq!(ErrorCode::PanicCapturee.severite(), Severite::Majeure);
+    fn severities_match_appendix_a2() {
+        assert_eq!(ErrorCode::AbiIncompatible.severity(), Severity::Critical);
+        assert_eq!(ErrorCode::InvariantViolated.severity(), Severity::Critical);
+        assert_eq!(ErrorCode::DoubleInit.severity(), Severity::Major);
+        assert_eq!(ErrorCode::PanicCaught.severity(), Severity::Major);
     }
 }

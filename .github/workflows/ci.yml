@@ -43,6 +43,13 @@ jobs:
       # R-003 : aucun avertissement toléré.
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Le code derrière un #[cfg(target_os = ...)] n'est compilé que sur sa cible.
+      # Ce check attrape une plateforme cassée par un renommage transverse.
+      - name: Vérifier la cible Windows depuis Linux
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo check --workspace --target x86_64-pc-windows-msvc
+
   test-unit:
     name: test-unit (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

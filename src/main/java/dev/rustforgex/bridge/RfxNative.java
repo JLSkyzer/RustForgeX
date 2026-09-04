@@ -27,7 +27,7 @@ public final class RfxNative {
      * n'est émis et le runtime passe en {@code DISABLED} avec {@code E-1002} (R-702,
      * R-703).
      */
-    public static final int ABI_ATTENDUE = 1;
+    public static final int EXPECTED_ABI = 1;
 
     private RfxNative() {
         throw new AssertionError("classe utilitaire, non instanciable");
@@ -86,11 +86,11 @@ public final class RfxNative {
      * Fait lire au natif un tampon direct, pour mesurer le débit Java vers natif.
      *
      * @param handle handle du runtime
-     * @param tampon tampon <strong>direct</strong> ({@link ByteBuffer#allocateDirect})
-     * @param longueur nombre d'octets à lire, au plus la capacité du tampon
+     * @param buffer tampon <strong>direct</strong> ({@link ByteBuffer#allocateDirect})
+     * @param length nombre d'octets à lire, au plus la capacité du tampon
      * @return un témoin de lecture, ou un code d'erreur négatif
      */
-    public static native long transferProbe(long handle, ByteBuffer tampon, int longueur);
+    public static native long transferProbe(long handle, ByteBuffer buffer, int length);
 
     /**
      * Statut du runtime natif, sérialisé en CBOR.

@@ -10,118 +10,118 @@ import java.util.List;
  * Maturité : {@code STABLE}.
  *
  * @param section section du fichier TOML, sans crochets
- * @param cle nom de l'option dans sa section
+ * @param key nom de l'option dans sa section
  * @param type type de la valeur
- * @param defaut valeur par défaut, toujours sûre
+ * @param defaultValue valeur par défaut, toujours sûre
  * @param min borne inférieure incluse, pour un entier ; ignorée sinon
  * @param max borne supérieure incluse, pour un entier ; ignorée sinon
- * @param valeursAdmises libellés acceptés, pour un texte énuméré ; vide sinon
+ * @param allowedValues libellés acceptés, pour un texte énuméré ; vide sinon
  * @param description phrase reprise en commentaire dans le fichier généré
- * @param rechargeableAChaud {@code true} si {@code /rfx set} peut la modifier en
- *     cours de partie ; {@code false} si elle exige un redémarrage (R-592)
+ * @param hotReloadable {@code true} si {@code /rfx set} peut la modifier en cours de
+ *     partie ; {@code false} si elle exige un redémarrage (R-592)
  */
 public record OptionConfig(
         String section,
-        String cle,
-        TypeValeur type,
-        Object defaut,
+        String key,
+        ValueType type,
+        Object defaultValue,
         long min,
         long max,
-        List<String> valeursAdmises,
+        List<String> allowedValues,
         String description,
-        boolean rechargeableAChaud) {
+        boolean hotReloadable) {
 
     /** Types de valeurs représentables dans le fichier de configuration. */
-    public enum TypeValeur {
+    public enum ValueType {
         /** {@code true} ou {@code false}. */
-        BOOLEEN,
+        BOOLEAN,
         /** Entier signé, borné par {@link OptionConfig#min} et {@link OptionConfig#max}. */
-        ENTIER,
-        /** Chaîne, éventuellement restreinte à {@link OptionConfig#valeursAdmises}. */
-        TEXTE
+        INTEGER,
+        /** Chaîne, éventuellement restreinte à {@link OptionConfig#allowedValues}. */
+        TEXT
     }
 
     /** @return le chemin complet de l'option, par exemple {@code general.mode}. */
-    public String chemin() {
-        return section + "." + cle;
+    public String path() {
+        return section + "." + key;
     }
 
     /**
      * Crée une option booléenne.
      *
      * @param section section du fichier
-     * @param cle nom de l'option
-     * @param defaut valeur par défaut
+     * @param key nom de l'option
+     * @param defaultValue valeur par défaut
      * @param description description reprise en commentaire
-     * @param rechargeableAChaud modifiable sans redémarrage
+     * @param hotReloadable modifiable sans redémarrage
      * @return l'option décrite
      */
-    public static OptionConfig booleen(
-            String section, String cle, boolean defaut, String description, boolean rechargeableAChaud) {
+    public static OptionConfig booleanOption(
+            String section, String key, boolean defaultValue, String description, boolean hotReloadable) {
         return new OptionConfig(
-                section, cle, TypeValeur.BOOLEEN, defaut, 0, 0, List.of(), description, rechargeableAChaud);
+                section, key, ValueType.BOOLEAN, defaultValue, 0, 0, List.of(), description, hotReloadable);
     }
 
     /**
      * Crée une option entière bornée.
      *
      * @param section section du fichier
-     * @param cle nom de l'option
-     * @param defaut valeur par défaut
+     * @param key nom de l'option
+     * @param defaultValue valeur par défaut
      * @param min borne inférieure incluse
      * @param max borne supérieure incluse
      * @param description description reprise en commentaire
-     * @param rechargeableAChaud modifiable sans redémarrage
+     * @param hotReloadable modifiable sans redémarrage
      * @return l'option décrite
      */
-    public static OptionConfig entier(
+    public static OptionConfig integerOption(
             String section,
-            String cle,
-            long defaut,
+            String key,
+            long defaultValue,
             long min,
             long max,
             String description,
-            boolean rechargeableAChaud) {
+            boolean hotReloadable) {
         return new OptionConfig(
-                section, cle, TypeValeur.ENTIER, defaut, min, max, List.of(), description, rechargeableAChaud);
+                section, key, ValueType.INTEGER, defaultValue, min, max, List.of(), description, hotReloadable);
     }
 
     /**
      * Crée une option textuelle restreinte à un ensemble de libellés.
      *
      * @param section section du fichier
-     * @param cle nom de l'option
-     * @param defaut valeur par défaut, qui doit figurer parmi les libellés admis
-     * @param valeursAdmises libellés acceptés
+     * @param key nom de l'option
+     * @param defaultValue valeur par défaut, qui doit figurer parmi les libellés admis
+     * @param allowedValues libellés acceptés
      * @param description description reprise en commentaire
-     * @param rechargeableAChaud modifiable sans redémarrage
+     * @param hotReloadable modifiable sans redémarrage
      * @return l'option décrite
      */
     public static OptionConfig enumeration(
             String section,
-            String cle,
-            String defaut,
-            List<String> valeursAdmises,
+            String key,
+            String defaultValue,
+            List<String> allowedValues,
             String description,
-            boolean rechargeableAChaud) {
+            boolean hotReloadable) {
         return new OptionConfig(
                 section,
-                cle,
-                TypeValeur.TEXTE,
-                defaut,
+                key,
+                ValueType.TEXT,
+                defaultValue,
                 0,
                 0,
-                List.copyOf(valeursAdmises),
+                List.copyOf(allowedValues),
                 description,
-                rechargeableAChaud);
+                hotReloadable);
     }
 
     /** @return la plage admise, sous forme lisible, ou une chaîne vide s'il n'y en a pas. */
-    public String plageLisible() {
+    public String readableRange() {
         return switch (type) {
-            case BOOLEEN -> "true | false";
-            case ENTIER -> min + " .. " + max;
-            case TEXTE -> valeursAdmises.isEmpty() ? "" : String.join(" | ", valeursAdmises);
+            case BOOLEAN -> "true | false";
+            case INTEGER -> min + " .. " + max;
+            case TEXT -> allowedValues.isEmpty() ? "" : String.join(" | ", allowedValues);
         };
     }
 }

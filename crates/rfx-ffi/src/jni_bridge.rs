@@ -22,7 +22,7 @@ use jni::JNIEnv;
 use rfx_core::error::{ErrorCode, OK};
 
 /// Convertit un `i32` de l'ABI en `jint`.
-fn code(v: i32) -> jint {
+fn to_jint(v: i32) -> jint {
     v
 }
 
@@ -32,7 +32,7 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_abiVersion(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    code(crate::rfx_abi_version())
+    to_jint(crate::rfx_abi_version())
 }
 
 /// `RfxNative.init(byte[])` : initialise le runtime et renvoie son handle.
@@ -46,18 +46,18 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_init(
     _class: JClass,
     config_cbor: JByteArray,
 ) -> jlong {
-    let Ok(octets) = env.convert_byte_array(&config_cbor) else {
-        return jlong::from(ErrorCode::ArgumentInvalide.code_ffi());
+    let Ok(bytes) = env.convert_byte_array(&config_cbor) else {
+        return jlong::from(ErrorCode::InvalidArgument.ffi_code());
     };
     let mut handle: u64 = 0;
-    // SAFETY : `octets` est un `Vec<u8>` vivant, de longueur exacte, et `handle` une
+    // SAFETY : `bytes` est un `Vec<u8>` vivant, de longueur exacte, et `handle` une
     // variable locale ; les deux restent valides pendant tout l'appel.
-    let resultat = unsafe { crate::rfx_init(octets.as_ptr(), octets.len(), &mut handle) };
-    if resultat != OK {
-        return jlong::from(resultat);
+    let result = unsafe { crate::rfx_init(bytes.as_ptr(), bytes.len(), &mut handle) };
+    if result != OK {
+        return jlong::from(result);
     }
     // Le motif de handle garantit une valeur positive lue comme `jlong`.
-    jlong::try_from(handle).unwrap_or_else(|_| jlong::from(ErrorCode::ArgumentInvalide.code_ffi()))
+    jlong::try_from(handle).unwrap_or_else(|_| jlong::from(ErrorCode::InvalidArgument.ffi_code()))
 }
 
 /// `RfxNative.shutdown(long)`.
@@ -67,7 +67,7 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_shutdown(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    code(crate::rfx_shutdown(handle as u64))
+    to_jint(crate::rfx_shutdown(handle as u64))
 }
 
 /// `RfxNative.noop(long)` : cible d'appel pour la calibration du cout FFI (C-45).
@@ -77,7 +77,7 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_noop(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    code(crate::rfx_noop(handle as u64))
+    to_jint(crate::rfx_noop(handle as u64))
 }
 
 /// `RfxNative.hwProbe(long)` : declenche ou rejoue la sonde materielle (R-661).
@@ -87,7 +87,7 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwProbe(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    code(crate::rfx_hw_probe(handle as u64))
+    to_jint(crate::rfx_hw_probe(handle as u64))
 }
 
 /// `RfxNative.hwSetFfiCosts(long, int, int)` : publie les couts mesures par Java.
@@ -99,9 +99,13 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwSetFfiCosts(
     jni_call_ns: jint,
     ffi_batch_ns_per_kb: jint,
 ) -> jint {
-    let appel = u32::try_from(jni_call_ns).unwrap_or(0);
-    let lot = u32::try_from(ffi_batch_ns_per_kb).unwrap_or(0);
-    code(crate::rfx_hw_set_ffi_costs(handle as u64, appel, lot))
+    let call_cost = u32::try_from(jni_call_ns).unwrap_or(0);
+    let batch_cost = u32::try_from(ffi_batch_ns_per_kb).unwrap_or(0);
+    to_jint(crate::rfx_hw_set_ffi_costs(
+        handle as u64,
+        call_cost,
+        batch_cost,
+    ))
 }
 
 /// `RfxNative.transferProbe(ByteBuffer, int)` : mesure du debit Java vers natif.
@@ -114,39 +118,39 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_transferProbe(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    tampon: JByteBuffer,
-    longueur: jint,
+    buffer: JByteBuffer,
+    length: jint,
 ) -> jlong {
-    let invalide = jlong::from(ErrorCode::ArgumentInvalide.code_ffi());
+    let invalid = jlong::from(ErrorCode::InvalidArgument.ffi_code());
 
-    let Ok(adresse) = env.get_direct_buffer_address(&tampon) else {
-        return invalide;
+    let Ok(address) = env.get_direct_buffer_address(&buffer) else {
+        return invalid;
     };
-    let Ok(capacite) = env.get_direct_buffer_capacity(&tampon) else {
-        return invalide;
+    let Ok(capacity) = env.get_direct_buffer_capacity(&buffer) else {
+        return invalid;
     };
-    let Ok(longueur) = usize::try_from(longueur) else {
-        return invalide;
+    let Ok(length) = usize::try_from(length) else {
+        return invalid;
     };
-    if adresse.is_null() || longueur > capacite {
-        return invalide;
+    if address.is_null() || length > capacity {
+        return invalid;
     }
 
-    let mut somme: u64 = 0;
-    // SAFETY : `adresse` et `capacite` proviennent de la JVM pour ce tampon direct,
-    // `longueur` a ete bornee par `capacite` ci-dessus, et le tampon reste reference
+    let mut checksum: u64 = 0;
+    // SAFETY : `address` et `capacity` proviennent de la JVM pour ce tampon direct,
+    // `length` a ete bornee par `capacity` ci-dessus, et le tampon reste reference
     // par l'appelant Java pendant tout l'appel.
-    let resultat =
-        unsafe { crate::rfx_transfer_probe(handle as u64, adresse, longueur, &mut somme) };
-    if resultat != OK {
-        return jlong::from(resultat);
+    let result =
+        unsafe { crate::rfx_transfer_probe(handle as u64, address, length, &mut checksum) };
+    if result != OK {
+        return jlong::from(result);
     }
     // Le bit de poids fort est efface pour que le temoin reste toujours positif :
     // l'appelant distingue un succes d'un code d'erreur par le signe, et une somme
     // depassant `i64::MAX` serait autrement lue comme une erreur. Le temoin n'a
     // d'autre role que d'empecher l'elimination de la lecture par l'optimiseur, sa
     // valeur exacte n'est jamais interpretee.
-    (somme & 0x7fff_ffff_ffff_ffff) as jlong
+    (checksum & 0x7fff_ffff_ffff_ffff) as jlong
 }
 
 /// `RfxNative.status(long)` : blob CBOR de statut, ou `null` en cas d'erreur.
@@ -156,31 +160,36 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_status(
     _class: JClass,
     handle: jlong,
 ) -> jbyteArray {
-    let nul: jbyteArray = std::ptr::null_mut();
+    let null_array: jbyteArray = std::ptr::null_mut();
 
-    let mut taille: usize = 0;
+    let mut size: usize = 0;
     // SAFETY : tampon nul avec capacite nulle, forme explicitement admise par
-    // `rfx_status` pour interroger la taille requise ; `taille` est une locale.
-    let resultat =
-        unsafe { crate::rfx_status(handle as u64, std::ptr::null_mut(), 0, &mut taille) };
-    if resultat != OK || taille == 0 {
-        return nul;
+    // `rfx_status` pour interroger la taille requise ; `size` est une locale.
+    let result = unsafe { crate::rfx_status(handle as u64, std::ptr::null_mut(), 0, &mut size) };
+    if result != OK || size == 0 {
+        return null_array;
     }
 
-    let mut tampon = vec![0_u8; taille];
-    let mut ecrit: usize = 0;
-    // SAFETY : `tampon` possede exactement `taille` octets inscriptibles et vit
+    let mut buffer = vec![0_u8; size];
+    let mut written: usize = 0;
+    // SAFETY : `buffer` possede exactement `size` octets inscriptibles et vit
     // au-dela de l'appel.
-    let resultat =
-        unsafe { crate::rfx_status(handle as u64, tampon.as_mut_ptr(), tampon.len(), &mut ecrit) };
-    if resultat != OK {
-        return nul;
+    let result = unsafe {
+        crate::rfx_status(
+            handle as u64,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut written,
+        )
+    };
+    if result != OK {
+        return null_array;
     }
-    tampon.truncate(ecrit);
+    buffer.truncate(written);
 
-    match env.byte_array_from_slice(&tampon) {
-        Ok(tableau) => tableau.into_raw(),
-        Err(_) => nul,
+    match env.byte_array_from_slice(&buffer) {
+        Ok(array) => array.into_raw(),
+        Err(_) => null_array,
     }
 }
 
@@ -191,5 +200,5 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_panicTest(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    code(crate::rfx_panic_test(handle as u64))
+    to_jint(crate::rfx_panic_test(handle as u64))
 }

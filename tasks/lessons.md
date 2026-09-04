@@ -92,6 +92,19 @@ son service annonce `JAVA_16` par défaut : le lancement affichait un avertissem
 **Règle** : une valeur de configuration d'un outil tiers se lit dans cet outil, pas par
 analogie. En cas de doute, lancer et lire l'avertissement.
 
+### 2026-09-04 | Renommage global : la plateforme non compilée localement a été oubliée | Vérifier chaque cible avant de conclure
+
+Le passage des identifiants en anglais a renommé `SondeSysteme` en `SystemProbe` dans
+`hw/mod.rs` et `hw/windows.rs`, mais pas dans `hw/linux.rs`, compilé uniquement sous
+`#[cfg(target_os = "linux")]`. Sur cette machine Windows, tout compilait, tous les
+tests passaient — et le build Linux était cassé.
+
+**Règle** : après un renommage transverse, vérifier chaque cible supportée, pas
+seulement l'hôte. `rustup target add x86_64-unknown-linux-gnu` puis
+`cargo check --target x86_64-unknown-linux-gnu` suffit : `check` n'a pas besoin d'un
+éditeur de liens croisé. Plus généralement, tout code derrière un `#[cfg]` est du code
+que le compilateur local ne relit pas.
+
 ### 2026-09-04 | `gradle.properties` est lu en ISO-8859-1 | Garder ce fichier en ASCII pur
 
 Les fichiers `.properties` sont chargés par Java en ISO-8859-1 : un caractère accentué

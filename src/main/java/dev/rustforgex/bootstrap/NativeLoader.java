@@ -1,17 +1,19 @@
 package dev.rustforgex.bootstrap;
 
-import dev.rustforgex.diag.CodeErreur;
+import dev.rustforgex.diag.ErrorCode;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -34,49 +36,49 @@ import java.util.Optional;
  * }</pre>
  *
  * <p>Aucune méthode de cette classe ne lève d'exception non contrôlée : un échec se
- * traduit toujours par une {@link EchecChargement} porteuse d'un code de l'annexe A.2,
+ * traduit toujours par une {@link LoadFailure} porteuse d'un code de l'annexe A.2,
  * que C-02 traduit en {@code DEGRADED} ou {@code DISABLED}.
  */
 public final class NativeLoader {
 
     /** Répertoire de ressources contenant les binaires natifs, dans le JAR. */
-    public static final String RACINE_RESSOURCES = "/natives";
+    public static final String RESOURCES_ROOT = "/natives";
 
     /** Extension du fichier portant le condensé attendu. */
-    public static final String EXTENSION_EMPREINTE = ".sha256";
+    public static final String DIGEST_EXTENSION = ".sha256";
 
     /**
      * Plateforme cible : répertoire de ressources et nom de bibliothèque.
      *
-     * @param repertoire nom du répertoire, par exemple {@code windows-x86_64}
-     * @param bibliotheque nom du fichier, par exemple {@code rfx_native.dll}
+     * @param directory nom du répertoire, par exemple {@code windows-x86_64}
+     * @param library nom du fichier, par exemple {@code rfx_native.dll}
      */
-    public record Plateforme(String repertoire, String bibliotheque) {
+    public record Platform(String directory, String library) {
 
         /** @return le chemin de ressource de la bibliothèque dans le JAR. */
-        public String cheminRessource() {
-            return RACINE_RESSOURCES + "/" + repertoire + "/" + bibliotheque;
+        public String resourcePath() {
+            return RESOURCES_ROOT + "/" + directory + "/" + library;
         }
 
         /** @return le chemin de ressource du condensé attendu. */
-        public String cheminEmpreinte() {
-            return cheminRessource() + EXTENSION_EMPREINTE;
+        public String digestPath() {
+            return resourcePath() + DIGEST_EXTENSION;
         }
     }
 
     /** Échec d'extraction ou de chargement, porteur d'un code de l'annexe A.2. */
-    public static final class EchecChargement extends Exception {
+    public static final class LoadFailure extends Exception {
 
         private static final long serialVersionUID = 1L;
 
-        private final transient CodeErreur code;
+        private final transient ErrorCode code;
 
         /**
          * @param code code normatif de l'annexe A.2
          * @param message description de l'échec, destinée aux journaux
          */
-        public EchecChargement(CodeErreur code, String message) {
-            super(code.identifiant() + " : " + message);
+        public LoadFailure(ErrorCode code, String message) {
+            super(code.id() + " : " + message);
             this.code = code;
         }
 
@@ -85,35 +87,35 @@ public final class NativeLoader {
          * @param message description de l'échec
          * @param cause exception d'origine
          */
-        public EchecChargement(CodeErreur code, String message, Throwable cause) {
-            super(code.identifiant() + " : " + message, cause);
+        public LoadFailure(ErrorCode code, String message, Throwable cause) {
+            super(code.id() + " : " + message, cause);
             this.code = code;
         }
 
         /** @return le code normatif associé à cet échec. */
-        public CodeErreur code() {
+        public ErrorCode code() {
             return code;
         }
     }
 
     /** Source des ressources embarquées, injectable pour les tests. */
     @FunctionalInterface
-    public interface SourceRessources {
+    public interface ResourceSource {
 
         /**
          * Ouvre une ressource.
          *
-         * @param chemin chemin absolu de ressource, commençant par {@code /}
+         * @param path chemin absolu de ressource, commençant par {@code /}
          * @return le flux, ou {@code null} si la ressource n'existe pas
          */
-        InputStream ouvrir(String chemin);
+        InputStream open(String path);
     }
 
-    private final SourceRessources source;
+    private final ResourceSource source;
 
     /** Construit un loader lisant les ressources embarquées dans le JAR du mod. */
     public NativeLoader() {
-        this(chemin -> NativeLoader.class.getResourceAsStream(chemin));
+        this(path -> NativeLoader.class.getResourceAsStream(path));
     }
 
     /**
@@ -121,7 +123,7 @@ public final class NativeLoader {
      *
      * @param source source des ressources
      */
-    public NativeLoader(SourceRessources source) {
+    public NativeLoader(ResourceSource source) {
         this.source = source;
     }
 
@@ -135,8 +137,8 @@ public final class NativeLoader {
      *
      * @return la plateforme hôte, ou un résultat vide si elle n'est pas supportée
      */
-    public static Optional<Plateforme> plateformeHote() {
-        return plateforme(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+    public static Optional<Platform> hostPlatform() {
+        return platform(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
     }
 
     /**
@@ -146,20 +148,20 @@ public final class NativeLoader {
      * @param osArch valeur de {@code os.arch}
      * @return la plateforme correspondante, ou un résultat vide
      */
-    public static Optional<Plateforme> plateforme(String osName, String osArch) {
+    public static Optional<Platform> platform(String osName, String osArch) {
         String os = osName.toLowerCase(Locale.ROOT);
         String arch = osArch.toLowerCase(Locale.ROOT);
         boolean x64 = arch.equals("amd64") || arch.equals("x86_64");
         boolean arm64 = arch.equals("aarch64") || arch.equals("arm64");
 
         if (os.contains("win") && x64) {
-            return Optional.of(new Plateforme("windows-x86_64", "rfx_native.dll"));
+            return Optional.of(new Platform("windows-x86_64", "rfx_native.dll"));
         }
         if (os.contains("linux") && x64) {
-            return Optional.of(new Plateforme("linux-x86_64", "librfx_native.so"));
+            return Optional.of(new Platform("linux-x86_64", "librfx_native.so"));
         }
         if (os.contains("linux") && arm64) {
-            return Optional.of(new Plateforme("linux-aarch64", "librfx_native.so"));
+            return Optional.of(new Platform("linux-aarch64", "librfx_native.so"));
         }
         return Optional.empty();
     }
@@ -171,58 +173,57 @@ public final class NativeLoader {
      * correspond est réutilisé tel quel. Le chemin est versionné par le condensé
      * (R-301), ce qui permet à plusieurs versions de coexister sans conflit.
      *
-     * @param plateforme plateforme dont extraire le binaire
-     * @param racine racine de travail, typiquement {@code <gameDir>/rustforgex}
+     * @param platform plateforme dont extraire le binaire
+     * @param root racine de travail, typiquement {@code <gameDir>/rustforgex}
      * @return le chemin du binaire vérifié, prêt à être chargé
-     * @throws EchecChargement si le binaire est absent, altéré, ou si aucun
-     *     emplacement inscriptible n'a pu être trouvé
+     * @throws LoadFailure si le binaire est absent, altéré, ou si aucun emplacement
+     *     inscriptible n'a pu être trouvé
      */
-    public Path preparer(Plateforme plateforme, Path racine) throws EchecChargement {
-        String attendu = lireEmpreinteAttendue(plateforme);
-        byte[] binaire = lireBinaire(plateforme);
+    public Path prepare(Platform platform, Path root) throws LoadFailure {
+        String expected = readExpectedDigest(platform);
+        byte[] binary = readBinary(platform);
 
         // R-300 : la vérification précède toute écriture et tout chargement.
-        String reel = condense(binaire);
-        if (!reel.equalsIgnoreCase(attendu)) {
-            throw new EchecChargement(
-                    CodeErreur.HASH_NATIF_INVALIDE,
-                    "le binaire embarqué pour " + plateforme.repertoire()
-                            + " ne correspond pas à son empreinte (attendu " + attendu
-                            + ", obtenu " + reel + ")");
+        String actual = digest(binary);
+        if (!actual.equalsIgnoreCase(expected)) {
+            throw new LoadFailure(
+                    ErrorCode.INVALID_NATIVE_DIGEST,
+                    "le binaire embarqué pour " + platform.directory()
+                            + " ne correspond pas à son empreinte (attendu " + expected
+                            + ", obtenu " + actual + ")");
         }
 
-        EchecChargement premierEchec = null;
-        for (Path base : emplacementsCandidats(racine)) {
+        LoadFailure firstFailure = null;
+        for (Path base : candidateLocations(root)) {
             try {
-                return deposer(base, plateforme, binaire, attendu);
+                return store(base, platform, binary, expected);
             } catch (IOException e) {
-                if (premierEchec == null) {
-                    premierEchec = new EchecChargement(
-                            CodeErreur.CHARGEMENT_ECHOUE,
-                            "extraction impossible sous " + base, e);
+                if (firstFailure == null) {
+                    firstFailure = new LoadFailure(
+                            ErrorCode.LOAD_FAILED, "extraction impossible sous " + base, e);
                 }
             }
         }
-        throw premierEchec != null
-                ? premierEchec
-                : new EchecChargement(CodeErreur.CHARGEMENT_ECHOUE, "aucun emplacement d'extraction");
+        throw firstFailure != null
+                ? firstFailure
+                : new LoadFailure(ErrorCode.LOAD_FAILED, "aucun emplacement d'extraction");
     }
 
     /**
      * Charge une bibliothèque déjà extraite et vérifiée.
      *
-     * @param bibliotheque chemin renvoyé par {@link #preparer(Plateforme, Path)}
-     * @throws EchecChargement si le système refuse le chargement
+     * @param library chemin renvoyé par {@link #prepare(Platform, Path)}
+     * @throws LoadFailure si le système refuse le chargement
      */
-    public static void charger(Path bibliotheque) throws EchecChargement {
+    public static void load(Path library) throws LoadFailure {
         try {
-            System.load(bibliotheque.toAbsolutePath().toString());
+            System.load(library.toAbsolutePath().toString());
         } catch (UnsatisfiedLinkError | SecurityException e) {
             // FM-05 : le diagnostic doit permettre de distinguer une libc trop
             // ancienne, un montage noexec et un refus de sécurité.
-            throw new EchecChargement(
-                    CodeErreur.CHARGEMENT_ECHOUE,
-                    "System.load a refusé " + bibliotheque + " (" + e.getMessage() + ")", e);
+            throw new LoadFailure(
+                    ErrorCode.LOAD_FAILED,
+                    "System.load a refusé " + library + " (" + e.getMessage() + ")", e);
         }
     }
 
@@ -232,52 +233,53 @@ public final class NativeLoader {
      * <p>R-302 : si la racine de jeu est en lecture seule ou montée {@code noexec},
      * le répertoire temporaire de la JVM est essayé avant d'échouer proprement.
      */
-    private static Iterable<Path> emplacementsCandidats(Path racine) {
-        Path repli = Path.of(System.getProperty("java.io.tmpdir", ".")).resolve("rustforgex");
-        if (racine.toAbsolutePath().normalize().equals(repli.toAbsolutePath().normalize())) {
-            return java.util.List.of(racine);
+    private static List<Path> candidateLocations(Path root) {
+        Path fallback = Path.of(System.getProperty("java.io.tmpdir", ".")).resolve("rustforgex");
+        if (root.toAbsolutePath().normalize().equals(fallback.toAbsolutePath().normalize())) {
+            return List.of(root);
         }
-        return java.util.List.of(racine, repli);
+        return List.of(root, fallback);
     }
 
     /** Dépose le binaire sous {@code base}, en réutilisant une extraction valide. */
-    private Path deposer(Path base, Plateforme plateforme, byte[] binaire, String empreinte)
-            throws IOException, EchecChargement {
+    private Path store(Path base, Platform platform, byte[] binary, String expectedDigest)
+            throws IOException, LoadFailure {
 
         // R-301 : le chemin est versionné par le condensé, jamais par la version du mod.
-        Path dossier = base.resolve("native").resolve(empreinte);
-        Path cible = dossier.resolve(plateforme.bibliotheque());
+        Path folder = base.resolve("native").resolve(expectedDigest);
+        Path target = folder.resolve(platform.library());
 
-        if (Files.isRegularFile(cible) && empreinte.equalsIgnoreCase(condense(Files.readAllBytes(cible)))) {
-            return cible;
+        if (Files.isRegularFile(target)
+                && expectedDigest.equalsIgnoreCase(digest(Files.readAllBytes(target)))) {
+            return target;
         }
 
-        Files.createDirectories(dossier);
-        Path temporaire = Files.createTempFile(dossier, plateforme.bibliotheque(), ".partiel");
+        Files.createDirectories(folder);
+        Path temporary = Files.createTempFile(folder, platform.library(), ".partial");
         try {
-            Files.write(temporaire, binaire);
+            Files.write(temporary, binary);
             // Vérification du contenu réellement écrit sur le disque : une écriture
             // partielle ou corrompue ne doit jamais être chargée (R-300).
-            String ecrit = condense(Files.readAllBytes(temporaire));
-            if (!empreinte.equalsIgnoreCase(ecrit)) {
-                throw new EchecChargement(
-                        CodeErreur.HASH_NATIF_INVALIDE,
-                        "le binaire écrit sous " + dossier + " ne correspond pas à son empreinte");
+            String written = digest(Files.readAllBytes(temporary));
+            if (!expectedDigest.equalsIgnoreCase(written)) {
+                throw new LoadFailure(
+                        ErrorCode.INVALID_NATIVE_DIGEST,
+                        "le binaire écrit sous " + folder + " ne correspond pas à son empreinte");
             }
-            deplacer(temporaire, cible);
-            return cible;
+            moveInto(temporary, target);
+            return target;
         } finally {
-            Files.deleteIfExists(temporaire);
+            Files.deleteIfExists(temporary);
         }
     }
 
     /** Renomme atomiquement quand le système le permet, sinon remplace. */
-    private static void deplacer(Path source, Path cible) throws IOException {
+    private static void moveInto(Path source, Path target) throws IOException {
         try {
-            Files.move(source, cible, StandardCopyOption.ATOMIC_MOVE);
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException e) {
-            Files.move(source, cible, StandardCopyOption.REPLACE_EXISTING);
-        } catch (java.nio.file.FileAlreadyExistsException e) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (FileAlreadyExistsException e) {
             // Une autre instance a extrait le même contenu entre-temps : le chemin
             // étant versionné par le condensé, le fichier en place est identique.
             Files.deleteIfExists(source);
@@ -285,49 +287,48 @@ public final class NativeLoader {
     }
 
     /** Lit le condensé attendu depuis les ressources embarquées. */
-    private String lireEmpreinteAttendue(Plateforme plateforme) throws EchecChargement {
-        try (InputStream flux = source.ouvrir(plateforme.cheminEmpreinte())) {
-            if (flux == null) {
-                throw new EchecChargement(
-                        CodeErreur.NATIF_ABSENT,
-                        "empreinte absente pour " + plateforme.repertoire()
-                                + " (" + plateforme.cheminEmpreinte() + ")");
+    private String readExpectedDigest(Platform platform) throws LoadFailure {
+        try (InputStream stream = source.open(platform.digestPath())) {
+            if (stream == null) {
+                throw new LoadFailure(
+                        ErrorCode.NATIVE_MISSING,
+                        "empreinte absente pour " + platform.directory()
+                                + " (" + platform.digestPath() + ")");
             }
-            String contenu = new String(flux.readAllBytes(), StandardCharsets.UTF_8).trim();
-            if (!estCondenseValide(contenu)) {
-                throw new EchecChargement(
-                        CodeErreur.HASH_NATIF_INVALIDE,
-                        "empreinte illisible pour " + plateforme.repertoire() + " : « " + contenu + " »");
+            String content = new String(stream.readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (!isValidDigest(content)) {
+                throw new LoadFailure(
+                        ErrorCode.INVALID_NATIVE_DIGEST,
+                        "empreinte illisible pour " + platform.directory() + " : « " + content + " »");
             }
-            return contenu;
+            return content;
         } catch (IOException e) {
-            throw new EchecChargement(
-                    CodeErreur.NATIF_ABSENT, "lecture de l'empreinte impossible", e);
+            throw new LoadFailure(ErrorCode.NATIVE_MISSING, "lecture de l'empreinte impossible", e);
         }
     }
 
     /** Lit le binaire natif depuis les ressources embarquées. */
-    private byte[] lireBinaire(Plateforme plateforme) throws EchecChargement {
-        try (InputStream flux = source.ouvrir(plateforme.cheminRessource())) {
-            if (flux == null) {
-                throw new EchecChargement(
-                        CodeErreur.NATIF_ABSENT,
-                        "aucun binaire natif embarqué pour " + plateforme.repertoire());
+    private byte[] readBinary(Platform platform) throws LoadFailure {
+        try (InputStream stream = source.open(platform.resourcePath())) {
+            if (stream == null) {
+                throw new LoadFailure(
+                        ErrorCode.NATIVE_MISSING,
+                        "aucun binaire natif embarqué pour " + platform.directory());
             }
-            return flux.readAllBytes();
+            return stream.readAllBytes();
         } catch (IOException e) {
-            throw new EchecChargement(
-                    CodeErreur.NATIF_ABSENT, "lecture du binaire natif impossible", e);
+            throw new LoadFailure(
+                    ErrorCode.NATIVE_MISSING, "lecture du binaire natif impossible", e);
         }
     }
 
     /** @return {@code true} si la chaîne est un condensé SHA-256 hexadécimal. */
-    private static boolean estCondenseValide(String valeur) {
-        if (valeur.length() != 64) {
+    private static boolean isValidDigest(String value) {
+        if (value.length() != 64) {
             return false;
         }
-        for (int i = 0; i < valeur.length(); i++) {
-            char c = valeur.charAt(i);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
             boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
             if (!hex) {
                 return false;
@@ -337,10 +338,10 @@ public final class NativeLoader {
     }
 
     /** Calcule le condensé SHA-256 d'un contenu, en hexadécimal minuscule. */
-    static String condense(byte[] contenu) {
+    static String digest(byte[] content) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(contenu));
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(sha256.digest(content));
         } catch (NoSuchAlgorithmException e) {
             // SHA-256 est exigé de toute implémentation Java : ce cas ne peut pas
             // survenir sur une JVM conforme.

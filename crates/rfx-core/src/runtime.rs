@@ -19,10 +19,10 @@ use crate::state::RuntimeState;
 pub const ABI_VERSION: u32 = 1;
 
 /// Fenetre glissante d'observation des panics pour le halt d'urgence.
-const FENETRE_PANIC: Duration = Duration::from_secs(60);
+const PANIC_WINDOW: Duration = Duration::from_secs(60);
 
-/// Nombre de panics dans [`FENETRE_PANIC`] au-dela duquel le runtime s'arrete.
-const PANICS_AVANT_HALT: usize = 10;
+/// Nombre de panics dans [`PANIC_WINDOW`] au-dela duquel le runtime s'arrete.
+const PANICS_BEFORE_HALT: usize = 10;
 
 /// Etat global du runtime natif.
 ///
@@ -33,24 +33,24 @@ const PANICS_AVANT_HALT: usize = 10;
 #[derive(Debug)]
 pub struct Runtime {
     config: RuntimeConfig,
-    hw: HardwareClass,
-    couverture: ProbeCoverage,
-    etat: RuntimeState,
+    hardware: HardwareClass,
+    coverage: ProbeCoverage,
+    state: RuntimeState,
     panics: u64,
-    panics_recentes: Vec<Instant>,
+    recent_panics: Vec<Instant>,
 }
 
 impl Runtime {
     /// Construit le runtime a partir d'une configuration deja validee.
     #[must_use]
-    pub fn nouveau(config: RuntimeConfig) -> Self {
+    pub fn new(config: RuntimeConfig) -> Self {
         Self {
             config,
-            hw: HardwareClass::default(),
-            couverture: ProbeCoverage::default(),
-            etat: RuntimeState::Running,
+            hardware: HardwareClass::default(),
+            coverage: ProbeCoverage::default(),
+            state: RuntimeState::Running,
             panics: 0,
-            panics_recentes: Vec::new(),
+            recent_panics: Vec::new(),
         }
     }
 
@@ -62,20 +62,20 @@ impl Runtime {
 
     /// Etat courant.
     #[must_use]
-    pub fn etat(&self) -> RuntimeState {
-        self.etat
+    pub fn state(&self) -> RuntimeState {
+        self.state
     }
 
     /// Classe materielle mesuree par C-45, et les champs reellement mesures.
     #[must_use]
-    pub fn materiel(&self) -> (HardwareClass, ProbeCoverage) {
-        (self.hw, self.couverture)
+    pub fn hardware(&self) -> (HardwareClass, ProbeCoverage) {
+        (self.hardware, self.coverage)
     }
 
     /// Enregistre le resultat de la sonde materielle (C-45).
-    pub fn definir_materiel(&mut self, hw: HardwareClass, couverture: ProbeCoverage) {
-        self.hw = hw;
-        self.couverture = couverture;
+    pub fn set_hardware(&mut self, hardware: HardwareClass, coverage: ProbeCoverage) {
+        self.hardware = hardware;
+        self.coverage = coverage;
     }
 
     /// Enregistre les couts de franchissement de frontiere mesures **depuis Java**.
@@ -84,40 +84,40 @@ impl Runtime {
     /// trajet aller-retour complet depuis la JVM. C'est donc l'appelant Java qui les
     /// mesure (C-45) et les publie ici, ou ils alimenteront le modele de cout de
     /// C-15 (R-660).
-    pub fn definir_couts_ffi(&mut self, jni_call_ns: u32, ffi_batch_ns_per_kb: u32) {
-        self.hw.jni_call_ns = jni_call_ns;
-        self.hw.ffi_batch_ns_per_kb = ffi_batch_ns_per_kb;
-        self.couverture.ffi_call = jni_call_ns > 0;
-        self.couverture.ffi_transfer = ffi_batch_ns_per_kb > 0;
+    pub fn set_ffi_costs(&mut self, jni_call_ns: u32, ffi_batch_ns_per_kb: u32) {
+        self.hardware.jni_call_ns = jni_call_ns;
+        self.hardware.ffi_batch_ns_per_kb = ffi_batch_ns_per_kb;
+        self.coverage.ffi_call = jni_call_ns > 0;
+        self.coverage.ffi_transfer = ffi_batch_ns_per_kb > 0;
     }
 
     /// Fait passer le runtime en mode degrade. Sans effet si l'etat est terminal.
-    pub fn degrader(&mut self) {
-        if !self.etat.est_terminal() {
-            self.etat = RuntimeState::Degraded;
+    pub fn degrade(&mut self) {
+        if !self.state.is_terminal() {
+            self.state = RuntimeState::Degraded;
         }
     }
 
     /// Declenche le halt d'urgence : le jeu continue en Java pur (PARTIE 5.27).
-    pub fn arreter_d_urgence(&mut self) {
-        self.etat = RuntimeState::Halted;
+    pub fn emergency_halt(&mut self) {
+        self.state = RuntimeState::Halted;
     }
 
     /// Comptabilise une panic capturee a la frontiere FFI (R-523).
     ///
     /// Renvoie l'etat du runtime apres traitement. Au-dela de
-    /// [`PANICS_AVANT_HALT`] panics dans une fenetre de 60 secondes, le runtime
+    /// [`PANICS_BEFORE_HALT`] panics dans une fenetre de 60 secondes, le runtime
     /// passe en `HALTED`.
-    pub fn enregistrer_panic(&mut self, maintenant: Instant) -> RuntimeState {
+    pub fn record_panic(&mut self, now: Instant) -> RuntimeState {
         self.panics = self.panics.saturating_add(1);
-        self.panics_recentes
-            .retain(|t| maintenant.duration_since(*t) < FENETRE_PANIC);
-        self.panics_recentes.push(maintenant);
+        self.recent_panics
+            .retain(|t| now.duration_since(*t) < PANIC_WINDOW);
+        self.recent_panics.push(now);
 
-        if self.panics_recentes.len() >= PANICS_AVANT_HALT {
-            self.arreter_d_urgence();
+        if self.recent_panics.len() >= PANICS_BEFORE_HALT {
+            self.emergency_halt();
         }
-        self.etat
+        self.state
     }
 
     /// Nombre total de panics capturees depuis le demarrage.
@@ -128,27 +128,27 @@ impl Runtime {
 
     /// Construit le blob de statut publie vers Java (`/rfx status`).
     #[must_use]
-    pub fn statut(&self) -> RuntimeStatus {
+    pub fn status(&self) -> RuntimeStatus {
         RuntimeStatus {
             schema: rfx_model::MODEL_SCHEMA_VERSION,
             abi_version: ABI_VERSION,
-            version_native: env!("CARGO_PKG_VERSION").to_owned(),
-            etat: self.etat.libelle().to_owned(),
+            native_version: env!("CARGO_PKG_VERSION").to_owned(),
+            state: self.state.label().to_owned(),
             panics: self.panics,
-            materiel: self.hw,
-            couverture_sonde: self.couverture,
-            composants: vec![
+            hardware: self.hardware,
+            probe_coverage: self.coverage,
+            components: vec![
                 ComponentStatus {
                     id: "C-27".to_owned(),
-                    nom: "Rust Runtime Core".to_owned(),
-                    maturite: Maturity::Stable,
-                    actif: self.etat.accepte_du_travail(),
+                    name: "Rust Runtime Core".to_owned(),
+                    maturity: Maturity::Stable,
+                    active: self.state.accepts_work(),
                 },
                 ComponentStatus {
                     id: "C-45".to_owned(),
-                    nom: "Hardware Probe".to_owned(),
-                    maturite: Maturity::Stable,
-                    actif: self.couverture.cores,
+                    name: "Hardware Probe".to_owned(),
+                    maturity: Maturity::Stable,
+                    active: self.coverage.cores,
                 },
             ],
         }
@@ -160,15 +160,15 @@ impl Runtime {
 // ---------------------------------------------------------------------------
 
 /// Etat partage : l'instance unique et la generation du handle courant.
-struct Registre {
+struct Registry {
     runtime: Option<Runtime>,
     generation: u64,
 }
 
-fn registre() -> &'static Mutex<Registre> {
-    static REGISTRE: OnceLock<Mutex<Registre>> = OnceLock::new();
-    REGISTRE.get_or_init(|| {
-        Mutex::new(Registre {
+fn registry() -> &'static Mutex<Registry> {
+    static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        Mutex::new(Registry {
             runtime: None,
             generation: 0,
         })
@@ -181,8 +181,8 @@ fn registre() -> &'static Mutex<Registre> {
 /// tenu. Cette panic a deja ete capturee et comptabilisee a la frontiere FFI (R-523) ;
 /// refuser le verrou ensuite rendrait le runtime definitivement inutilisable et
 /// empecherait meme son arret propre. On reprend donc la main sur l'etat interieur.
-fn verrouiller() -> MutexGuard<'static, Registre> {
-    registre().lock().unwrap_or_else(|e| e.into_inner())
+fn lock_registry() -> MutexGuard<'static, Registry> {
+    registry().lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Compteur de generations, garantissant qu'un handle libere n'est jamais revalide.
@@ -190,37 +190,37 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Motif de poids fort d'un handle, pour qu'un entier arbitraire (0, 1, -1) fourni par
 /// erreur ne puisse pas passer pour un handle valide.
-const MOTIF_HANDLE: u64 = 0x5246_5800_0000_0000;
+const HANDLE_PATTERN: u64 = 0x5246_5800_0000_0000;
 
 /// Initialise l'instance unique du runtime et renvoie son handle opaque.
 ///
 /// # Erreurs
 ///
 /// Renvoie [`ErrorCode::DoubleInit`] (`E-1004`) si une instance existe deja (R-520).
-pub fn initialiser(config: RuntimeConfig) -> Result<u64, ErrorCode> {
-    let mut reg = verrouiller();
+pub fn initialize(config: RuntimeConfig) -> Result<u64, ErrorCode> {
+    let mut reg = lock_registry();
     if reg.runtime.is_some() {
         return Err(ErrorCode::DoubleInit);
     }
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    reg.runtime = Some(Runtime::nouveau(config));
+    reg.runtime = Some(Runtime::new(config));
     reg.generation = generation;
-    Ok(MOTIF_HANDLE | generation)
+    Ok(HANDLE_PATTERN | generation)
 }
 
 /// Execute `f` sur l'instance, apres validation du handle (R-521).
 ///
 /// # Erreurs
 ///
-/// Renvoie [`ErrorCode::ArgumentInvalide`] si le handle ne correspond pas a
+/// Renvoie [`ErrorCode::InvalidArgument`] si le handle ne correspond pas a
 /// l'instance courante : handle d'une generation liberee, entier arbitraire, ou
 /// runtime non initialise.
-pub fn avec<R>(handle: u64, f: impl FnOnce(&mut Runtime) -> R) -> Result<R, ErrorCode> {
-    let mut reg = verrouiller();
-    if handle != (MOTIF_HANDLE | reg.generation) || reg.generation == 0 {
-        return Err(ErrorCode::ArgumentInvalide);
+pub fn with<R>(handle: u64, f: impl FnOnce(&mut Runtime) -> R) -> Result<R, ErrorCode> {
+    let mut reg = lock_registry();
+    if handle != (HANDLE_PATTERN | reg.generation) || reg.generation == 0 {
+        return Err(ErrorCode::InvalidArgument);
     }
-    let rt = reg.runtime.as_mut().ok_or(ErrorCode::ArgumentInvalide)?;
+    let rt = reg.runtime.as_mut().ok_or(ErrorCode::InvalidArgument)?;
     Ok(f(rt))
 }
 
@@ -228,12 +228,12 @@ pub fn avec<R>(handle: u64, f: impl FnOnce(&mut Runtime) -> R) -> Result<R, Erro
 ///
 /// # Erreurs
 ///
-/// Renvoie [`ErrorCode::ArgumentInvalide`] si le handle n'est pas celui de
+/// Renvoie [`ErrorCode::InvalidArgument`] si le handle n'est pas celui de
 /// l'instance courante.
-pub fn arreter(handle: u64) -> Result<(), ErrorCode> {
-    let mut reg = verrouiller();
-    if handle != (MOTIF_HANDLE | reg.generation) || reg.generation == 0 {
-        return Err(ErrorCode::ArgumentInvalide);
+pub fn shutdown(handle: u64) -> Result<(), ErrorCode> {
+    let mut reg = lock_registry();
+    if handle != (HANDLE_PATTERN | reg.generation) || reg.generation == 0 {
+        return Err(ErrorCode::InvalidArgument);
     }
     reg.runtime = None;
     reg.generation = 0;
@@ -245,110 +245,108 @@ mod tests {
     use super::*;
 
     /// Les tests partagent l'instance unique du processus : ils sont serialises.
-    fn verrou_de_test() -> MutexGuard<'static, ()> {
+    fn test_lock() -> MutexGuard<'static, ()> {
         static V: Mutex<()> = Mutex::new(());
         V.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// T-363 : double initialisation refusee (R-520, `E-1004`).
     #[test]
-    fn double_initialisation_refusee() {
-        let _v = verrou_de_test();
-        let h = initialiser(RuntimeConfig::default()).expect("premiere init");
+    fn double_initialization_is_refused() {
+        let _guard = test_lock();
+        let h = initialize(RuntimeConfig::default()).expect("premiere init");
         assert_eq!(
-            initialiser(RuntimeConfig::default()).unwrap_err(),
+            initialize(RuntimeConfig::default()).unwrap_err(),
             ErrorCode::DoubleInit
         );
-        arreter(h).expect("arret");
+        shutdown(h).expect("arret");
     }
 
     /// T-364 : handle invalide rejete (R-521).
     #[test]
-    fn handle_invalide_rejete() {
-        let _v = verrou_de_test();
-        let h = initialiser(RuntimeConfig::default()).expect("init");
+    fn invalid_handle_is_rejected() {
+        let _guard = test_lock();
+        let h = initialize(RuntimeConfig::default()).expect("init");
 
-        for faux in [0_u64, 1, u64::MAX, h ^ 1, h + 1] {
+        for fake in [0_u64, 1, u64::MAX, h ^ 1, h + 1] {
             assert_eq!(
-                avec(faux, |_| ()).unwrap_err(),
-                ErrorCode::ArgumentInvalide,
-                "le handle {faux:#x} n'aurait pas du etre accepte"
+                with(fake, |_| ()).unwrap_err(),
+                ErrorCode::InvalidArgument,
+                "le handle {fake:#x} n'aurait pas du etre accepte"
             );
         }
-        assert!(avec(h, |rt| rt.etat()).is_ok());
-        arreter(h).expect("arret");
+        assert!(with(h, |rt| rt.state()).is_ok());
+        shutdown(h).expect("arret");
     }
 
     #[test]
-    fn un_handle_libere_n_est_jamais_revalide() {
-        let _v = verrou_de_test();
-        let premier = initialiser(RuntimeConfig::default()).expect("init");
-        arreter(premier).expect("arret");
-        assert_eq!(
-            avec(premier, |_| ()).unwrap_err(),
-            ErrorCode::ArgumentInvalide
-        );
+    fn a_released_handle_is_never_revalidated() {
+        let _guard = test_lock();
+        let first = initialize(RuntimeConfig::default()).expect("init");
+        shutdown(first).expect("arret");
+        assert_eq!(with(first, |_| ()).unwrap_err(), ErrorCode::InvalidArgument);
 
-        let second = initialiser(RuntimeConfig::default()).expect("re-init");
-        assert_ne!(premier, second, "la generation doit avoir change");
-        assert_eq!(
-            avec(premier, |_| ()).unwrap_err(),
-            ErrorCode::ArgumentInvalide
-        );
-        arreter(second).expect("arret");
+        let second = initialize(RuntimeConfig::default()).expect("re-init");
+        assert_ne!(first, second, "la generation doit avoir change");
+        assert_eq!(with(first, |_| ()).unwrap_err(), ErrorCode::InvalidArgument);
+        shutdown(second).expect("arret");
     }
 
     #[test]
-    fn arreter_avec_un_mauvais_handle_ne_detruit_rien() {
-        let _v = verrou_de_test();
-        let h = initialiser(RuntimeConfig::default()).expect("init");
-        assert_eq!(arreter(h ^ 0xff).unwrap_err(), ErrorCode::ArgumentInvalide);
-        assert!(avec(h, |rt| rt.etat()).is_ok(), "l'instance doit survivre");
-        arreter(h).expect("arret");
+    fn shutdown_with_a_wrong_handle_destroys_nothing() {
+        let _guard = test_lock();
+        let h = initialize(RuntimeConfig::default()).expect("init");
+        assert_eq!(shutdown(h ^ 0xff).unwrap_err(), ErrorCode::InvalidArgument);
+        assert!(with(h, |rt| rt.state()).is_ok(), "l'instance doit survivre");
+        shutdown(h).expect("arret");
     }
 
     /// Halt d'urgence : plus de 10 panics en 60 s (PARTIE 5.27).
     #[test]
-    fn le_halt_d_urgence_se_declenche_au_dela_du_seuil() {
-        let mut rt = Runtime::nouveau(RuntimeConfig::default());
+    fn emergency_halt_triggers_beyond_the_threshold() {
+        let mut rt = Runtime::new(RuntimeConfig::default());
         let t0 = Instant::now();
-        for i in 1..PANICS_AVANT_HALT {
-            let etat = rt.enregistrer_panic(t0);
-            assert_eq!(etat, RuntimeState::Running, "panic {i} ne doit pas arreter");
+        for i in 1..PANICS_BEFORE_HALT {
+            let state = rt.record_panic(t0);
+            assert_eq!(
+                state,
+                RuntimeState::Running,
+                "panic {i} ne doit pas arreter"
+            );
         }
-        assert_eq!(rt.enregistrer_panic(t0), RuntimeState::Halted);
-        assert_eq!(rt.panics(), PANICS_AVANT_HALT as u64);
+        assert_eq!(rt.record_panic(t0), RuntimeState::Halted);
+        assert_eq!(rt.panics(), PANICS_BEFORE_HALT as u64);
     }
 
     #[test]
-    fn des_panics_hors_fenetre_ne_declenchent_pas_le_halt() {
-        let mut rt = Runtime::nouveau(RuntimeConfig::default());
+    fn panics_outside_the_window_do_not_trigger_the_halt() {
+        let mut rt = Runtime::new(RuntimeConfig::default());
         let t0 = Instant::now();
-        for i in 0..(PANICS_AVANT_HALT * 3) {
+        for i in 0..(PANICS_BEFORE_HALT * 3) {
             // Une panic toutes les 61 secondes : la fenetre glissante ne retient
             // jamais plus d'un evenement.
-            let t = t0 + FENETRE_PANIC * (i as u32 + 1) + Duration::from_secs(i as u64);
-            assert_eq!(rt.enregistrer_panic(t), RuntimeState::Running);
+            let t = t0 + PANIC_WINDOW * (i as u32 + 1) + Duration::from_secs(i as u64);
+            assert_eq!(rt.record_panic(t), RuntimeState::Running);
         }
-        assert_eq!(rt.panics(), (PANICS_AVANT_HALT * 3) as u64);
+        assert_eq!(rt.panics(), (PANICS_BEFORE_HALT * 3) as u64);
     }
 
     #[test]
-    fn le_halt_est_terminal() {
-        let mut rt = Runtime::nouveau(RuntimeConfig::default());
-        rt.arreter_d_urgence();
-        rt.degrader();
-        assert_eq!(rt.etat(), RuntimeState::Halted);
+    fn halt_is_terminal() {
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.emergency_halt();
+        rt.degrade();
+        assert_eq!(rt.state(), RuntimeState::Halted);
     }
 
     #[test]
-    fn le_statut_reflete_l_etat_et_les_panics() {
-        let mut rt = Runtime::nouveau(RuntimeConfig::default());
-        rt.enregistrer_panic(Instant::now());
-        let s = rt.statut();
+    fn status_reflects_state_and_panics() {
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.record_panic(Instant::now());
+        let s = rt.status();
         assert_eq!(s.abi_version, ABI_VERSION);
-        assert_eq!(s.etat, "RUNNING");
+        assert_eq!(s.state, "RUNNING");
         assert_eq!(s.panics, 1);
-        assert!(s.composants.iter().any(|c| c.id == "C-27"));
+        assert!(s.components.iter().any(|c| c.id == "C-27"));
     }
 }

@@ -110,28 +110,28 @@ impl HardwareClass {
 
 /// Ramene un nombre de coeurs a un palier stable.
 fn core_bucket(cores: u16) -> u16 {
-    const PALIERS: [u16; 11] = [1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64];
-    let mut retenu = 0;
-    for p in PALIERS {
+    const BUCKETS: [u16; 11] = [1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+    let mut selected = 0;
+    for p in BUCKETS {
         if cores >= p {
-            retenu = p;
+            selected = p;
         }
     }
-    retenu
+    selected
 }
 
 /// Ramene une quantite de memoire a un palier en gibioctets.
 fn mem_bucket_gib(bytes: u64) -> u64 {
     const GIB: u64 = 1024 * 1024 * 1024;
-    const PALIERS: [u64; 9] = [1, 2, 4, 8, 12, 16, 32, 64, 128];
+    const BUCKETS: [u64; 9] = [1, 2, 4, 8, 12, 16, 32, 64, 128];
     let gib = bytes / GIB;
-    let mut retenu = 0;
-    for p in PALIERS {
+    let mut selected = 0;
+    for p in BUCKETS {
         if gib >= p {
-            retenu = p;
+            selected = p;
         }
     }
-    retenu
+    selected
 }
 
 /// FNV-1a 64 bits : hachage stable, sans dependance, sans graine aleatoire.
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn le_hachage_ignore_les_couts_mesures() {
+    fn hash_ignores_measured_costs() {
         let mut a = machine(8, 16, 32, true);
         let b = a;
         a.jni_call_ns = 120;
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn deux_machines_de_meme_classe_partagent_le_hachage() {
+    fn machines_of_same_class_share_the_hash() {
         // Meme palier de coeurs (8), meme palier memoire (32 Gio), meme SIMD.
         let a = machine(8, 16, 32, true);
         let b = machine(9, 17, 33, true);
@@ -198,16 +198,16 @@ mod tests {
     }
 
     #[test]
-    fn des_classes_differentes_se_distinguent() {
-        let huit_coeurs = machine(8, 16, 32, true);
-        let seize_coeurs = machine(16, 32, 32, true);
-        let sans_avx2 = machine(8, 16, 32, false);
-        assert_ne!(huit_coeurs.class_hash(), seize_coeurs.class_hash());
-        assert_ne!(huit_coeurs.class_hash(), sans_avx2.class_hash());
+    fn different_classes_are_distinguished() {
+        let eight_cores = machine(8, 16, 32, true);
+        let sixteen_cores = machine(16, 32, 32, true);
+        let without_avx2 = machine(8, 16, 32, false);
+        assert_ne!(eight_cores.class_hash(), sixteen_cores.class_hash());
+        assert_ne!(eight_cores.class_hash(), without_avx2.class_hash());
     }
 
     #[test]
-    fn le_hachage_est_stable_entre_executions() {
+    fn hash_is_stable_across_runs() {
         // Valeur figee, relevee sur l'implementation de reference : toute evolution
         // de l'algorithme invalide les caches et doit donc etre deliberee
         // (PARTIE 14.6, versionnement de schema).
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn les_paliers_regroupent_les_valeurs_proches() {
+    fn buckets_group_nearby_values() {
         assert_eq!(core_bucket(0), 0);
         assert_eq!(core_bucket(7), 6);
         assert_eq!(core_bucket(8), 8);

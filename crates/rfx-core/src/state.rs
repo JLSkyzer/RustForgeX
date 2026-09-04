@@ -27,7 +27,7 @@ pub enum RuntimeState {
 impl RuntimeState {
     /// Libelle publie dans `/rfx status` et les diagnostics.
     #[must_use]
-    pub fn libelle(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Init => "INIT",
             Self::Running => "RUNNING",
@@ -41,20 +41,20 @@ impl RuntimeState {
     /// `HALTED` et `DEGRADED` ne l'acceptent plus : dans ces etats, toute decision
     /// retombe sur le chemin Java (contrat agent 6.2).
     #[must_use]
-    pub fn accepte_du_travail(self) -> bool {
+    pub fn accepts_work(self) -> bool {
         matches!(self, Self::Running)
     }
 
     /// Indique si l'etat est terminal pour le processus courant.
     #[must_use]
-    pub fn est_terminal(self) -> bool {
+    pub fn is_terminal(self) -> bool {
         matches!(self, Self::Halted)
     }
 }
 
 impl core::fmt::Display for RuntimeState {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.libelle())
+        f.write_str(self.label())
     }
 }
 
@@ -63,16 +63,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seul_running_accepte_du_travail() {
-        assert!(RuntimeState::Running.accepte_du_travail());
-        assert!(!RuntimeState::Init.accepte_du_travail());
-        assert!(!RuntimeState::Degraded.accepte_du_travail());
-        assert!(!RuntimeState::Halted.accepte_du_travail());
+    fn only_running_accepts_work() {
+        assert!(RuntimeState::Running.accepts_work());
+        assert!(!RuntimeState::Init.accepts_work());
+        assert!(!RuntimeState::Degraded.accepts_work());
+        assert!(!RuntimeState::Halted.accepts_work());
     }
 
     #[test]
-    fn seul_halted_est_terminal() {
-        assert!(RuntimeState::Halted.est_terminal());
-        assert!(!RuntimeState::Degraded.est_terminal());
+    fn only_halted_is_terminal() {
+        assert!(RuntimeState::Halted.is_terminal());
+        assert!(!RuntimeState::Degraded.is_terminal());
     }
 }

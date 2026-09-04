@@ -33,16 +33,16 @@ use rfx_model::{RuntimeConfig, RuntimeMode};
 ///
 /// La configuration complete de la PARTIE 28 pese quelques kibioctets. Ce plafond
 /// protege contre une longueur aberrante transmise par erreur (PARTIE 19.2).
-const TAILLE_CONFIG_MAX: usize = 1 << 20;
+const MAX_CONFIG_SIZE: usize = 1 << 20;
 
 /// Taille maximale acceptee pour un tampon de mesure de transfert, en octets.
-const TAILLE_TRANSFERT_MAX: usize = 64 << 20;
+const MAX_TRANSFER_SIZE: usize = 64 << 20;
 
 /// Enveloppe un point d'entree sans handle : capture toute panic (R-522).
-fn garde(f: impl FnOnce() -> i32) -> i32 {
+fn guard(f: impl FnOnce() -> i32) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(code) => code,
-        Err(_) => ErrorCode::PanicCapturee.code_ffi(),
+        Err(_) => ErrorCode::PanicCaught.ffi_code(),
     }
 }
 
@@ -52,14 +52,14 @@ fn garde(f: impl FnOnce() -> i32) -> i32 {
 /// Le comptage est lui-meme protege : si l'enregistrement echoue (handle deja
 /// invalide, runtime detruit), la panic reste capturee et le code `E-3001` est
 /// renvoye. Aucune panic ne peut donc atteindre la JVM.
-fn garde_avec_handle(handle: u64, f: impl FnOnce() -> i32) -> i32 {
+fn guard_with_handle(handle: u64, f: impl FnOnce() -> i32) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(code) => code,
         Err(_) => {
             let _ = catch_unwind(AssertUnwindSafe(|| {
-                let _ = runtime::avec(handle, |rt| rt.enregistrer_panic(Instant::now()));
+                let _ = runtime::with(handle, |rt| rt.record_panic(Instant::now()));
             }));
-            ErrorCode::PanicCapturee.code_ffi()
+            ErrorCode::PanicCaught.ffi_code()
         }
     }
 }
@@ -70,7 +70,7 @@ fn garde_avec_handle(handle: u64, f: impl FnOnce() -> i32) -> i32 {
 /// touche aucun etat : elle est appelable avant [`rfx_init`].
 #[no_mangle]
 pub extern "C" fn rfx_abi_version() -> i32 {
-    garde(|| i32::try_from(ABI_VERSION).unwrap_or(i32::MAX))
+    guard(|| i32::try_from(ABI_VERSION).unwrap_or(i32::MAX))
 }
 
 /// Initialise l'instance unique du runtime (R-520) et publie son handle.
@@ -88,27 +88,27 @@ pub extern "C" fn rfx_abi_version() -> i32 {
 /// un `u64` inscriptible. Les deux doivent rester valides pendant l'appel.
 #[no_mangle]
 pub unsafe extern "C" fn rfx_init(config_cbor: *const u8, len: usize, out_handle: *mut u64) -> i32 {
-    garde(|| {
-        if config_cbor.is_null() || out_handle.is_null() || len == 0 || len > TAILLE_CONFIG_MAX {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+    guard(|| {
+        if config_cbor.is_null() || out_handle.is_null() || len == 0 || len > MAX_CONFIG_SIZE {
+            return ErrorCode::InvalidArgument.ffi_code();
         }
         // SAFETY : precondition de la fonction, verifiee ci-dessus pour le cas nul.
-        let octets = unsafe { std::slice::from_raw_parts(config_cbor, len) };
+        let bytes = unsafe { std::slice::from_raw_parts(config_cbor, len) };
 
-        let Ok(config) = rfx_model::from_cbor::<RuntimeConfig>(octets) else {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+        let Ok(config) = rfx_model::from_cbor::<RuntimeConfig>(bytes) else {
+            return ErrorCode::InvalidArgument.ffi_code();
         };
-        if config.verifier_schema().is_err() {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+        if config.check_schema().is_err() {
+            return ErrorCode::InvalidArgument.ffi_code();
         }
 
-        match runtime::initialiser(config) {
+        match runtime::initialize(config) {
             Ok(handle) => {
                 // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
                 unsafe { out_handle.write(handle) };
                 OK
             }
-            Err(e) => e.code_ffi(),
+            Err(e) => e.ffi_code(),
         }
     })
 }
@@ -116,9 +116,9 @@ pub unsafe extern "C" fn rfx_init(config_cbor: *const u8, len: usize, out_handle
 /// Detruit l'instance du runtime. Le handle devient definitivement invalide.
 #[no_mangle]
 pub extern "C" fn rfx_shutdown(handle: u64) -> i32 {
-    garde_avec_handle(handle, || match runtime::arreter(handle) {
+    guard_with_handle(handle, || match runtime::shutdown(handle) {
         Ok(()) => OK,
-        Err(e) => e.code_ffi(),
+        Err(e) => e.ffi_code(),
     })
 }
 
@@ -129,9 +129,9 @@ pub extern "C" fn rfx_shutdown(handle: u64) -> i32 {
 /// handle. Le resultat est publie via [`rfx_hw_set_ffi_costs`].
 #[no_mangle]
 pub extern "C" fn rfx_noop(handle: u64) -> i32 {
-    garde_avec_handle(handle, || match runtime::avec(handle, |_| ()) {
+    guard_with_handle(handle, || match runtime::with(handle, |_| ()) {
         Ok(()) => OK,
-        Err(e) => e.code_ffi(),
+        Err(e) => e.ffi_code(),
     })
 }
 
@@ -140,11 +140,11 @@ pub extern "C" fn rfx_noop(handle: u64) -> i32 {
 /// Peut etre rappelee pour re-sonder la machine (R-661).
 #[no_mangle]
 pub extern "C" fn rfx_hw_probe(handle: u64) -> i32 {
-    garde_avec_handle(handle, || {
-        let (materiel, couverture) = hw::sonder();
-        match runtime::avec(handle, |rt| rt.definir_materiel(materiel, couverture)) {
+    guard_with_handle(handle, || {
+        let (hardware, coverage) = hw::probe();
+        match runtime::with(handle, |rt| rt.set_hardware(hardware, coverage)) {
             Ok(()) => OK,
-            Err(e) => e.code_ffi(),
+            Err(e) => e.ffi_code(),
         }
     })
 }
@@ -161,12 +161,12 @@ pub extern "C" fn rfx_hw_set_ffi_costs(
     jni_call_ns: u32,
     ffi_batch_ns_per_kb: u32,
 ) -> i32 {
-    garde_avec_handle(handle, || {
-        match runtime::avec(handle, |rt| {
-            rt.definir_couts_ffi(jni_call_ns, ffi_batch_ns_per_kb);
+    guard_with_handle(handle, || {
+        match runtime::with(handle, |rt| {
+            rt.set_ffi_costs(jni_call_ns, ffi_batch_ns_per_kb);
         }) {
             Ok(()) => OK,
-            Err(e) => e.code_ffi(),
+            Err(e) => e.ffi_code(),
         }
     })
 }
@@ -178,29 +178,29 @@ pub extern "C" fn rfx_hw_set_ffi_costs(
 ///
 /// # Safety
 ///
-/// `donnees` doit pointer sur au moins `len` octets lisibles, et `out_checksum` sur
+/// `data` doit pointer sur au moins `len` octets lisibles, et `out_checksum` sur
 /// un `u64` inscriptible.
 #[no_mangle]
 pub unsafe extern "C" fn rfx_transfer_probe(
     handle: u64,
-    donnees: *const u8,
+    data: *const u8,
     len: usize,
     out_checksum: *mut u64,
 ) -> i32 {
-    garde_avec_handle(handle, || {
-        if donnees.is_null() || out_checksum.is_null() || len > TAILLE_TRANSFERT_MAX {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+    guard_with_handle(handle, || {
+        if data.is_null() || out_checksum.is_null() || len > MAX_TRANSFER_SIZE {
+            return ErrorCode::InvalidArgument.ffi_code();
         }
-        if let Err(e) = runtime::avec(handle, |_| ()) {
-            return e.code_ffi();
+        if let Err(e) = runtime::with(handle, |_| ()) {
+            return e.ffi_code();
         }
         // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
-        let octets = unsafe { std::slice::from_raw_parts(donnees, len) };
-        let somme = octets.iter().fold(0_u64, |acc, o| {
-            acc.wrapping_mul(31).wrapping_add(u64::from(*o))
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+        let checksum = bytes.iter().fold(0_u64, |acc, b| {
+            acc.wrapping_mul(31).wrapping_add(u64::from(*b))
         });
         // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
-        unsafe { out_checksum.write(somme) };
+        unsafe { out_checksum.write(checksum) };
         OK
     })
 }
@@ -222,17 +222,17 @@ pub unsafe extern "C" fn rfx_status(
     cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    garde_avec_handle(handle, || {
+    guard_with_handle(handle, || {
         if out_len.is_null() || (out.is_null() && cap > 0) {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+            return ErrorCode::InvalidArgument.ffi_code();
         }
 
-        let statut = match runtime::avec(handle, |rt| rt.statut()) {
+        let status = match runtime::with(handle, |rt| rt.status()) {
             Ok(s) => s,
-            Err(e) => return e.code_ffi(),
+            Err(e) => return e.ffi_code(),
         };
-        let Ok(blob) = rfx_model::to_cbor(&statut) else {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+        let Ok(blob) = rfx_model::to_cbor(&status) else {
+            return ErrorCode::InvalidArgument.ffi_code();
         };
 
         // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn rfx_status(
             return OK;
         }
         if cap < blob.len() {
-            return ErrorCode::ArgumentInvalide.code_ffi();
+            return ErrorCode::InvalidArgument.ffi_code();
         }
         // SAFETY : `out` possede au moins `cap` octets inscriptibles et `cap` est
         // superieur ou egal a la longueur copiee ; les zones ne se recouvrent pas,
@@ -261,11 +261,11 @@ pub unsafe extern "C" fn rfx_status(
 /// capturee a la frontiere et comptabilisee.
 #[no_mangle]
 pub extern "C" fn rfx_panic_test(handle: u64) -> i32 {
-    garde_avec_handle(handle, || {
-        match runtime::avec(handle, |rt| rt.config().mode) {
+    guard_with_handle(handle, || {
+        match runtime::with(handle, |rt| rt.config().mode) {
             Ok(RuntimeMode::Debug) => panic!("panic volontaire : verification du confinement FFI"),
-            Ok(_) => ErrorCode::ArgumentInvalide.code_ffi(),
-            Err(e) => e.code_ffi(),
+            Ok(_) => ErrorCode::InvalidArgument.ffi_code(),
+            Err(e) => e.ffi_code(),
         }
     })
 }
@@ -277,7 +277,7 @@ mod tests {
     use std::sync::{Mutex, MutexGuard};
 
     /// Les tests partagent l'instance unique du processus : ils sont serialises.
-    fn verrou() -> MutexGuard<'static, ()> {
+    fn test_lock() -> MutexGuard<'static, ()> {
         static V: Mutex<()> = Mutex::new(());
         V.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -290,29 +290,29 @@ mod tests {
         handle
     }
 
-    fn lire_statut(handle: u64) -> RuntimeStatus {
-        let mut taille = 0_usize;
+    fn read_status(handle: u64) -> RuntimeStatus {
+        let mut size = 0_usize;
         assert_eq!(
-            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut taille) },
+            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut size) },
             OK
         );
-        let mut tampon = vec![0_u8; taille];
-        let mut ecrit = 0_usize;
+        let mut buffer = vec![0_u8; size];
+        let mut written = 0_usize;
         assert_eq!(
-            unsafe { rfx_status(handle, tampon.as_mut_ptr(), tampon.len(), &mut ecrit) },
+            unsafe { rfx_status(handle, buffer.as_mut_ptr(), buffer.len(), &mut written) },
             OK
         );
-        rfx_model::from_cbor(&tampon[..ecrit]).expect("statut decodable")
+        rfx_model::from_cbor(&buffer[..written]).expect("statut decodable")
     }
 
     #[test]
-    fn l_abi_est_annoncee_avant_toute_initialisation() {
+    fn abi_is_announced_before_any_initialization() {
         assert_eq!(rfx_abi_version(), 1);
     }
 
     #[test]
-    fn cycle_de_vie_nominal() {
-        let _v = verrou();
+    fn nominal_life_cycle() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
         assert_eq!(rfx_noop(handle), OK);
         assert_eq!(rfx_hw_probe(handle), OK);
@@ -321,34 +321,34 @@ mod tests {
 
     /// R-520 / T-363 : double initialisation refusee avec `E-1004`.
     #[test]
-    fn double_initialisation_refusee() {
-        let _v = verrou();
+    fn double_initialization_is_refused() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
         let blob = rfx_model::to_cbor(&RuntimeConfig::default()).expect("encodage");
         let mut second = 0_u64;
         assert_eq!(
             unsafe { rfx_init(blob.as_ptr(), blob.len(), &mut second) },
-            ErrorCode::DoubleInit.code_ffi()
+            ErrorCode::DoubleInit.ffi_code()
         );
         assert_eq!(rfx_shutdown(handle), OK);
     }
 
     /// R-521 / T-364 : tout handle inconnu est rejete, sans effet de bord.
     #[test]
-    fn handle_invalide_rejete_par_chaque_point_d_entree() {
-        let _v = verrou();
+    fn invalid_handle_is_rejected_by_every_entry_point() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
-        let faux = handle ^ 0xdead;
-        let attendu = ErrorCode::ArgumentInvalide.code_ffi();
+        let fake = handle ^ 0xdead;
+        let expected = ErrorCode::InvalidArgument.ffi_code();
 
-        assert_eq!(rfx_noop(faux), attendu);
-        assert_eq!(rfx_hw_probe(faux), attendu);
-        assert_eq!(rfx_hw_set_ffi_costs(faux, 1, 1), attendu);
-        assert_eq!(rfx_shutdown(faux), attendu);
-        let mut taille = 0_usize;
+        assert_eq!(rfx_noop(fake), expected);
+        assert_eq!(rfx_hw_probe(fake), expected);
+        assert_eq!(rfx_hw_set_ffi_costs(fake, 1, 1), expected);
+        assert_eq!(rfx_shutdown(fake), expected);
+        let mut size = 0_usize;
         assert_eq!(
-            unsafe { rfx_status(faux, std::ptr::null_mut(), 0, &mut taille) },
-            attendu
+            unsafe { rfx_status(fake, std::ptr::null_mut(), 0, &mut size) },
+            expected
         );
 
         assert_eq!(rfx_shutdown(handle), OK, "l'instance doit avoir survecu");
@@ -356,48 +356,48 @@ mod tests {
 
     /// PARTIE 19.2 : les donnees venant de Java sont traitees comme non fiables.
     #[test]
-    fn les_arguments_aberrants_sont_rejetes_sans_panique() {
-        let _v = verrou();
-        let attendu = ErrorCode::ArgumentInvalide.code_ffi();
+    fn aberrant_arguments_are_rejected_without_panicking() {
+        let _guard = test_lock();
+        let expected = ErrorCode::InvalidArgument.ffi_code();
         let mut handle = 0_u64;
 
         assert_eq!(
             unsafe { rfx_init(std::ptr::null(), 10, &mut handle) },
-            attendu
+            expected
         );
         let blob = rfx_model::to_cbor(&RuntimeConfig::default()).expect("encodage");
         assert_eq!(
             unsafe { rfx_init(blob.as_ptr(), 0, &mut handle) },
-            attendu,
+            expected,
             "longueur nulle"
         );
         assert_eq!(
-            unsafe { rfx_init(blob.as_ptr(), TAILLE_CONFIG_MAX + 1, &mut handle) },
-            attendu,
+            unsafe { rfx_init(blob.as_ptr(), MAX_CONFIG_SIZE + 1, &mut handle) },
+            expected,
             "longueur aberrante"
         );
         assert_eq!(
             unsafe { rfx_init(blob.as_ptr(), blob.len(), std::ptr::null_mut()) },
-            attendu,
+            expected,
             "handle de sortie nul"
         );
         assert_eq!(handle, 0, "aucun handle ne doit avoir ete publie");
     }
 
     #[test]
-    fn un_blob_de_configuration_illisible_est_refuse() {
-        let _v = verrou();
-        let ordures = [0xff_u8; 32];
+    fn an_unreadable_configuration_blob_is_refused() {
+        let _guard = test_lock();
+        let garbage = [0xff_u8; 32];
         let mut handle = 0_u64;
         assert_eq!(
-            unsafe { rfx_init(ordures.as_ptr(), ordures.len(), &mut handle) },
-            ErrorCode::ArgumentInvalide.code_ffi()
+            unsafe { rfx_init(garbage.as_ptr(), garbage.len(), &mut handle) },
+            ErrorCode::InvalidArgument.ffi_code()
         );
     }
 
     #[test]
-    fn un_schema_de_configuration_inconnu_est_refuse() {
-        let _v = verrou();
+    fn an_unknown_configuration_schema_is_refused() {
+        let _guard = test_lock();
         let config = RuntimeConfig {
             schema: rfx_model::MODEL_SCHEMA_VERSION + 1,
             ..RuntimeConfig::default()
@@ -406,84 +406,84 @@ mod tests {
         let mut handle = 0_u64;
         assert_eq!(
             unsafe { rfx_init(blob.as_ptr(), blob.len(), &mut handle) },
-            ErrorCode::ArgumentInvalide.code_ffi()
+            ErrorCode::InvalidArgument.ffi_code()
         );
     }
 
     #[test]
-    fn le_statut_expose_l_abi_l_etat_et_le_materiel() {
-        let _v = verrou();
+    fn status_exposes_abi_state_and_hardware() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
         assert_eq!(rfx_hw_probe(handle), OK);
         assert_eq!(rfx_hw_set_ffi_costs(handle, 250, 40), OK);
 
-        let statut = lire_statut(handle);
-        assert_eq!(statut.abi_version, 1);
-        assert_eq!(statut.etat, "RUNNING");
-        assert_eq!(statut.panics, 0);
-        assert!(statut.materiel.logical_cores > 0);
-        assert_eq!(statut.materiel.jni_call_ns, 250);
-        assert_eq!(statut.materiel.ffi_batch_ns_per_kb, 40);
-        assert!(statut.couverture_sonde.ffi_call);
-        assert!(statut.composants.iter().any(|c| c.id == "C-45"));
+        let status = read_status(handle);
+        assert_eq!(status.abi_version, 1);
+        assert_eq!(status.state, "RUNNING");
+        assert_eq!(status.panics, 0);
+        assert!(status.hardware.logical_cores > 0);
+        assert_eq!(status.hardware.jni_call_ns, 250);
+        assert_eq!(status.hardware.ffi_batch_ns_per_kb, 40);
+        assert!(status.probe_coverage.ffi_call);
+        assert!(status.components.iter().any(|c| c.id == "C-45"));
 
         assert_eq!(rfx_shutdown(handle), OK);
     }
 
     #[test]
-    fn un_tampon_de_statut_trop_petit_est_refuse_et_annonce_la_taille() {
-        let _v = verrou();
+    fn a_status_buffer_too_small_is_refused_and_announces_the_size() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
-        let mut requis = 0_usize;
+        let mut required = 0_usize;
         assert_eq!(
-            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut requis) },
+            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut required) },
             OK
         );
-        assert!(requis > 0);
+        assert!(required > 0);
 
-        let mut trop_petit = vec![0_u8; requis - 1];
-        let mut annonce = 0_usize;
+        let mut too_small = vec![0_u8; required - 1];
+        let mut announced = 0_usize;
         assert_eq!(
             unsafe {
                 rfx_status(
                     handle,
-                    trop_petit.as_mut_ptr(),
-                    trop_petit.len(),
-                    &mut annonce,
+                    too_small.as_mut_ptr(),
+                    too_small.len(),
+                    &mut announced,
                 )
             },
-            ErrorCode::ArgumentInvalide.code_ffi()
+            ErrorCode::InvalidArgument.ffi_code()
         );
-        assert_eq!(annonce, requis, "la taille requise doit etre publiee");
+        assert_eq!(announced, required, "la taille requise doit etre publiee");
         assert_eq!(rfx_shutdown(handle), OK);
     }
 
     #[test]
-    fn la_mesure_de_transfert_lit_tous_les_octets() {
-        let _v = verrou();
+    fn the_transfer_probe_reads_every_byte() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
-        let donnees = vec![7_u8; 4096];
-        let mut somme = 0_u64;
+        let data = vec![7_u8; 4096];
+        let mut checksum = 0_u64;
         assert_eq!(
-            unsafe { rfx_transfer_probe(handle, donnees.as_ptr(), donnees.len(), &mut somme) },
+            unsafe { rfx_transfer_probe(handle, data.as_ptr(), data.len(), &mut checksum) },
             OK
         );
-        assert_ne!(somme, 0, "la somme doit dependre du contenu lu");
+        assert_ne!(checksum, 0, "la somme doit dependre du contenu lu");
 
-        let mut somme_vide = 0_u64;
+        let mut empty_checksum = 0_u64;
         assert_eq!(
-            unsafe { rfx_transfer_probe(handle, donnees.as_ptr(), 0, &mut somme_vide) },
+            unsafe { rfx_transfer_probe(handle, data.as_ptr(), 0, &mut empty_checksum) },
             OK
         );
-        assert_eq!(somme_vide, 0);
+        assert_eq!(empty_checksum, 0);
         assert_eq!(rfx_shutdown(handle), OK);
     }
 
     /// T-360 : une panic est capturee a la frontiere FFI et ne traverse jamais
     /// vers la JVM (R-522, contrat agent 3.8).
     #[test]
-    fn une_panic_est_capturee_et_comptabilisee() {
-        let _v = verrou();
+    fn a_panic_is_caught_and_counted() {
+        let _guard = test_lock();
         let config = RuntimeConfig {
             mode: RuntimeMode::Debug,
             ..RuntimeConfig::default()
@@ -497,11 +497,11 @@ mod tests {
         let code = rfx_panic_test(handle);
         std::panic::set_hook(hook);
 
-        assert_eq!(code, ErrorCode::PanicCapturee.code_ffi());
-        let statut = lire_statut(handle);
-        assert_eq!(statut.panics, 1, "la panic doit etre comptabilisee");
+        assert_eq!(code, ErrorCode::PanicCaught.ffi_code());
+        let status = read_status(handle);
+        assert_eq!(status.panics, 1, "la panic doit etre comptabilisee");
         assert_eq!(
-            statut.etat, "RUNNING",
+            status.state, "RUNNING",
             "une seule panic n'arrete pas le runtime"
         );
 
@@ -510,14 +510,14 @@ mod tests {
 
     /// `/rfx panic-test` n'est disponible qu'en mode `debug` (PARTIE 5.36).
     #[test]
-    fn le_test_de_panic_est_refuse_hors_du_mode_debug() {
-        let _v = verrou();
+    fn the_panic_test_is_refused_outside_debug_mode() {
+        let _guard = test_lock();
         let handle = init(&RuntimeConfig::default());
         assert_eq!(
             rfx_panic_test(handle),
-            ErrorCode::ArgumentInvalide.code_ffi()
+            ErrorCode::InvalidArgument.ffi_code()
         );
-        assert_eq!(lire_statut(handle).panics, 0);
+        assert_eq!(read_status(handle).panics, 0);
         assert_eq!(rfx_shutdown(handle), OK);
     }
 }

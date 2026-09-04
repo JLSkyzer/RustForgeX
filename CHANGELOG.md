@@ -39,6 +39,15 @@ est attendu de ce jalon.
   vérification d'artefact et intégration continue.
 - **IF-01** — ABI C versionnée, chaque point d'entrée protégé contre les panics.
 
+#### Conventions
+
+- Le code — classes, méthodes, variables, modules Rust — est écrit en **anglais** ;
+  la Javadoc, les commentaires et la documentation restent en **français**.
+- Les textes affichés au joueur passent tous par `Component.translatable` et sont
+  traduits dans `fr_fr.json` et `en_us.json`. Aucun texte joueur n'est codé en dur ;
+  un test vérifie que les deux fichiers déclarent exactement les mêmes clés.
+- `CLAUDE.md` consigne ces conventions et celles héritées du modpack Skyzer.
+
 #### Documentation
 
 - `ARCHITECTURE.md`, `CONFIGURATION.md`, `SECURITY.md`, `BUILDING.md`,

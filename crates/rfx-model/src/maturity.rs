@@ -27,13 +27,13 @@ pub enum Maturity {
 impl Maturity {
     /// Indique si une fonctionnalite de ce niveau peut etre active par defaut.
     #[must_use]
-    pub fn active_par_defaut(self) -> bool {
+    pub fn enabled_by_default(self) -> bool {
         matches!(self, Self::Stable)
     }
 
     /// Libelle court, utilise par `/rfx status` et les diagnostics.
     #[must_use]
-    pub fn libelle(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Stable => "STABLE",
             Self::Experimental => "EXPERIMENTAL",
@@ -45,7 +45,7 @@ impl Maturity {
 
 impl core::fmt::Display for Maturity {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.libelle())
+        f.write_str(self.label())
     }
 }
 
@@ -54,10 +54,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seul_stable_est_actif_par_defaut() {
-        assert!(Maturity::Stable.active_par_defaut());
-        assert!(!Maturity::Experimental.active_par_defaut());
-        assert!(!Maturity::Disabled.active_par_defaut());
-        assert!(!Maturity::Future.active_par_defaut());
+    fn only_stable_is_enabled_by_default() {
+        assert!(Maturity::Stable.enabled_by_default());
+        assert!(!Maturity::Experimental.enabled_by_default());
+        assert!(!Maturity::Disabled.enabled_by_default());
+        assert!(!Maturity::Future.enabled_by_default());
     }
 }

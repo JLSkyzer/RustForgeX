@@ -1,11 +1,13 @@
 package dev.rustforgex;
 
 import dev.rustforgex.bootstrap.Bootstrap;
-import dev.rustforgex.bridge.CborLecteur;
-import dev.rustforgex.bridge.PontNatif;
-import dev.rustforgex.command.RapportStatut;
+import dev.rustforgex.bridge.CborReader;
+import dev.rustforgex.bridge.NativeBridge;
+import dev.rustforgex.command.StatusReport;
 import dev.rustforgex.config.Configuration;
-import dev.rustforgex.forge.VersionForge;
+import dev.rustforgex.diag.ErrorCode;
+import dev.rustforgex.forge.ForgeVersions;
+import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -24,61 +26,61 @@ import java.util.Map;
  * <p>Aucune méthode ne lève d'exception : un mod d'optimisation qui empêche le jeu de
  * démarrer est pire que pas de mod du tout.
  */
-public final class RuntimeRfx {
+public final class RfxRuntime {
 
-    private static volatile RuntimeRfx instance;
+    private static volatile RfxRuntime instance;
 
     private final Configuration configuration;
-    private final Bootstrap.Rapport rapport;
-    private final boolean observationSeule;
-    private final PontNatif pont;
+    private final Bootstrap.Report report;
+    private final boolean observeOnly;
+    private final NativeBridge bridge;
 
-    private RuntimeRfx(
+    private RfxRuntime(
             Configuration configuration,
-            Bootstrap.Rapport rapport,
-            boolean observationSeule,
-            PontNatif pont) {
+            Bootstrap.Report report,
+            boolean observeOnly,
+            NativeBridge bridge) {
         this.configuration = configuration;
-        this.rapport = rapport;
-        this.observationSeule = observationSeule;
-        this.pont = pont;
+        this.report = report;
+        this.observeOnly = observeOnly;
+        this.bridge = bridge;
     }
 
     /**
      * Démarre le runtime : configuration, vérification de Forge, puis C-02.
      *
-     * @param racine racine de travail, {@code <gameDir>/rustforgex}
-     * @param coteClient {@code true} côté client, {@code false} côté serveur dédié
-     * @param versionForge version rapportée par Forge, pour FM-01
+     * @param root racine de travail, {@code <gameDir>/rustforgex}
+     * @param clientSide {@code true} côté client, {@code false} côté serveur dédié
+     * @param forgeVersion version rapportée par Forge, pour FM-01
      * @return l'instance démarrée
      */
-    public static synchronized RuntimeRfx demarrer(Path racine, boolean coteClient, String versionForge) {
+    public static synchronized RfxRuntime start(Path root, boolean clientSide, String forgeVersion) {
         Configuration configuration =
-                Configuration.charger(racine.resolve(Configuration.CHEMIN_FICHIER), System::getProperty);
+                Configuration.load(root.resolve(Configuration.FILE_PATH), System::getProperty);
 
         // FM-01 : une version de Forge hors plage n'empêche pas le jeu de tourner ;
         // elle interdit toute transformation (E-1001, mode observation seule).
-        boolean observationSeule = !VersionForge.estSupportee(versionForge);
+        boolean observeOnly = !ForgeVersions.isSupported(forgeVersion);
 
-        Bootstrap.Rapport rapport;
-        if (observationSeule) {
-            rapport = new Bootstrap.Rapport(
-                    Bootstrap.Etat.DEGRADED,
-                    dev.rustforgex.diag.CodeErreur.FORGE_HORS_PLAGE,
-                    "Version de Forge « " + versionForge + " » hors de la plage supportée "
-                            + VersionForge.plageLisible()
+        Bootstrap.Report report;
+        if (observeOnly) {
+            report = new Bootstrap.Report(
+                    Bootstrap.State.DEGRADED,
+                    ErrorCode.FORGE_OUT_OF_RANGE,
+                    "Version de Forge « " + forgeVersion + " » hors de la plage supportée "
+                            + ForgeVersions.readableRange()
                             + " : RUSTFORGE-X reste en observation seule.",
                     0, null, 0, List.of());
         } else {
-            rapport = Bootstrap.demarrer(Bootstrap.Contexte.reel(racine, configuration, coteClient));
+            report = Bootstrap.start(Bootstrap.Context.real(root, configuration, clientSide));
         }
 
-        instance = new RuntimeRfx(configuration, rapport, observationSeule, PontNatif.reel());
+        instance = new RfxRuntime(configuration, report, observeOnly, NativeBridge.real());
         return instance;
     }
 
     /** @return l'instance courante, ou {@code null} si le mod n'a pas encore démarré */
-    public static RuntimeRfx instance() {
+    public static RfxRuntime instance() {
         return instance;
     }
 
@@ -88,18 +90,18 @@ public final class RuntimeRfx {
     }
 
     /** @return le rapport de démarrage produit par C-02 */
-    public Bootstrap.Rapport rapport() {
-        return rapport;
+    public Bootstrap.Report report() {
+        return report;
     }
 
     /** @return {@code true} si le runtime natif est actif */
-    public boolean actif() {
-        return !observationSeule && rapport.pret();
+    public boolean active() {
+        return !observeOnly && report.ready();
     }
 
     /** @return les avertissements de configuration, à journaliser au démarrage */
-    public List<String> avertissements() {
-        return configuration.avertissements();
+    public List<String> warnings() {
+        return configuration.warnings();
     }
 
     /**
@@ -110,23 +112,23 @@ public final class RuntimeRfx {
      *
      * @return les lignes à afficher
      */
-    public List<String> statut() {
-        return RapportStatut.composer(rapport, configuration, statutNatif(), observationSeule);
+    public List<Component> status() {
+        return StatusReport.compose(report, configuration, nativeStatus(), observeOnly);
     }
 
     /** Lit et décode le statut natif, ou renvoie {@code null} si indisponible. */
-    private Map<String, Object> statutNatif() {
-        if (!actif()) {
+    private Map<String, Object> nativeStatus() {
+        if (!active()) {
             return null;
         }
         try {
-            byte[] blob = pont.status(rapport.handle());
+            byte[] blob = bridge.status(report.handle());
             if (blob == null) {
                 return null;
             }
-            Object valeur = CborLecteur.decoder(blob);
-            return valeur instanceof Map<?, ?> ? cast(valeur) : null;
-        } catch (CborLecteur.CborInvalide | RuntimeException | LinkageError e) {
+            Object value = CborReader.decode(blob);
+            return value instanceof Map<?, ?> ? cast(value) : null;
+        } catch (CborReader.InvalidCbor | RuntimeException | LinkageError e) {
             // Un statut illisible ne doit jamais interrompre une commande de
             // diagnostic : c'est précisément dans ce cas qu'on en a besoin.
             return null;
@@ -134,8 +136,8 @@ public final class RuntimeRfx {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> cast(Object valeur) {
-        return (Map<String, Object>) valeur;
+    private static Map<String, Object> cast(Object value) {
+        return (Map<String, Object>) value;
     }
 
     /**
@@ -145,10 +147,10 @@ public final class RuntimeRfx {
      * toute façon, et une exception à cet instant masquerait la cause réelle d'un
      * éventuel arrêt anormal.
      */
-    public synchronized void arreter() {
-        if (actif()) {
+    public synchronized void shutdown() {
+        if (active()) {
             try {
-                pont.shutdown(rapport.handle());
+                bridge.shutdown(report.handle());
             } catch (RuntimeException | LinkageError e) {
                 // Rien à faire de plus : le processus s'arrête.
             }

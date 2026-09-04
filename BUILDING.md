@@ -46,12 +46,21 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 
+# vérifier les cibles que cette machine ne compile pas nativement
+# (`check` n'a pas besoin d'un éditeur de liens croisé)
+rustup target add x86_64-unknown-linux-gnu
+cargo check --target x86_64-unknown-linux-gnu
+
 # build complet du JAR (natif de la plateforme hôte inclus)
 ./gradlew build
 ```
 
 Le premier build télécharge et décompile Minecraft : comptez plusieurs minutes et
 plusieurs Go de cache dans `~/.gradle`.
+
+> Tout code placé derrière un `#[cfg(target_os = ...)]` est ignoré par le compilateur
+> local. Après un renommage transverse, le `cargo check --target` ci-dessus est le seul
+> moyen de constater qu'on n'a pas cassé une plateforme qu'on ne construit pas ici.
 
 ## Lancer le jeu en développement
 

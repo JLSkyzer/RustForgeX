@@ -22,9 +22,9 @@ import java.util.Map;
  * plutôt que d'interrompre le chargement : la configuration doit toujours aboutir à un
  * état utilisable (PARTIE 28.5).
  */
-final class TomlPlat {
+final class FlatToml {
 
-    private TomlPlat() {
+    private FlatToml() {
         throw new AssertionError("classe utilitaire, non instanciable");
     }
 
@@ -34,52 +34,52 @@ final class TomlPlat {
      * <p>Une clé hors de toute section est indexée par son seul nom, ce qui permet de
      * lire {@code schema} en tête de fichier.
      *
-     * @param contenu contenu du fichier
+     * @param content contenu du fichier
      * @return les couples chemin/valeur, dans l'ordre du fichier
      */
-    static Map<String, String> lire(String contenu) {
-        Map<String, String> valeurs = new LinkedHashMap<>();
+    static Map<String, String> read(String content) {
+        Map<String, String> values = new LinkedHashMap<>();
         String section = "";
 
-        for (String ligneBrute : contenu.split("\r?\n", -1)) {
-            String ligne = retirerCommentaire(ligneBrute).trim();
-            if (ligne.isEmpty()) {
+        for (String rawLine : content.split("\r?\n", -1)) {
+            String line = stripComment(rawLine).trim();
+            if (line.isEmpty()) {
                 continue;
             }
 
-            if (ligne.startsWith("[") && ligne.endsWith("]")) {
-                section = ligne.substring(1, ligne.length() - 1).trim();
+            if (line.startsWith("[") && line.endsWith("]")) {
+                section = line.substring(1, line.length() - 1).trim();
                 continue;
             }
 
-            int separateur = ligne.indexOf('=');
-            if (separateur <= 0) {
+            int separator = line.indexOf('=');
+            if (separator <= 0) {
                 continue;
             }
-            String cle = ligne.substring(0, separateur).trim();
-            String valeur = ligne.substring(separateur + 1).trim();
-            if (cle.isEmpty()) {
+            String key = line.substring(0, separator).trim();
+            String value = line.substring(separator + 1).trim();
+            if (key.isEmpty()) {
                 continue;
             }
-            valeurs.put(section.isEmpty() ? cle : section + "." + cle, valeur);
+            values.put(section.isEmpty() ? key : section + "." + key, value);
         }
-        return valeurs;
+        return values;
     }
 
     /**
      * Retire un commentaire de fin de ligne, sans toucher aux {@code #} entre
      * guillemets.
      */
-    private static String retirerCommentaire(String ligne) {
-        boolean dansUneChaine = false;
-        for (int i = 0; i < ligne.length(); i++) {
-            char c = ligne.charAt(i);
+    private static String stripComment(String line) {
+        boolean inString = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
             if (c == '"') {
-                dansUneChaine = !dansUneChaine;
-            } else if (c == '#' && !dansUneChaine) {
-                return ligne.substring(0, i);
+                inString = !inString;
+            } else if (c == '#' && !inString) {
+                return line.substring(0, i);
             }
         }
-        return ligne;
+        return line;
     }
 }

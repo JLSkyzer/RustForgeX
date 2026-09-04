@@ -33,7 +33,7 @@ impl RuntimeMode {
     /// Renvoie `None` si le libelle est inconnu : l'appelant applique alors le defaut
     /// et signale la valeur rejetee (PARTIE 28.5).
     #[must_use]
-    pub fn analyser(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "safe" => Some(Self::Safe),
             "balanced" => Some(Self::Balanced),
@@ -46,7 +46,7 @@ impl RuntimeMode {
 
     /// Libelle canonique du mode, tel qu'il apparait dans le fichier de configuration.
     #[must_use]
-    pub fn libelle(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Safe => "safe",
             Self::Balanced => "balanced",
@@ -59,7 +59,7 @@ impl RuntimeMode {
 
 impl core::fmt::Display for RuntimeMode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.libelle())
+        f.write_str(self.label())
     }
 }
 
@@ -102,7 +102,7 @@ impl RuntimeConfig {
     ///
     /// Renvoie [`CodecError::UnsupportedSchema`](crate::CodecError::UnsupportedSchema)
     /// si le schema differe de [`MODEL_SCHEMA_VERSION`](crate::MODEL_SCHEMA_VERSION).
-    pub fn verifier_schema(&self) -> Result<(), crate::CodecError> {
+    pub fn check_schema(&self) -> Result<(), crate::CodecError> {
         if self.schema == crate::MODEL_SCHEMA_VERSION {
             Ok(())
         } else {
@@ -119,7 +119,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn les_defauts_correspondent_a_la_partie_28() {
+    fn defaults_match_part_28() {
         let c = RuntimeConfig::default();
         assert!(c.enabled);
         assert_eq!(c.mode, RuntimeMode::Balanced);
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn tous_les_modes_font_un_aller_retour_textuel() {
+    fn every_mode_round_trips_through_text() {
         for m in [
             RuntimeMode::Safe,
             RuntimeMode::Balanced,
@@ -137,22 +137,22 @@ mod tests {
             RuntimeMode::Experimental,
             RuntimeMode::Debug,
         ] {
-            assert_eq!(RuntimeMode::analyser(m.libelle()), Some(m));
+            assert_eq!(RuntimeMode::parse(m.label()), Some(m));
         }
     }
 
     #[test]
-    fn un_mode_inconnu_est_rejete_et_non_devine() {
-        assert_eq!(RuntimeMode::analyser("turbo"), None);
-        assert_eq!(RuntimeMode::analyser("SAFE"), None);
-        assert_eq!(RuntimeMode::analyser(""), None);
+    fn unknown_mode_is_rejected_never_guessed() {
+        assert_eq!(RuntimeMode::parse("turbo"), None);
+        assert_eq!(RuntimeMode::parse("SAFE"), None);
+        assert_eq!(RuntimeMode::parse(""), None);
     }
 
     #[test]
-    fn un_schema_inconnu_est_refuse() {
+    fn unknown_schema_is_refused() {
         let mut c = RuntimeConfig::default();
-        assert!(c.verifier_schema().is_ok());
+        assert!(c.check_schema().is_ok());
         c.schema = crate::MODEL_SCHEMA_VERSION + 1;
-        assert!(c.verifier_schema().is_err());
+        assert!(c.check_schema().is_err());
     }
 }

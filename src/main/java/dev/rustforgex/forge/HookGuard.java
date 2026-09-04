@@ -12,32 +12,32 @@ import java.util.function.Consumer;
  * <p>Chaque hook de RUSTFORGE-X passe par cette garde. Une exception levée dans le
  * code du mod ne doit jamais interrompre le tick ni la séquence de chargement de
  * Forge : elle est capturée, comptée, et le hook est désactivé après
- * {@link #SEUIL_DESACTIVATION} échecs. Un hook désactivé le reste jusqu'au
- * redémarrage : un code qui échoue systématiquement coûterait plus cher qu'il ne
- * rapporte, et masquerait le défaut d'origine.
+ * {@link #DISABLE_THRESHOLD} échecs. Un hook désactivé le reste jusqu'au redémarrage :
+ * un code qui échoue systématiquement coûterait plus cher qu'il ne rapporte, et
+ * masquerait le défaut d'origine.
  *
  * <p>Métriques exposées : {@code rfx.hook.duration_ns}, {@code rfx.hook.errors}
  * (contrat agent 4.1).
  */
-public final class GardeHook {
+public final class HookGuard {
 
     /** Échecs tolérés avant désactivation définitive du hook (FM-02). */
-    public static final int SEUIL_DESACTIVATION = 5;
+    public static final int DISABLE_THRESHOLD = 5;
 
-    private final String nom;
-    private final Consumer<String> journal;
-    private final AtomicInteger echecs = new AtomicInteger();
-    private final AtomicLong appels = new AtomicLong();
-    private final AtomicLong dureeTotaleNs = new AtomicLong();
-    private volatile boolean desactive;
+    private final String name;
+    private final Consumer<String> log;
+    private final AtomicInteger failures = new AtomicInteger();
+    private final AtomicLong calls = new AtomicLong();
+    private final AtomicLong totalDurationNs = new AtomicLong();
+    private volatile boolean disabled;
 
     /**
-     * @param nom nom du hook, repris dans les journaux et les métriques
-     * @param journal destination des messages d'anomalie
+     * @param name nom du hook, repris dans les journaux et les métriques
+     * @param log destination des messages d'anomalie
      */
-    public GardeHook(String nom, Consumer<String> journal) {
-        this.nom = nom;
-        this.journal = journal;
+    public HookGuard(String name, Consumer<String> log) {
+        this.name = name;
+        this.log = log;
     }
 
     /**
@@ -46,56 +46,56 @@ public final class GardeHook {
      * @param action travail à effectuer
      * @return {@code true} si l'action s'est exécutée sans erreur
      */
-    public boolean executer(Runnable action) {
-        if (desactive) {
+    public boolean run(Runnable action) {
+        if (disabled) {
             return false;
         }
-        long debut = System.nanoTime();
+        long start = System.nanoTime();
         try {
             action.run();
             return true;
         } catch (RuntimeException | LinkageError | AssertionError e) {
-            int total = echecs.incrementAndGet();
-            journal.accept("Hook « " + nom + " » en échec (" + total + "/" + SEUIL_DESACTIVATION
+            int total = failures.incrementAndGet();
+            log.accept("Hook « " + name + " » en échec (" + total + "/" + DISABLE_THRESHOLD
                     + ") : " + e);
-            if (total >= SEUIL_DESACTIVATION) {
-                desactive = true;
-                journal.accept("Hook « " + nom + " » désactivé après " + total
+            if (total >= DISABLE_THRESHOLD) {
+                disabled = true;
+                log.accept("Hook « " + name + " » désactivé après " + total
                         + " échecs. RUSTFORGE-X continue sans lui ; le jeu n'est pas affecté.");
             }
             return false;
         } finally {
-            dureeTotaleNs.addAndGet(System.nanoTime() - debut);
-            appels.incrementAndGet();
+            totalDurationNs.addAndGet(System.nanoTime() - start);
+            calls.incrementAndGet();
         }
     }
 
     /** @return {@code true} si le hook a été désactivé après trop d'échecs */
-    public boolean desactive() {
-        return desactive;
+    public boolean disabled() {
+        return disabled;
     }
 
     /** @return le nombre d'échecs observés ({@code rfx.hook.errors}) */
-    public int echecs() {
-        return echecs.get();
+    public int failures() {
+        return failures.get();
     }
 
     /** @return le nombre d'exécutions, réussies ou non */
-    public long appels() {
-        return appels.get();
+    public long calls() {
+        return calls.get();
     }
 
     /**
      * @return la durée moyenne d'une exécution en nanosecondes
      *     ({@code rfx.hook.duration_ns}), ou {@code 0} si le hook n'a jamais servi
      */
-    public long dureeMoyenneNs() {
-        long n = appels.get();
-        return n == 0 ? 0 : dureeTotaleNs.get() / n;
+    public long averageDurationNs() {
+        long n = calls.get();
+        return n == 0 ? 0 : totalDurationNs.get() / n;
     }
 
     /** @return le nom du hook */
-    public String nom() {
-        return nom;
+    public String name() {
+        return name;
     }
 }

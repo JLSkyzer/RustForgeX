@@ -11,7 +11,7 @@ import java.util.Optional;
  * place RUSTFORGE-X en mode observation seule, avec {@code E-1001}, et aucune
  * transformation n'est entreprise.
  */
-public final class VersionForge {
+public final class ForgeVersions {
 
     /**
      * Version majeure minimale supportée, incluse.
@@ -21,12 +21,12 @@ public final class VersionForge {
      * est vérifiée par un test, pour qu'une mise à jour de l'un sans l'autre échoue au
      * build plutôt qu'à l'exécution.
      */
-    public static final int MAJEURE_MINIMALE = 47;
+    public static final int MINIMUM_MAJOR = 47;
 
     /** Première version majeure non supportée. */
-    public static final int MAJEURE_EXCLUE = 48;
+    public static final int EXCLUSIVE_MAX_MAJOR = 48;
 
-    private VersionForge() {
+    private ForgeVersions() {
         throw new AssertionError("classe utilitaire, non instanciable");
     }
 
@@ -36,19 +36,19 @@ public final class VersionForge {
      * @param version version complète, par exemple {@code 47.4.23}
      * @return la majeure, ou un résultat vide si la chaîne n'est pas exploitable
      */
-    public static Optional<Integer> majeure(String version) {
+    public static Optional<Integer> major(String version) {
         if (version == null || version.isBlank()) {
             return Optional.empty();
         }
-        int fin = 0;
-        while (fin < version.length() && Character.isDigit(version.charAt(fin))) {
-            fin++;
+        int end = 0;
+        while (end < version.length() && Character.isDigit(version.charAt(end))) {
+            end++;
         }
-        if (fin == 0) {
+        if (end == 0) {
             return Optional.empty();
         }
         try {
-            return Optional.of(Integer.parseInt(version.substring(0, fin)));
+            return Optional.of(Integer.parseInt(version.substring(0, end)));
         } catch (NumberFormatException e) {
             // Une majeure ne tenant pas dans un int ne correspond à aucune version
             // réelle de Forge : on la traite comme illisible plutôt que de la deviner.
@@ -66,14 +66,14 @@ public final class VersionForge {
      * @param version version complète rapportée par Forge
      * @return {@code true} si la version est supportée
      */
-    public static boolean estSupportee(String version) {
-        return majeure(version)
-                .filter(m -> m >= MAJEURE_MINIMALE && m < MAJEURE_EXCLUE)
+    public static boolean isSupported(String version) {
+        return major(version)
+                .filter(m -> m >= MINIMUM_MAJOR && m < EXCLUSIVE_MAX_MAJOR)
                 .isPresent();
     }
 
     /** @return la plage supportée, sous forme lisible, par exemple {@code [47,48)} */
-    public static String plageLisible() {
-        return "[" + MAJEURE_MINIMALE + "," + MAJEURE_EXCLUE + ")";
+    public static String readableRange() {
+        return "[" + MINIMUM_MAJOR + "," + EXCLUSIVE_MAX_MAJOR + ")";
     }
 }

@@ -14,6 +14,6 @@ pub mod hw;
 pub mod runtime;
 pub mod state;
 
-pub use error::{ErrorCode, Severite, OK};
+pub use error::{ErrorCode, Severity, OK};
 pub use runtime::{Runtime, ABI_VERSION};
 pub use state::RuntimeState;

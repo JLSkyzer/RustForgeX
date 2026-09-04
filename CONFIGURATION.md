@@ -87,6 +87,9 @@ En jeu, avec la permission niveau 3 :
 /rfx status
 ```
 
+La commande est traduite : les textes viennent de `assets/rustforgex/lang/fr_fr.json`
+et `en_us.json`, jamais du code. Le rapport s'affiche donc dans la langue du client.
+
 La commande affiche le mode effectif, l'état du runtime, la classe matérielle mesurée
 et la maturité de chaque composant. Un champ que la sonde n'a pas mesuré est affiché
 « non mesuré » : aucun zéro n'y passe pour une mesure.

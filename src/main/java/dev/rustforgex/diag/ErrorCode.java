@@ -9,62 +9,62 @@ package dev.rustforgex.diag;
  *
  * <p>Seuls les codes que le code Java peut réellement produire sont déclarés ici. Les
  * codes produits par le runtime natif traversent la frontière sous forme d'entiers
- * négatifs et sont interprétés par {@link #depuisCodeNatif(int)}.
+ * négatifs et sont interprétés par {@link #fromNativeCode(int)}.
  */
-public enum CodeErreur {
+public enum ErrorCode {
 
     /** {@code E-1001} : version de Forge hors plage supportée. Majeure, mène à OBSERVE_ONLY. */
-    FORGE_HORS_PLAGE(1001, Severite.MAJEURE, "version de Forge hors plage supportée"),
+    FORGE_OUT_OF_RANGE(1001, Severity.MAJOR, "version de Forge hors plage supportée"),
 
     /** {@code E-1002} : version d'ABI incompatible. Critique, mène à DISABLED. */
-    ABI_INCOMPATIBLE(1002, Severite.CRITIQUE, "version d'ABI incompatible"),
+    ABI_INCOMPATIBLE(1002, Severity.CRITICAL, "version d'ABI incompatible"),
 
     /** {@code E-1003} : hash du binaire natif invalide. Critique, mène à DISABLED. */
-    HASH_NATIF_INVALIDE(1003, Severite.CRITIQUE, "hash du binaire natif invalide"),
+    INVALID_NATIVE_DIGEST(1003, Severity.CRITICAL, "hash du binaire natif invalide"),
 
     /** {@code E-1004} : double initialisation du runtime. Majeure, la seconde est refusée. */
-    DOUBLE_INIT(1004, Severite.MAJEURE, "double initialisation du runtime"),
+    DOUBLE_INIT(1004, Severity.MAJOR, "double initialisation du runtime"),
 
     /** {@code E-1005} : binaire natif absent pour la plateforme. Majeure, mène à DEGRADED. */
-    NATIF_ABSENT(1005, Severite.MAJEURE, "binaire natif absent pour la plateforme"),
+    NATIVE_MISSING(1005, Severity.MAJOR, "binaire natif absent pour la plateforme"),
 
     /** {@code E-1006} : échec de chargement de la bibliothèque. Majeure, mène à DEGRADED. */
-    CHARGEMENT_ECHOUE(1006, Severite.MAJEURE, "échec de chargement de la bibliothèque"),
+    LOAD_FAILED(1006, Severity.MAJOR, "échec de chargement de la bibliothèque"),
 
     /** {@code E-3001} : panic Rust capturée à la frontière FFI. Majeure. */
-    PANIC_CAPTUREE(3001, Severite.MAJEURE, "panic Rust capturée à la frontière FFI"),
+    PANIC_CAUGHT(3001, Severity.MAJOR, "panic Rust capturée à la frontière FFI"),
 
     /** {@code E-3004} : invariant violé. Critique, mène à HALT avec dump. */
-    INVARIANT_VIOLE(3004, Severite.CRITIQUE, "invariant violé");
+    INVARIANT_VIOLATED(3004, Severity.CRITICAL, "invariant violé");
 
     /** Sévérité d'un code, telle que définie en annexe A.2. */
-    public enum Severite {
+    public enum Severity {
         /** Dégradation locale, le système continue. */
-        MINEURE,
+        MINOR,
         /** Fonctionnalité perdue ou sous-système désactivé. */
-        MAJEURE,
+        MAJOR,
         /** Le runtime refuse de s'activer ou s'arrête. */
-        CRITIQUE
+        CRITICAL
     }
 
-    private final int numero;
-    private final Severite severite;
+    private final int number;
+    private final Severity severity;
     private final String description;
 
-    CodeErreur(int numero, Severite severite, String description) {
-        this.numero = numero;
-        this.severite = severite;
+    ErrorCode(int number, Severity severity, String description) {
+        this.number = number;
+        this.severity = severity;
         this.description = description;
     }
 
     /** @return le numéro normatif, sans le préfixe {@code E-}. */
-    public int numero() {
-        return numero;
+    public int number() {
+        return number;
     }
 
     /** @return la sévérité définie en annexe A.2. */
-    public Severite severite() {
-        return severite;
+    public Severity severity() {
+        return severity;
     }
 
     /** @return la description courte, identique au libellé de l'annexe A.2. */
@@ -73,8 +73,8 @@ public enum CodeErreur {
     }
 
     /** @return l'identifiant normatif complet, par exemple {@code E-1003}. */
-    public String identifiant() {
-        return "E-" + numero;
+    public String id() {
+        return "E-" + number;
     }
 
     /**
@@ -84,17 +84,17 @@ public enum CodeErreur {
      * code d'erreur. Un code inconnu de cette énumération renvoie {@code null} : il
      * doit alors être journalisé tel quel plutôt que d'être assimilé à un autre code.
      *
-     * @param codeNatif valeur renvoyée par une fonction de l'ABI
+     * @param nativeCode valeur renvoyée par une fonction de l'ABI
      * @return le code correspondant, ou {@code null} si la valeur est un succès ou un
      *     code non déclaré ici
      */
-    public static CodeErreur depuisCodeNatif(int codeNatif) {
-        if (codeNatif >= 0) {
+    public static ErrorCode fromNativeCode(int nativeCode) {
+        if (nativeCode >= 0) {
             return null;
         }
-        int numero = -codeNatif;
-        for (CodeErreur c : values()) {
-            if (c.numero == numero) {
+        int wanted = -nativeCode;
+        for (ErrorCode c : values()) {
+            if (c.number == wanted) {
                 return c;
             }
         }
@@ -103,6 +103,6 @@ public enum CodeErreur {
 
     @Override
     public String toString() {
-        return identifiant() + " (" + description + ")";
+        return id() + " (" + description + ")";
     }
 }

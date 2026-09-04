@@ -37,11 +37,11 @@ pub struct ComponentStatus {
     /// Identifiant normatif du composant, par exemple `"C-27"`.
     pub id: String,
     /// Nom lisible du composant.
-    pub nom: String,
+    pub name: String,
     /// Niveau de maturite declare (contrat agent 4.1).
-    pub maturite: Maturity,
+    pub maturity: Maturity,
     /// `true` si le composant est actif dans cette execution.
-    pub actif: bool,
+    pub active: bool,
 }
 
 /// Statut global du runtime natif.
@@ -52,17 +52,17 @@ pub struct RuntimeStatus {
     /// Version de l'ABI implementee par le binaire natif charge (IF-01).
     pub abi_version: u32,
     /// Version du paquet natif (`CARGO_PKG_VERSION`).
-    pub version_native: String,
+    pub native_version: String,
     /// Etat courant du runtime : `INIT`, `RUNNING`, `DEGRADED` ou `HALTED`.
-    pub etat: String,
+    pub state: String,
     /// Nombre de panics capturees a la frontiere FFI depuis le demarrage (R-523).
     pub panics: u64,
     /// Classe materielle mesuree par C-45.
-    pub materiel: HardwareClass,
-    /// Champs de `materiel` reellement mesures.
-    pub couverture_sonde: ProbeCoverage,
+    pub hardware: HardwareClass,
+    /// Champs de `hardware` reellement mesures.
+    pub probe_coverage: ProbeCoverage,
     /// Etat des composants natifs.
-    pub composants: Vec<ComponentStatus>,
+    pub components: Vec<ComponentStatus>,
 }
 
 #[cfg(test)]
@@ -70,20 +70,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn le_statut_fait_un_aller_retour_cbor() {
+    fn status_round_trips_through_cbor() {
         let s = RuntimeStatus {
             schema: crate::MODEL_SCHEMA_VERSION,
             abi_version: 1,
-            version_native: "0.1.0".to_owned(),
-            etat: "RUNNING".to_owned(),
+            native_version: "0.1.0".to_owned(),
+            state: "RUNNING".to_owned(),
             panics: 0,
-            materiel: HardwareClass::default(),
-            couverture_sonde: ProbeCoverage::default(),
-            composants: vec![ComponentStatus {
+            hardware: HardwareClass::default(),
+            probe_coverage: ProbeCoverage::default(),
+            components: vec![ComponentStatus {
                 id: "C-27".to_owned(),
-                nom: "Rust Runtime Core".to_owned(),
-                maturite: Maturity::Stable,
-                actif: true,
+                name: "Rust Runtime Core".to_owned(),
+                maturity: Maturity::Stable,
+                active: true,
             }],
         };
         let bytes = crate::to_cbor(&s).expect("encodage");

@@ -87,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cbor_roundtrip_preserve_la_configuration() {
+    fn cbor_round_trip_preserves_the_configuration() {
         let cfg = RuntimeConfig::default();
         let bytes = to_cbor(&cfg).expect("encodage");
         let back: RuntimeConfig = from_cbor(&bytes).expect("decodage");
@@ -95,9 +95,9 @@ mod tests {
     }
 
     #[test]
-    fn decodage_d_un_blob_tronque_echoue_sans_paniquer() {
+    fn decoding_a_truncated_blob_fails_without_panicking() {
         let bytes = to_cbor(&RuntimeConfig::default()).expect("encodage");
-        let tronque = &bytes[..bytes.len() / 2];
-        assert!(from_cbor::<RuntimeConfig>(tronque).is_err());
+        let truncated = &bytes[..bytes.len() / 2];
+        assert!(from_cbor::<RuntimeConfig>(truncated).is_err());
     }
 }

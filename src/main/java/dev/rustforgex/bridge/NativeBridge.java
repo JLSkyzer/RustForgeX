@@ -16,7 +16,7 @@ import java.nio.ByteBuffer;
  * <p>Convention de retour, identique à l'ABI (R-701) : {@code 0} pour un succès, une
  * valeur négative pour un code d'erreur de l'annexe A.2.
  */
-public interface PontNatif {
+public interface NativeBridge {
 
     /** @return la version d'ABI du binaire chargé (R-702) */
     int abiVersion();
@@ -55,11 +55,11 @@ public interface PontNatif {
 
     /**
      * @param handle handle du runtime
-     * @param tampon tampon direct à faire lire au natif
-     * @param longueur nombre d'octets à lire
-     * @return un témoin de lecture, ou un code d'erreur négatif
+     * @param buffer tampon direct à faire lire au natif
+     * @param length nombre d'octets à lire
+     * @return un témoin de lecture positif, ou un code d'erreur négatif
      */
-    long transferProbe(long handle, ByteBuffer tampon, int longueur);
+    long transferProbe(long handle, ByteBuffer buffer, int length);
 
     /**
      * @param handle handle du runtime
@@ -81,8 +81,8 @@ public interface PontNatif {
      *
      * @return le pont s'appuyant sur {@link RfxNative}
      */
-    static PontNatif reel() {
-        return new PontNatif() {
+    static NativeBridge real() {
+        return new NativeBridge() {
 
             @Override
             public int abiVersion() {
@@ -115,8 +115,8 @@ public interface PontNatif {
             }
 
             @Override
-            public long transferProbe(long handle, ByteBuffer tampon, int longueur) {
-                return RfxNative.transferProbe(handle, tampon, longueur);
+            public long transferProbe(long handle, ByteBuffer buffer, int length) {
+                return RfxNative.transferProbe(handle, buffer, length);
             }
 
             @Override
