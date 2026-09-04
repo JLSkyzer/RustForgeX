@@ -1,0 +1,28 @@
+[package]
+name = "rfx-ffi"
+description = "IF-01 : points d'entree ABI du runtime natif de RUSTFORGE-X"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# Nom du binaire natif empaquete dans le JAR : rfx_native.dll / librfx_native.so
+# (cahier des charges, PARTIE 3.7).
+name = "rfx_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rfx-core = { workspace = true }
+rfx-model = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# Ce crate EST la frontiere FFI : le `unsafe` y est inevitable. Chaque fonction
+# exportee documente ses preconditions dans une section « Safety » (PARTIE 19.1).
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

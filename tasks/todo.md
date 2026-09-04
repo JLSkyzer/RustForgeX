@@ -34,34 +34,82 @@ exactement comme sans le mod, overhead mesuré proche de zéro.
 **Lire avant de coder** : fiches C-01 (5.1), C-02 (5.2), C-03 (5.3), C-27 (5.27),
 C-37 (5.35), C-45 (5.43), C-40 (5.38 / PARTIE 24-25).
 
-### 1.1 Fondations du workspace Rust
+### Étape A — Fondations du workspace Rust (C-27 squelette) — T-001
 
-- [ ] Créer `Cargo.toml` (workspace) et `rust-toolchain.toml` (version épinglée)
-- [ ] Créer les crates du jalon : `rfx-core`, `rfx-ffi`, `rfx-model` (squelettes compilables)
-- [ ] Brancher `:buildNative` / `:copyNative` / `:hashNative` dans `build.gradle` (CDC 23.2)
-- [ ] Vérifier que `./gradlew build` produit un JAR contenant `natives/<os>-<arch>/`
+- [ ] `Cargo.toml` (workspace) + `rust-toolchain.toml` (toolchain épinglée)
+- [ ] `crates/rfx-core` : `RuntimeState`, codes d'erreur `E-xxxx` (annexe A.2), `Runtime` (R-520/R-521)
+- [ ] `crates/rfx-model` : DM-14 `HardwareClass`, structure de configuration, sérialisation CBOR (R-704)
+- [ ] `crates/rfx-ffi` : `cdylib` `rfx_native`, `rfx_abi_version` / `rfx_init` / `rfx_shutdown` (IF-01)
+- [ ] `panic = "unwind"` obligatoire (R-522) + `catch_unwind` sur **chaque** point d'entrée (R-523)
+- [ ] Handle opaque validé par génération, jamais de pointeur brut (R-521)
 
-### 1.2 Composants
+### Étape B — Build natif intégré à Gradle (C-40 partiel) — T-002
 
-- [ ] **C-01** Forge Integration — abstraction du loader, points d'accroche du cycle de vie
-- [ ] **C-02** Bootstrap — séquence de démarrage, ordre d'initialisation, mode dégradé
-- [ ] **C-03** Native Loader — extraction et chargement du natif, vérification `.sha256`, fallback JAVA_ONLY si absent
-- [ ] **C-27** Rust Runtime Core — squelette : types communs, erreurs, aucune panic à travers la FFI
-- [ ] **C-37** Configuration — `<gameDir>/rustforgex/config/rustforgex.toml`, valeurs par défaut, validation (CDC PARTIE 28)
-- [ ] **C-45** Hardware Probe — détection matérielle, `HardwareClass` (DM-14)
-- [ ] **C-40** Release System — build reproductible, CI, job `lint-no-fiction` (CDC PARTIES 23-25)
-- [ ] `/rfx status` minimal (C-38 partiel) exposant état du runtime et maturité des composants
+- [ ] Tâches `buildNative` / `copyNative` / `hashNative` dans `build.gradle` (CDC 23.2)
+- [ ] Sélection de cible par plateforme hôte, `.sha256` généré à côté du binaire
+- [ ] `processResources` dépend de `hashNative` ; vérifier le JAR produit
 
-### 1.3 Definition of Done du jalon (CDC PARTIE 29)
+### Étape C — C-03 Native Loader — T-120..T-123
 
-- [ ] Tests **T-001..T-010** (fondations) verts
-- [ ] Tests **T-100..T-103** (C-01), **T-110..T-114** (C-02/C-03), **T-120..T-123** verts
-- [ ] Tests **T-480..T-482** verts
+- [ ] Extraction vers `<gameDir>/rustforgex/native/<sha256>/` (R-301, idempotent)
+- [ ] Vérification SHA-256 **avant** chargement, refus sinon (R-300, `E-1003`)
+- [ ] Repli `java.io.tmpdir` si `noexec` ou lecture seule (R-302)
+- [ ] Écriture atomique (fichier temporaire puis renommage)
+
+### Étape D — C-37 Configuration — T-007
+
+- [ ] Schéma complet de la PARTIE 28.2 : défaut, plage et description pour **chaque** clé (R-590)
+- [ ] Lecture/écriture de `<gameDir>/rustforgex/config/rustforgex.toml`, créé au premier lancement
+- [ ] Clé inconnue conservée et signalée, jamais supprimée (R-591)
+- [ ] Valeur hors plage rejetée avec message précis et remplacée par le défaut (28.5)
+- [ ] Surcharges `-Drustforgex.<section>.<clé>` prioritaires sur le fichier (28.4)
+- [ ] Clés structurelles marquées « redémarrage requis » (R-592)
+
+### Étape E — C-02 Bootstrap — T-110..T-114
+
+- [ ] Machine à états `INIT → PROBE → LOAD_NATIVE → HANDSHAKE → CONFIGURE → READY | DEGRADED | DISABLED`
+- [ ] Séquence normative en 10 étapes (5.2), aucune exception non capturée ne remonte
+- [ ] Handshake ABI : `rfx_abi_version()` avant tout autre appel (R-702), écart ⇒ `DISABLED` + `E-1002`
+- [ ] `DEGRADED` parfaitement jouable : aucune instrumentation, aucun thread supplémentaire
+- [ ] Double initialisation impossible (T-114, `E-1004`)
+
+### Étape F — C-45 Hardware Probe — T-480..T-482
+
+- [ ] Topologie (cœurs physiques/logiques), capacités SIMD, mémoire totale
+- [ ] Coût d'un aller-retour FFI mesuré sur 10 000 appels, débit de copie Java→natif
+- [ ] Durée totale de sonde < 150 ms (T-482), stabilité inter-exécutions < 20 % (T-480)
+- [ ] Aucune constante de coût codée en dur (R-660) ; tout champ non sondable est déclaré comme tel
+
+### Étape G — C-01 Forge Integration — T-100..T-103
+
+- [ ] `PlatformAdapter` (IF-10) : isole tout le reste du système de l'API Forge (P-11)
+- [ ] Attache aux deux bus, priorité HIGHEST en PRE et LOWEST en POST
+- [ ] `try/catch` obligatoire autour de chaque hook, désactivation après 5 échecs (FM-02)
+- [ ] Version de Forge hors plage ⇒ `OBSERVE_ONLY` + `E-1001` (FM-01)
+- [ ] Tick sans POST ⇒ fermeture implicite au `tick_begin` suivant (R-706, FM-03)
+- [ ] Aucun hook au-dessus de 50 µs en observation seule (critère d'acceptation)
+
+### Étape H — `/rfx status` (C-38 partiel) — T-420..T-422
+
+- [ ] Commande enregistrée via `RegisterCommandsEvent`, permission niveau 3 sur serveur (R-602)
+- [ ] Affiche état du runtime, mode, état de boot, classe matérielle, maturité des composants
+- [ ] Ne bloque pas le thread serveur plus de 5 ms (R-601)
+
+### Étape I — Qualité, CI et documentation (C-40) — T-003..T-010
+
+- [ ] Tests de fondations T-003 (lints), T-006 (aucune fiction en STABLE), T-007, T-008, T-009, T-010
+- [ ] CI : `fmt`, `lint`, `lint-no-fiction`, `build`, `test-unit`, `artifact-verify` (CDC 24.2)
+- [ ] `ARCHITECTURE.md`, `CONFIGURATION.md`, `SECURITY.md`, `INSTALLATION.md`, `RELEASING.md`, `CHANGELOG.md`
+- [ ] ADR des décisions prises pendant le jalon (à partir d'ADR-015)
+
+### Definition of Done du jalon (CDC PARTIE 29.3)
+
+- [ ] Tests **T-001..T-010**, **T-100..T-103**, **T-110..T-114**, **T-120..T-123**, **T-480..T-482** verts
 - [ ] Chaque composant expose ses métriques et son niveau de maturité (contrat 4.1)
 - [ ] Chaque chemin natif a un fallback Java testé (contrat 4.2)
 - [ ] JAR installable et jouable, client **et** serveur dédié (contrat 4.10)
 - [ ] Retirer le JAR laisse le monde parfaitement jouable
-- [ ] Overhead mesuré par le harnais, jamais estimé (contrat 3.2)
+- [ ] Aucun chiffre de performance qui ne vienne d'une mesure (contrat 3.2)
 
 ---
 

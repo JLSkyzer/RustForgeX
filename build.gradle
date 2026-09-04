@@ -168,6 +168,158 @@ dependencies {
 
 }
 
+// ---------------------------------------------------------------------------
+// C-40 : construction du binaire natif (cahier des charges, PARTIE 23.2)
+//
+// Gradle est le point d'entree unique : `:buildNative` appelle cargo, `:copyNative`
+// depose le binaire dans les ressources, `:hashNative` ecrit son SHA-256 (que C-03
+// verifie obligatoirement avant chargement, R-300) et `:nativeManifest` publie la
+// liste des plateformes incluses (PARTIE 23.5).
+//
+// Une cible native indisponible n'echoue PAS le build : le JAR est produit sans ce
+// natif et le runtime passera en DEGRADED avec un message explicite (PARTIE 23.5).
+// ---------------------------------------------------------------------------
+
+var hostOs = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+var hostArch = System.getProperty('os.arch').toLowerCase(Locale.ROOT)
+
+var nativeTarget = null
+var nativeLibName = null
+var nativeDir = null
+
+if (hostOs.contains('windows') && (hostArch == 'amd64' || hostArch == 'x86_64')) {
+    nativeTarget = 'x86_64-pc-windows-msvc'
+    nativeLibName = 'rfx_native.dll'
+    nativeDir = 'windows-x86_64'
+} else if (hostOs.contains('linux') && (hostArch == 'amd64' || hostArch == 'x86_64')) {
+    nativeTarget = 'x86_64-unknown-linux-gnu'
+    nativeLibName = 'librfx_native.so'
+    nativeDir = 'linux-x86_64'
+} else if (hostOs.contains('linux') && (hostArch == 'aarch64' || hostArch == 'arm64')) {
+    nativeTarget = 'aarch64-unknown-linux-gnu'
+    nativeLibName = 'librfx_native.so'
+    nativeDir = 'linux-aarch64'
+}
+
+var cargoDisponible = {
+    try {
+        var p = new ProcessBuilder('cargo', '--version').redirectErrorStream(true).start()
+        p.inputStream.text
+        return p.waitFor() == 0
+    } catch (Exception ignored) {
+        return false
+    }
+}()
+
+var nativesRoot = layout.projectDirectory.dir('src/main/resources/natives')
+
+tasks.register('buildNative', Exec) {
+    group = 'rustforgex'
+    description = 'Compile la bibliotheque native pour la plateforme hote'
+    workingDir rootDir
+    commandLine 'cargo', 'build', '--release', '--target', nativeTarget ?: 'inconnu'
+    onlyIf {
+        if (nativeTarget == null) {
+            logger.warn("RUSTFORGE-X : plateforme ${hostOs}/${hostArch} sans cible native definie, " +
+                    'le JAR sera produit sans binaire natif (runtime en DEGRADED).')
+            return false
+        }
+        if (!cargoDisponible) {
+            logger.warn('RUSTFORGE-X : cargo est introuvable dans le PATH, le JAR sera produit ' +
+                    'sans binaire natif (runtime en DEGRADED). Voir BUILDING.md.')
+            return false
+        }
+        return true
+    }
+}
+
+tasks.register('copyNative', Copy) {
+    group = 'rustforgex'
+    description = 'Depose le binaire natif dans les ressources du mod'
+    dependsOn 'buildNative'
+    from "target/${nativeTarget}/release/${nativeLibName}"
+    into nativesRoot.dir(nativeDir ?: 'inconnu')
+    onlyIf { nativeTarget != null && file("target/${nativeTarget}/release/${nativeLibName}").exists() }
+}
+
+tasks.register('hashNative') {
+    group = 'rustforgex'
+    description = 'Ecrit le SHA-256 du binaire natif, verifie par C-03 avant chargement'
+    dependsOn 'copyNative'
+    doLast {
+        if (nativeDir == null) {
+            return
+        }
+        var lib = nativesRoot.dir(nativeDir).file(nativeLibName).asFile
+        if (!lib.exists()) {
+            return
+        }
+        var digest = java.security.MessageDigest.getInstance('SHA-256')
+        var hex = digest.digest(lib.bytes).encodeHex().toString()
+        // Format : le condense hexadecimal minuscule seul, suivi d'un saut de ligne.
+        new File(lib.parentFile, "${nativeLibName}.sha256").text = "${hex}\n"
+        logger.lifecycle("RUSTFORGE-X : natif ${nativeDir}/${nativeLibName} (${lib.length()} octets) sha256=${hex}")
+    }
+}
+
+tasks.register('nativeManifest') {
+    group = 'rustforgex'
+    description = 'Publie la liste des plateformes natives incluses dans le JAR'
+    dependsOn 'hashNative'
+    doLast {
+        var racine = nativesRoot.asFile
+        var plateformes = []
+        if (racine.exists()) {
+            racine.listFiles()?.sort { it.name }?.each { dossier ->
+                if (!dossier.directory) {
+                    return
+                }
+                dossier.listFiles()?.sort { it.name }?.each { fichier ->
+                    if (fichier.name.endsWith('.sha256')) {
+                        return
+                    }
+                    var empreinte = new File(dossier, "${fichier.name}.sha256")
+                    plateformes << [
+                            plateforme: dossier.name,
+                            bibliotheque: fichier.name,
+                            octets: fichier.length(),
+                            sha256: empreinte.exists() ? empreinte.text.trim() : null
+                    ]
+                }
+            }
+        } else {
+            racine.mkdirs()
+        }
+        var manifeste = [
+                schema      : 1,
+                mod_version : project.version.toString(),
+                abi_version : 1,
+                plateformes : plateformes
+        ]
+        new File(racine, 'manifest.json').text = groovy.json.JsonOutput.prettyPrint(
+                groovy.json.JsonOutput.toJson(manifeste)) + '\n'
+        if (plateformes.isEmpty()) {
+            logger.warn('RUSTFORGE-X : aucun binaire natif empaquete, le runtime demarrera en DEGRADED.')
+        }
+    }
+}
+
+tasks.register('cleanNative', Delete) {
+    group = 'rustforgex'
+    description = 'Supprime les binaires natifs deposes dans les ressources'
+    delete nativesRoot
+}
+
+tasks.named('processResources').configure {
+    dependsOn 'nativeManifest'
+}
+
+// PARTIE 23.4 : deux builds du meme commit doivent produire des archives identiques.
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
 // When "copyIdeResources" is enabled, this will also run before the game launches in IDE environments.

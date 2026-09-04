@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rfx-model",
+    "crates/rfx-core",
+    "crates/rfx-ffi",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+authors = ["JLSkyzer"]
+license = "LicenseRef-AllRightsReserved"
+publish = false
+
+[workspace.dependencies]
+rfx-model = { path = "crates/rfx-model" }
+rfx-core = { path = "crates/rfx-core" }
+
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+ciborium = { version = "0.2", default-features = false }
+
+# R-522 : `panic = "unwind"` est OBLIGATOIRE. Avec `abort`, une panic Rust tuerait la
+# JVM au lieu d'etre capturee par `catch_unwind` a la frontiere FFI (C-27).
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+lto = true
+codegen-units = 1
+strip = "debuginfo"

@@ -1,0 +1,21 @@
+[package]
+name = "rfx-core"
+description = "C-27 (Rust Runtime Core) et C-45 (Hardware Probe) : etat global, erreurs, sonde materielle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# `unsafe` est autorise uniquement dans le module `hw`, pour les appels systeme de la
+# sonde materielle (C-45). Chaque bloc porte sa justification (PARTIE 19.1).
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
