@@ -46,11 +46,11 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 
 ### Étape C — IF-03 : flux de profilage
 
-- [ ] `rfx_probe_buffer_acquire` / `rfx_probe_buffer_flush`
-- [ ] `ProbeRecord` de 32 octets, little-endian, aligné 8
-- [ ] Le buffer appartient au natif ; Java ne le libère jamais (R-708)
-- [ ] Un flush n'alloue pas et ne bloque pas ; saturation ⇒ perte comptée (R-709)
-- [ ] Une seule traversée FFI par tick et par thread
+- [x] `rfx_probe_buffer_acquire` / `rfx_probe_buffer_flush`
+- [x] `ProbeRecord` de 32 octets, little-endian, aligné 8
+- [x] Le buffer appartient au natif ; Java ne le libère jamais (R-708)
+- [x] Un flush n'alloue pas et ne bloque pas ; saturation ⇒ perte comptée (R-709)
+- [x] Une seule traversée FFI par tick et par thread
 
 ### Étape D — C-04 JVM Instrumentation — T-130..T-134
 

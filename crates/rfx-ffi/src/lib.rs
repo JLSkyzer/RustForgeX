@@ -349,6 +349,65 @@ pub unsafe extern "C" fn rfx_tick_end(handle: u64, out_flags: *mut u64) -> i32 {
     })
 }
 
+// ---------------------------------------------------------------------------
+// IF-03 : flux de profilage
+// ---------------------------------------------------------------------------
+
+/// Acquiert le tampon de profilage d'un thread (IF-03).
+///
+/// Le tampon est alloue au premier appel puis reutilise. Il appartient au natif :
+/// Java y ecrit et ne le libere jamais (R-708). `out_addr` recoit son adresse et
+/// `out_cap` sa capacite en octets.
+///
+/// Un refus — budget memoire atteint, ou trop de threads deja suivis — renvoie une
+/// capacite nulle et une adresse nulle plutot qu'une erreur : ce thread ne sera pas
+/// sonde, ce qui degrade la mesure sans jamais gener le jeu.
+///
+/// # Safety
+///
+/// `out_addr` doit pointer sur un pointeur inscriptible et `out_cap` sur un `usize`
+/// inscriptible ; les deux doivent rester valides pendant l'appel.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_probe_buffer_acquire(
+    handle: u64,
+    thread_id: i32,
+    out_addr: *mut *mut u8,
+    out_cap: *mut usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if out_addr.is_null() || out_cap.is_null() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        let acquired = match runtime::with(handle, |rt| rt.acquire_probe_buffer(thread_id)) {
+            Ok(a) => a,
+            Err(e) => return e.ffi_code(),
+        };
+        let (address, capacity) = acquired.unwrap_or((std::ptr::null_mut(), 0));
+        // SAFETY : preconditions de la fonction, non nuls verifies ci-dessus.
+        unsafe {
+            out_addr.write(address);
+            out_cap.write(capacity);
+        }
+        OK
+    })
+}
+
+/// Consomme les enregistrements ecrits par un thread (IF-03).
+///
+/// `used` est le nombre d'octets que Java a ecrits depuis le debut du tampon. Un
+/// `used` superieur a la capacite signale une saturation : les enregistrements qui
+/// n'ont pas tenu sont comptes perdus (R-709). Cet appel n'alloue pas et ne bloque
+/// pas.
+#[no_mangle]
+pub extern "C" fn rfx_probe_buffer_flush(handle: u64, thread_id: i32, used: usize) -> i32 {
+    guard_with_handle(handle, || {
+        match runtime::with(handle, |rt| rt.flush_probe_buffer(thread_id, used)) {
+            Ok(_) => OK,
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
 /// Verifie le confinement des panics : declenche volontairement une panic.
 ///
 /// Sert la commande `/rfx panic-test` (C-38), disponible **uniquement** en mode

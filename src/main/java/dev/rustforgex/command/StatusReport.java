@@ -92,6 +92,15 @@ public final class StatusReport {
             }
         }
 
+        Map<String, Object> probes = mapValue(nativeStatus, "probes");
+        if (probes != null) {
+            lines.add(Component.translatable(KEY_PREFIX + "probes",
+                    longValue(probes, "records_consumed"), longValue(probes, "records_lost")));
+            lines.add(Component.translatable(KEY_PREFIX + "native_memory",
+                    longValue(probes, "native_bytes") / 1024L,
+                    longValue(probes, "native_limit_bytes") / (1024L * 1024L)));
+        }
+
         Object components = nativeStatus.get("components");
         if (components instanceof List<?> list && !list.isEmpty()) {
             lines.add(Component.translatable(KEY_PREFIX + "components"));

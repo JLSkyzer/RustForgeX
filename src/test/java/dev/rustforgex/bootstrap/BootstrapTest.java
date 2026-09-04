@@ -4,6 +4,7 @@ import dev.rustforgex.bootstrap.Bootstrap.Context;
 import dev.rustforgex.bootstrap.Bootstrap.Report;
 import dev.rustforgex.bootstrap.Bootstrap.State;
 import dev.rustforgex.bootstrap.NativeLoader.Platform;
+import dev.rustforgex.bridge.FakeNativeBridge;
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.config.Configuration;
 import dev.rustforgex.diag.ErrorCode;
@@ -35,7 +36,7 @@ class BootstrapTest {
     private static final byte[] BINARY = "binaire-natif-simule".getBytes(StandardCharsets.UTF_8);
 
     /** Pont simulé : consigne les appels et rend des codes contrôlés. */
-    private static class FakeBridge implements NativeBridge {
+    private static class FakeBridge extends FakeNativeBridge {
 
         int abi = 1;
         long handleToReturn = 0x5246_5800_0000_0001L;
@@ -56,10 +57,6 @@ class BootstrapTest {
             return handleToReturn;
         }
 
-        @Override
-        public int shutdown(long handle) {
-            return 0;
-        }
 
         @Override
         public int noop(long handle) {
@@ -80,35 +77,11 @@ class BootstrapTest {
             return 0;
         }
 
-        @Override
-        public long transferProbe(long handle, ByteBuffer buffer, int length) {
-            return length;
-        }
 
-        @Override
-        public byte[] status(long handle) {
-            return new byte[0];
-        }
 
-        @Override
-        public int panicTest(long handle) {
-            return -3001;
-        }
 
-        @Override
-        public int tickBegin(long handle, long tick, int side) {
-            return 0;
-        }
 
-        @Override
-        public int tickPhase(long handle, int phase) {
-            return 0;
-        }
 
-        @Override
-        public long tickEnd(long handle) {
-            return 0;
-        }
     }
 
     /** Source de ressources simulée contenant un binaire et son empreinte. */

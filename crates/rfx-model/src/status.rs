@@ -49,6 +49,19 @@ pub struct TickStatus {
     pub last_window_ns: u64,
 }
 
+/// Compteurs du flux de profilage (IF-03) et de la memoire native (C-31).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeStatus {
+    /// Enregistrements de sonde consommes depuis le demarrage.
+    pub records_consumed: u64,
+    /// Enregistrements perdus par saturation des tampons (R-709).
+    pub records_lost: u64,
+    /// Octets natifs actuellement reserves, tous pools confondus (R-534).
+    pub native_bytes: u64,
+    /// Plafond de memoire native, en octets (R-533).
+    pub native_limit_bytes: u64,
+}
+
 /// Etat d'un composant, tel qu'affiche par `/rfx status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentStatus {
@@ -83,6 +96,8 @@ pub struct RuntimeStatus {
     pub components: Vec<ComponentStatus>,
     /// Compteurs de la fenetre de tick (IF-02).
     pub tick: TickStatus,
+    /// Compteurs du flux de profilage et de la memoire native.
+    pub probes: ProbeStatus,
 }
 
 #[cfg(test)]
@@ -106,6 +121,7 @@ mod tests {
                 active: true,
             }],
             tick: TickStatus::default(),
+            probes: ProbeStatus::default(),
         };
         let bytes = crate::to_cbor(&s).expect("encodage");
         let back: RuntimeStatus = crate::from_cbor(&bytes).expect("decodage");

@@ -9,6 +9,8 @@
   "rustforgex.status.panics": "Panics      : %s",
   "rustforgex.status.ticks": "Ticks       : %s (unbalanced: %s)",
   "rustforgex.status.tick_anomalies": "Anomalies   : %s refused transitions, %s hooks over deadline",
+  "rustforgex.status.probes": "Probes      : %s records read, %s lost",
+  "rustforgex.status.native_memory": "Native mem. : %s KiB used of %s MiB",
   "rustforgex.status.cores": "Cores       : %s physical / %s logical",
   "rustforgex.status.memory": "Memory      : %s GiB",
   "rustforgex.status.memory_unknown": "Memory      : not measured",

@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 rfx-model = { workspace = true }
+rfx-memory = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

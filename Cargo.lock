@@ -152,6 +152,7 @@ dependencies = [
 name = "rfx-core"
 version = "0.1.0"
 dependencies = [
+ "rfx-memory",
  "rfx-model",
 ]
 

@@ -9,6 +9,8 @@
   "rustforgex.status.panics": "Panics      : %s",
   "rustforgex.status.ticks": "Ticks       : %s (déséquilibrés : %s)",
   "rustforgex.status.tick_anomalies": "Anomalies   : %s transitions refusées, %s hooks hors délai",
+  "rustforgex.status.probes": "Sondes      : %s enregistrements lus, %s perdus",
+  "rustforgex.status.native_memory": "Mémoire nat.: %s Kio utilisés sur %s Mio",
   "rustforgex.status.cores": "Cœurs       : %s physiques / %s logiques",
   "rustforgex.status.memory": "Mémoire     : %s Gio",
   "rustforgex.status.memory_unknown": "Mémoire     : non mesurée",

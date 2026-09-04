@@ -8,6 +8,7 @@ import dev.rustforgex.config.Configuration;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
 import dev.rustforgex.forge.TickCycle;
+import dev.rustforgex.instrument.ProbeSink;
 import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
@@ -36,6 +37,7 @@ public final class RfxRuntime {
     private final boolean observeOnly;
     private final NativeBridge bridge;
     private final TickCycle tickCycle;
+    private final ProbeSink probeSink;
 
     private RfxRuntime(
             Configuration configuration,
@@ -47,11 +49,14 @@ public final class RfxRuntime {
         this.report = report;
         this.observeOnly = observeOnly;
         this.bridge = bridge;
-        // Le cycle de tick n'existe que si le runtime natif tourne : sans lui, aucune
-        // fenêtre à ouvrir, et surtout aucun appel à émettre à chaque tick.
-        this.tickCycle = !observeOnly && report.ready()
+        // Le cycle de tick et le puits de sondes n'existent que si le runtime natif
+        // tourne : sans lui, aucune fenêtre à ouvrir, et surtout aucun appel à émettre
+        // à chaque tick.
+        boolean live = !observeOnly && report.ready();
+        this.probeSink = live ? new ProbeSink(bridge, report.handle()) : null;
+        this.tickCycle = live
                 ? new TickCycle(bridge, report.handle(),
-                        clientSide ? TickCycle.SIDE_CLIENT : TickCycle.SIDE_SERVER)
+                        clientSide ? TickCycle.SIDE_CLIENT : TickCycle.SIDE_SERVER, probeSink)
                 : null;
     }
 
@@ -115,6 +120,15 @@ public final class RfxRuntime {
      */
     public TickCycle tickCycle() {
         return tickCycle;
+    }
+
+    /**
+     * Puits de sondes, ou {@code null} si le runtime natif n'est pas actif.
+     *
+     * @return le puits d'enregistrements de profilage (IF-03)
+     */
+    public ProbeSink probeSink() {
+        return probeSink;
     }
 
     /** @return les avertissements de configuration, à journaliser au démarrage */

@@ -1,5 +1,6 @@
 package dev.rustforgex.forge;
 
+import dev.rustforgex.bridge.FakeNativeBridge;
 import dev.rustforgex.bridge.NativeBridge;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,7 @@ class TickCycleTest {
     private static final long HANDLE = 0x5246_5800_0000_0001L;
 
     /** Pont simulé : consigne la séquence d'appels du cycle de tick. */
-    private static final class RecordingBridge implements NativeBridge {
+    private static final class RecordingBridge extends FakeNativeBridge {
 
         final List<String> calls = new ArrayList<>();
         int beginResult;
@@ -49,52 +50,15 @@ class TickCycleTest {
             return endResult;
         }
 
-        // --- Points d'entrée sans rapport avec ce test -----------------------
 
-        @Override
-        public int abiVersion() {
-            return 1;
-        }
 
-        @Override
-        public long init(byte[] configCbor) {
-            return HANDLE;
-        }
 
-        @Override
-        public int shutdown(long handle) {
-            return 0;
-        }
 
-        @Override
-        public int noop(long handle) {
-            return 0;
-        }
 
-        @Override
-        public int hwProbe(long handle) {
-            return 0;
-        }
 
-        @Override
-        public int hwSetFfiCosts(long handle, int jniCallNs, int ffiBatchNsPerKb) {
-            return 0;
-        }
 
-        @Override
-        public long transferProbe(long handle, ByteBuffer buffer, int length) {
-            return length;
-        }
 
-        @Override
-        public byte[] status(long handle) {
-            return new byte[0];
-        }
 
-        @Override
-        public int panicTest(long handle) {
-            return -3001;
-        }
     }
 
     @Test

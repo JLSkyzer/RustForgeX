@@ -1,6 +1,7 @@
 package dev.rustforgex.forge;
 
 import dev.rustforgex.bridge.NativeBridge;
+import dev.rustforgex.instrument.ProbeSink;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -24,9 +25,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * refuserait le passage direct de {@code PRE} à {@code DRAIN}, et à juste titre — un
  * commit ne doit jamais avoir lieu avant que le jeu ait tiqué.
  *
- * <p>Cette classe ne fait <strong>que</strong> délimiter la fenêtre. Les snapshots, la
- * soumission de tâches et le commit viendront s'y insérer aux jalons qui les
- * implémentent ; à ce stade, le tick est mesuré, rien n'est transformé.
+ * <p>Le vidage des tampons de sondes a lieu pendant la phase de drain : c'est le
+ * moment où les mesures du tick sont complètes et où le natif peut les agréger. Une
+ * seule traversée de frontière par tick et par thread (R-700).
+ *
+ * <p>Les snapshots, la soumission de tâches et le commit viendront s'insérer dans la
+ * même fenêtre aux jalons qui les implémentent ; à ce stade, le tick est mesuré, rien
+ * n'est transformé.
  *
  * <p>Aucune méthode ne lève d'exception : un code d'erreur du natif est compté et
  * ignoré. Interrompre un tick de Minecraft parce qu'un compteur a refusé une
@@ -53,6 +58,7 @@ public final class TickCycle {
     private final NativeBridge bridge;
     private final long handle;
     private final int side;
+    private final ProbeSink probeSink;
     private final AtomicLong tick = new AtomicLong();
     private final AtomicLong rejectedCalls = new AtomicLong();
     private volatile boolean windowOpen;
@@ -64,9 +70,21 @@ public final class TickCycle {
      *     et {@link #SIDE_COMMON}
      */
     public TickCycle(NativeBridge bridge, long handle, int side) {
+        this(bridge, handle, side, null);
+    }
+
+    /**
+     * @param bridge pont vers le runtime natif
+     * @param handle handle du runtime, déjà initialisé
+     * @param side côté d'exécution
+     * @param probeSink puits de sondes à vider en fin de tick, ou {@code null} si le
+     *     profilage n'est pas actif
+     */
+    public TickCycle(NativeBridge bridge, long handle, int side, ProbeSink probeSink) {
         this.bridge = bridge;
         this.handle = handle;
         this.side = side;
+        this.probeSink = probeSink;
     }
 
     /**
@@ -104,6 +122,11 @@ public final class TickCycle {
             return 0;
         }
         ok(bridge.tickPhase(handle, PHASE_DRAIN));
+        if (probeSink != null) {
+            // Les mesures du tick sont complètes : c'est le moment de les remettre au
+            // natif, en une seule traversée.
+            probeSink.flush();
+        }
         ok(bridge.tickPhase(handle, PHASE_POST));
 
         long flags = bridge.tickEnd(handle);

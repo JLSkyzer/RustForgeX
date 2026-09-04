@@ -134,6 +134,28 @@ public final class RfxNative {
     public static native long tickEnd(long handle);
 
     /**
+     * Acquiert le tampon de profilage d'un thread (IF-03).
+     *
+     * <p>Le tampon appartient au natif : Java y écrit et ne le libère
+     * <strong>jamais</strong> (R-708). Il reste valide tant que le handle vit.
+     *
+     * @param handle handle du runtime
+     * @param threadId identifiant du thread, stable pour la durée de la partie
+     * @return un tampon direct, ou {@code null} si ce thread ne peut pas être sondé
+     */
+    public static native ByteBuffer probeBufferAcquire(long handle, int threadId);
+
+    /**
+     * Consomme les enregistrements écrits par un thread (IF-03).
+     *
+     * @param handle handle du runtime
+     * @param threadId identifiant du thread
+     * @param used nombre d'octets écrits depuis le début du tampon
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int probeBufferFlush(long handle, int threadId, int used);
+
+    /**
      * Vérifie le confinement des panics : provoque une panic dans le natif.
      *
      * <p>Sert la commande {@code /rfx panic-test}, disponible uniquement en mode

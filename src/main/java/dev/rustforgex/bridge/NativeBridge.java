@@ -101,6 +101,25 @@ public interface NativeBridge {
     long tickEnd(long handle);
 
     /**
+     * Acquiert le tampon de profilage d'un thread (IF-03).
+     *
+     * @param handle handle du runtime
+     * @param threadId identifiant du thread
+     * @return un tampon direct appartenant au natif, ou {@code null}
+     */
+    ByteBuffer probeBufferAcquire(long handle, int threadId);
+
+    /**
+     * Consomme les enregistrements écrits par un thread (IF-03).
+     *
+     * @param handle handle du runtime
+     * @param threadId identifiant du thread
+     * @param used nombre d'octets écrits
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    int probeBufferFlush(long handle, int threadId, int used);
+
+    /**
      * Pont vers le binaire réellement chargé.
      *
      * <p>Ne doit être instancié qu'après le chargement de la bibliothèque par C-03 :
@@ -169,6 +188,16 @@ public interface NativeBridge {
             @Override
             public long tickEnd(long handle) {
                 return RfxNative.tickEnd(handle);
+            }
+
+            @Override
+            public ByteBuffer probeBufferAcquire(long handle, int threadId) {
+                return RfxNative.probeBufferAcquire(handle, threadId);
+            }
+
+            @Override
+            public int probeBufferFlush(long handle, int threadId, int used) {
+                return RfxNative.probeBufferFlush(handle, threadId, used);
             }
         };
     }

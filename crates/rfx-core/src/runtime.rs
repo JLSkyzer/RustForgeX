@@ -8,9 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
+use rfx_memory::probe_buffer::DEFAULT_BUFFER_BYTES;
+use rfx_memory::{MemoryBudget, Pool, ProbeBufferPool};
 use rfx_model::{
-    ComponentStatus, HardwareClass, Maturity, ProbeCoverage, RuntimeConfig, RuntimeStatus, Side,
-    TickStatus,
+    ComponentStatus, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
+    RuntimeStatus, Side, TickStatus,
 };
 
 use crate::error::ErrorCode;
@@ -25,6 +27,13 @@ const PANIC_WINDOW: Duration = Duration::from_secs(60);
 
 /// Nombre de panics dans [`PANIC_WINDOW`] au-dela duquel le runtime s'arrete.
 const PANICS_BEFORE_HALT: usize = 10;
+
+/// Plafond de threads dotes d'un tampon de profilage.
+///
+/// Un modpack peut creer beaucoup de threads ; suivre chacun d'eux ferait croitre la
+/// memoire native sans borne, ce qu'interdit R-533. Au-dela, les threads
+/// supplementaires ne sont pas sondes et le refus est compte.
+const MAX_PROBED_THREADS: usize = 64;
 
 /// Etat global du runtime natif.
 ///
@@ -41,12 +50,16 @@ pub struct Runtime {
     panics: u64,
     recent_panics: Vec<Instant>,
     tick_window: TickWindow,
+    budget: MemoryBudget,
+    probe_buffers: ProbeBufferPool,
+    probe_records_consumed: u64,
 }
 
 impl Runtime {
     /// Construit le runtime a partir d'une configuration deja validee.
     #[must_use]
     pub fn new(config: RuntimeConfig) -> Self {
+        let max_native_mb = config.max_native_mb;
         Self {
             config,
             hardware: HardwareClass::default(),
@@ -55,7 +68,71 @@ impl Runtime {
             panics: 0,
             recent_panics: Vec::new(),
             tick_window: TickWindow::default(),
+            budget: MemoryBudget::new(max_native_mb),
+            probe_buffers: ProbeBufferPool::new(DEFAULT_BUFFER_BYTES, MAX_PROBED_THREADS),
+            probe_records_consumed: 0,
         }
+    }
+
+    /// Acquiert le tampon de profilage d'un thread (IF-03).
+    ///
+    /// Le tampon est alloue au premier appel et reste la propriete du natif (R-708).
+    /// Renvoie son adresse et sa capacite, ou `None` si le budget memoire ou le
+    /// plafond de threads s'y oppose — auquel cas ce thread ne sera simplement pas
+    /// sonde, ce qui degrade la mesure sans jamais gener le jeu.
+    pub fn acquire_probe_buffer(&mut self, thread_id: i32) -> Option<(*mut u8, usize)> {
+        let already_allocated = self.probe_buffers.get_mut(thread_id).is_some();
+        if !already_allocated {
+            if self
+                .budget
+                .reserve(Pool::Probes, DEFAULT_BUFFER_BYTES as u64)
+                .is_err()
+            {
+                return None;
+            }
+            if self.probe_buffers.acquire(thread_id).is_none() {
+                // Le plafond de threads a refuse : la reservation faite juste avant
+                // n'a plus d'objet.
+                self.budget
+                    .release(Pool::Probes, DEFAULT_BUFFER_BYTES as u64);
+                return None;
+            }
+        }
+        let buffer = self.probe_buffers.get_mut(thread_id)?;
+        Some((buffer.address(), buffer.capacity()))
+    }
+
+    /// Consomme les enregistrements ecrits par un thread (IF-03).
+    ///
+    /// Renvoie le nombre d'enregistrements lus. A ce jalon, ils sont comptes ; leur
+    /// agregation par `WorkId` viendra avec C-05, qui est le composant dont c'est le
+    /// role.
+    pub fn flush_probe_buffer(&mut self, thread_id: i32, used: usize) -> usize {
+        let Some(buffer) = self.probe_buffers.get_mut(thread_id) else {
+            return 0;
+        };
+        let records = buffer.flush(used);
+        let count = records.len();
+        self.probe_records_consumed = self.probe_records_consumed.saturating_add(count as u64);
+        count
+    }
+
+    /// Enregistrements de sonde consommes depuis le demarrage.
+    #[must_use]
+    pub fn probe_records_consumed(&self) -> u64 {
+        self.probe_records_consumed
+    }
+
+    /// Enregistrements perdus par saturation des tampons (R-709).
+    #[must_use]
+    pub fn probe_records_lost(&self) -> u64 {
+        self.probe_buffers.records_lost()
+    }
+
+    /// Budget memoire natif, pour les diagnostics (R-534).
+    #[must_use]
+    pub fn budget(&self) -> &MemoryBudget {
+        &self.budget
     }
 
     /// Ouvre la fenetre de tick (IF-02, `rfx_tick_begin`).
@@ -189,6 +266,12 @@ impl Runtime {
                     active: self.coverage.cores,
                 },
             ],
+            probes: ProbeStatus {
+                records_consumed: self.probe_records_consumed,
+                records_lost: self.probe_buffers.records_lost(),
+                native_bytes: self.budget.in_use(),
+                native_limit_bytes: self.budget.limit(),
+            },
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {

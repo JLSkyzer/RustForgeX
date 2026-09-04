@@ -15,7 +15,7 @@
 //! exception et renvoie le handle, toujours strictement positif, ou un code d'erreur
 //! negatif.
 
-use jni::objects::{JByteArray, JByteBuffer, JClass};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JObject};
 use jni::sys::{jbyteArray, jint, jlong};
 use jni::JNIEnv;
 
@@ -234,6 +234,55 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_tickEnd(
     // Les drapeaux tiennent sur quelques bits : la conversion ne peut pas produire
     // une valeur negative qui serait lue comme un code d'erreur.
     jlong::try_from(flags & 0x7fff_ffff_ffff_ffff).unwrap_or(0)
+}
+
+/// `RfxNative.probeBufferAcquire(long, int)` : tampon de profilage d'un thread (IF-03).
+///
+/// Renvoie un `DirectByteBuffer` pointant sur la memoire du natif, ou `null` si ce
+/// thread ne peut pas etre sonde. Java ne libere jamais ce tampon (R-708).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_probeBufferAcquire<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    thread_id: jint,
+) -> JObject<'local> {
+    let mut address: *mut u8 = std::ptr::null_mut();
+    let mut capacity: usize = 0;
+    // SAFETY : `address` et `capacity` sont des variables locales valides pendant
+    // tout l'appel.
+    let result = unsafe {
+        crate::rfx_probe_buffer_acquire(handle as u64, thread_id, &mut address, &mut capacity)
+    };
+    if result != OK || address.is_null() || capacity == 0 {
+        return JObject::null();
+    }
+    // SAFETY : l'adresse et la capacite viennent d'etre obtenues du natif, qui
+    // possede ce tampon et le maintient en vie aussi longtemps que le handle. La JVM
+    // n'en prend pas la propriete : elle se contente de l'exposer (R-708).
+    match unsafe { env.new_direct_byte_buffer(address, capacity) } {
+        Ok(buffer) => JObject::from(buffer),
+        Err(_) => JObject::null(),
+    }
+}
+
+/// `RfxNative.probeBufferFlush(long, int, int)` : consomme les enregistrements (IF-03).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_probeBufferFlush(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    thread_id: jint,
+    used: jint,
+) -> jint {
+    let Ok(used) = usize::try_from(used) else {
+        return to_jint(ErrorCode::InvalidArgument.ffi_code());
+    };
+    to_jint(crate::rfx_probe_buffer_flush(
+        handle as u64,
+        thread_id,
+        used,
+    ))
 }
 
 /// `RfxNative.panicTest(long)` : verifie le confinement des panics (mode `debug`).

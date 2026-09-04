@@ -6,6 +6,7 @@ import dev.rustforgex.bootstrap.Bootstrap.Report;
 import dev.rustforgex.bootstrap.NativeLoader.Platform;
 import dev.rustforgex.bridge.CborReader;
 import dev.rustforgex.bridge.NativeBridge;
+import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.config.Configuration;
 import dev.rustforgex.diag.ErrorCode;
 import org.junit.jupiter.api.Assumptions;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -141,6 +143,32 @@ class NativeIntegrationTest {
             // --- R-521 : un handle inconnu est rejeté ---------------------------
             assertTrue(bridge.noop(handle ^ 0xbeef) < 0, "un handle falsifié doit être rejeté");
             assertNull(bridge.status(handle ^ 0xbeef), "aucun statut pour un handle inconnu");
+
+            // --- IF-03 : le flux de profilage traverse réellement la frontière ---
+            // Un DirectByteBuffer pointant sur la mémoire du natif est exactement le
+            // genre de chose qui marche en simulation et casse en vrai : rien ne
+            // remplace un aller-retour avec le vrai binaire.
+            ByteBuffer probeBuffer = bridge.probeBufferAcquire(handle, 0);
+            assertNotNull(probeBuffer, "le natif doit fournir un tampon de sondes");
+            assertTrue(probeBuffer.isDirect(), "le tampon doit être direct (ADR-004)");
+            assertEquals(64 * 1024, probeBuffer.capacity(), "64 Kio par thread (PARTIE 5.5)");
+
+            ProbeSink sink = new ProbeSink(bridge, handle);
+            for (int i = 0; i < 10; i++) {
+                assertTrue(sink.record(i, ProbeSink.KIND_ENTER, (short) i, 1_000L + i, i * 7L),
+                        "enregistrement " + i);
+            }
+            assertEquals(10 * ProbeSink.RECORD_SIZE, sink.flush());
+
+            Map<String, Object> afterProbes = status(bridge, handle);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> probes = (Map<String, Object>) afterProbes.get("probes");
+            assertNotNull(probes, "les compteurs de profilage doivent être publiés");
+            assertEquals(10L, probes.get("records_consumed"),
+                    "le natif doit avoir décodé les dix enregistrements écrits par Java");
+            assertEquals(0L, probes.get("records_lost"));
+            assertTrue((Long) probes.get("native_bytes") >= 64 * 1024,
+                    "le tampon doit être compté dans le budget mémoire natif");
 
             // --- R-520 : la seconde initialisation est refusée -------------------
             long second = bridge.init(configuration.toNativeCbor());
