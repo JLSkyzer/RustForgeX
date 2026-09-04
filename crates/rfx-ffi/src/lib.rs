@@ -20,6 +20,8 @@
 //! pointeur nul, toute longueur aberrante et tout handle inconnu sont rejetes avant
 //! usage.
 
+pub mod jni_bridge;
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 

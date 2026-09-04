@@ -17,6 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rfx-core = { workspace = true }
 rfx-model = { workspace = true }
+jni = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"
