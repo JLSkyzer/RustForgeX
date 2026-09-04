@@ -10,20 +10,31 @@ antérieure**. Il est normatif au sens de la PARTIE 27.2 du cahier des charges.
 
 ## 0. État courant du projet
 
-**Jalon en cours : M0 (Bootstrap) — non démarré.**
+**Jalon en cours : M0 (Bootstrap) — composants livrés, jalon en cours de clôture.**
 
 | Élément | État |
 |---|---|
-| Squelette Forge (MDK 1.20.1 / Forge 47.4.23) | en place, se compile |
-| Classe d'entrée `dev.rustforgex.RustForgeX` | squelette, ne fait que logger son chargement |
-| Workspace Rust (`crates/`) | **absent** — à créer au début de M0 |
-| Composants C-01..C-53 | **aucun implémenté** |
-| Tests T-xxx | **aucun écrit** |
+| Squelette Forge (MDK 1.20.1 / Forge 47.4.23) | en place |
+| Workspace Rust (`crates/`) | `rfx-model`, `rfx-core`, `rfx-ffi` |
+| C-27 Rust Runtime Core | implémenté, `STABLE` |
+| C-45 Hardware Probe | implémenté, `STABLE` |
+| C-03 Native Loader | implémenté, `STABLE` |
+| C-02 Bootstrap | implémenté, `STABLE` |
+| C-37 Configuration | implémenté, `STABLE` (options du jalon uniquement) |
+| C-01 Forge Integration | implémenté, `STABLE` (aucun hook de tick à ce jalon) |
+| C-38 CLI | `/rfx status` seulement, `STABLE` |
+| C-40 Release System | build natif, artifact-verify et CI en place |
+| Composants C-04 à C-53 | **non implémentés** |
+| Tests | 55 côté Java, 47 côté Rust, tous verts |
 | Benchmarks B-xx | **aucun** |
 
-Aucune fonctionnalité n'est `STABLE`. Aucun chiffre de performance n'existe et aucun
-ne doit être écrit nulle part tant que le harnais de bench (C-36) n'en a pas produit
-un fichier de résultats.
+Le mod a été lancé dans Minecraft : il démarre, charge son binaire natif, mesure la
+machine, et s'arrête proprement. Aucun chiffre de performance n'existe et aucun ne
+doit être écrit nulle part tant que le harnais de bench (C-36, jalon M1) n'en a pas
+produit un fichier de résultats.
+
+**Reste à faire pour clore M0** : `INSTALLATION.md` et `RELEASING.md` (à la première
+release), et la vérification sur serveur dédié et client réels.
 
 ---
 
@@ -45,7 +56,7 @@ RustForgeX/
 ├── src/generated/resources/      sortie de datagen (tâche runData)
 ├── tasks/todo.md                 plan de travail courant
 ├── tasks/lessons.md              règles apprises + interdits du contrat agent
-└── crates/                       workspace Rust — À CRÉER (M0)
+└── crates/                       workspace Rust (rfx-model, rfx-core, rfx-ffi)
 ```
 
 > **Écart assumé au CDC** : la PARTIE 3.6 place les sources Java sous `java/src/`.
@@ -72,7 +83,7 @@ RustForgeX/
 ## 2. Construire, tester, lancer, benchmarker
 
 Prérequis : JDK 17 (téléchargé automatiquement par la toolchain Gradle), Rust stable
-épinglé par `rust-toolchain.toml` (à créer en M0), `cargo`, `rustfmt`, `clippy`.
+épinglé par `rust-toolchain.toml`, `cargo`, `rustfmt`, `clippy`.
 Commandes exactes : voir `BUILDING.md` et CDC PARTIE 23.3.
 
 ```bash

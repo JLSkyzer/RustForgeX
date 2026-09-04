@@ -20,11 +20,12 @@ se comporter exactement comme sans le mod.
 
 ## État de maturité
 
-> **M0 (Bootstrap) — non démarré.**
+> **M0 (Bootstrap) — composants livrés, jalon en cours de clôture.**
 >
-> Le dépôt contient aujourd'hui le squelette Forge, le cahier des charges versionné et
-> l'outillage de travail. **Aucun composant fonctionnel n'est implémenté.** Aucune
-> fonctionnalité n'est `STABLE`, aucun benchmark n'a été exécuté.
+> Le mod se charge dans Minecraft, extrait et vérifie sa bibliothèque native, mesure
+> la machine et expose `/rfx status`. **Il ne transforme rien** : c'est précisément ce
+> qu'attend ce jalon. Aucun benchmark n'a encore été exécuté, donc aucun gain n'est
+> annoncé.
 
 Progression détaillée : [`tasks/todo.md`](tasks/todo.md) · état pour un agent
 reprenant le projet : [`docs/AGENT.md`](docs/AGENT.md).

@@ -1,6 +1,6 @@
 # TODO — RUSTFORGE-X
 
-**Jalon courant : M0 (Bootstrap) — en cours : étapes A à F terminées, G à I restantes.**
+**Jalon courant : M0 (Bootstrap) — étapes A à I terminées ; clôture du jalon en attente de la vérification client + serveur dédié et de la première release.**
 Source de vérité : `docs/spec/RUSTFORGE-X_Cahier_des_Charges_v1.0.md`.
 
 ---
@@ -82,25 +82,25 @@ C-37 (5.35), C-45 (5.43), C-40 (5.38 / PARTIE 24-25).
 
 ### Étape G — C-01 Forge Integration — T-100..T-103
 
-- [ ] `PlatformAdapter` (IF-10) : isole tout le reste du système de l'API Forge (P-11)
-- [ ] Attache aux deux bus, priorité HIGHEST en PRE et LOWEST en POST
-- [ ] `try/catch` obligatoire autour de chaque hook, désactivation après 5 échecs (FM-02)
-- [ ] Version de Forge hors plage ⇒ `OBSERVE_ONLY` + `E-1001` (FM-01)
-- [ ] Tick sans POST ⇒ fermeture implicite au `tick_begin` suivant (R-706, FM-03)
-- [ ] Aucun hook au-dessus de 50 µs en observation seule (critère d'acceptation)
+- [x] `PlatformAdapter` (IF-10) : isole tout le reste du système de l'API Forge (P-11)
+- [x] Attache aux deux bus, priorité HIGHEST en PRE et LOWEST en POST
+- [x] `try/catch` obligatoire autour de chaque hook, désactivation après 5 échecs (FM-02)
+- [x] Version de Forge hors plage ⇒ `OBSERVE_ONLY` + `E-1001` (FM-01)
+- [x] Tick sans POST ⇒ fermeture implicite au `tick_begin` suivant (R-706, FM-03)
+- [x] Aucun hook au-dessus de 50 µs en observation seule (critère d'acceptation)
 
 ### Étape H — `/rfx status` (C-38 partiel) — T-420..T-422
 
-- [ ] Commande enregistrée via `RegisterCommandsEvent`, permission niveau 3 sur serveur (R-602)
-- [ ] Affiche état du runtime, mode, état de boot, classe matérielle, maturité des composants
-- [ ] Ne bloque pas le thread serveur plus de 5 ms (R-601)
+- [x] Commande enregistrée via `RegisterCommandsEvent`, permission niveau 3 sur serveur (R-602)
+- [x] Affiche état du runtime, mode, état de boot, classe matérielle, maturité des composants
+- [x] Ne bloque pas le thread serveur plus de 5 ms (R-601)
 
 ### Étape I — Qualité, CI et documentation (C-40) — T-003..T-010
 
-- [ ] Tests de fondations T-003 (lints), T-006 (aucune fiction en STABLE), T-007, T-008, T-009, T-010
-- [ ] CI : `fmt`, `lint`, `lint-no-fiction`, `build`, `test-unit`, `artifact-verify` (CDC 24.2)
-- [ ] `ARCHITECTURE.md`, `CONFIGURATION.md`, `SECURITY.md`, `INSTALLATION.md`, `RELEASING.md`, `CHANGELOG.md`
-- [ ] ADR des décisions prises pendant le jalon (à partir d'ADR-015)
+- [x] Tests de fondations T-003 (lints), T-006 (aucune fiction en STABLE), T-007, T-008, T-009, T-010
+- [x] CI : `fmt`, `lint`, `lint-no-fiction`, `build`, `test-unit`, `artifact-verify` (CDC 24.2)
+- [x] `ARCHITECTURE.md`, `CONFIGURATION.md`, `SECURITY.md`, `INSTALLATION.md`, `RELEASING.md`, `CHANGELOG.md`
+- [x] ADR des décisions prises pendant le jalon (à partir d'ADR-015)
 
 ### Definition of Done du jalon (CDC PARTIE 29.3)
 

@@ -316,6 +316,69 @@ tasks.register('nativeManifest') {
     }
 }
 
+// T-010 / job CI `artifact-verify` (PARTIE 24.2) : le JAR ne contient que ce qui est
+// prevu en PARTIE 3.7, aucun asset tiers, et les natifs empaquetes correspondent a
+// leur empreinte.
+tasks.register('artifactVerify') {
+    group = 'rustforgex'
+    description = 'Verifie le contenu du JAR : natifs, empreintes, absence d\'asset tiers'
+    dependsOn 'jar'
+    doLast {
+        var archive = tasks.named('jar', Jar).get().archiveFile.get().asFile
+        if (!archive.exists()) {
+            throw new GradleException("JAR introuvable : ${archive}")
+        }
+
+        // Prefixes autorises, derives du contenu attendu de l'artefact final (3.7).
+        var autorises = [
+                'META-INF/', 'dev/rustforgex/', 'natives/',
+                'assets/rustforgex/', 'data/rustforgex/',
+                'pack.mcmeta', 'rustforgex.mixins.json', 'rustforgex.refmap.json'
+        ]
+
+        var intrus = []
+        var natifs = [:]
+        var empreintes = [:]
+
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            zip.entries().each { entree ->
+                if (entree.directory) {
+                    return
+                }
+                var nom = entree.name
+                if (!autorises.any { nom == it || nom.startsWith(it) }) {
+                    intrus << nom
+                }
+                if (nom.startsWith('natives/') && nom.endsWith('.sha256')) {
+                    empreintes[nom - '.sha256'] = zip.getInputStream(entree).text.trim()
+                } else if (nom.startsWith('natives/') && !nom.endsWith('.json')) {
+                    var digest = java.security.MessageDigest.getInstance('SHA-256')
+                    natifs[nom] = digest.digest(zip.getInputStream(entree).bytes).encodeHex().toString()
+                }
+            }
+        }
+
+        if (!intrus.isEmpty()) {
+            throw new GradleException(
+                    "Le JAR contient des entrees non prevues par la PARTIE 3.7 :\n  " + intrus.join('\n  '))
+        }
+
+        natifs.each { chemin, reel ->
+            var attendu = empreintes[chemin]
+            if (attendu == null) {
+                throw new GradleException("Natif sans empreinte dans le JAR : ${chemin}")
+            }
+            if (attendu != reel) {
+                throw new GradleException(
+                        "Empreinte incorrecte pour ${chemin} : attendu ${attendu}, obtenu ${reel}")
+            }
+        }
+
+        logger.lifecycle("RUSTFORGE-X : artefact verifie (${archive.name}, ${archive.length()} octets, " +
+                "${natifs.size()} natif(s) empaquete(s) et verifie(s)).")
+    }
+}
+
 tasks.register('cleanNative', Delete) {
     group = 'rustforgex'
     description = 'Supprime les binaires natifs deposes dans les ressources'

@@ -116,9 +116,16 @@ class IntegrationNativeTest {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> couverture = (Map<String, Object>) statut.get("couverture_sonde");
+            assertTrue((Long) materiel.get("ffi_batch_ns_per_kb") > 0,
+                    "le coût de transfert doit avoir été mesuré");
+
             assertEquals(Boolean.TRUE, couverture.get("cores"));
             assertEquals(Boolean.TRUE, couverture.get("mem_total"));
             assertEquals(Boolean.TRUE, couverture.get("ffi_call"));
+            // Cette couverture n'était pas vérifiée à l'origine, et un témoin de
+            // transfert négatif — une somme dépassant i64::MAX relue comme un code
+            // d'erreur — passait donc inaperçu jusqu'à l'exécution dans le jeu.
+            assertEquals(Boolean.TRUE, couverture.get("ffi_transfer"));
 
             // --- T-360 : une panic native ne traverse pas la frontière ----------
             // La configuration est en mode debug, `/rfx panic-test` est donc autorisée.

@@ -141,9 +141,12 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_transferProbe(
     if resultat != OK {
         return jlong::from(resultat);
     }
-    // La somme n'est qu'un temoin de lecture : sa reinterpretation en `jlong` est sans
-    // consequence, l'appelant ne l'utilise que pour empecher l'elimination du calcul.
-    somme as jlong
+    // Le bit de poids fort est efface pour que le temoin reste toujours positif :
+    // l'appelant distingue un succes d'un code d'erreur par le signe, et une somme
+    // depassant `i64::MAX` serait autrement lue comme une erreur. Le temoin n'a
+    // d'autre role que d'empecher l'elimination de la lecture par l'optimiseur, sa
+    // valeur exacte n'est jamais interpretee.
+    (somme & 0x7fff_ffff_ffff_ffff) as jlong
 }
 
 /// `RfxNative.status(long)` : blob CBOR de statut, ou `null` en cas d'erreur.

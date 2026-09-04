@@ -58,6 +58,40 @@ sans accents pour contourner le shell.
 heredoc. Le shell reste réservé aux petits fichiers de configuration ASCII. Ne jamais
 dégrader l'orthographe française pour arranger un outil.
 
+### 2026-09-04 | Un témoin de retour négatif confondu avec un code d'erreur | Ne jamais faire porter deux sens à une même valeur de retour
+
+`transferProbe` renvoyait une somme de contrôle `u64` réinterprétée en `jlong`. Dès
+que la somme dépassait `i64::MAX`, elle devenait négative, et Java la lisait comme un
+code d'erreur : la mesure du débit de transfert échouait silencieusement et
+`ffi_batch_ns_per_kb` restait à 0. Les 102 tests passaient : aucun ne vérifiait la
+**couverture** `ffi_transfer`, seulement `ffi_call`. Le défaut n'est apparu qu'en
+lançant le jeu.
+
+**Règle** : sur la frontière FFI, une valeur de retour porte un seul sens. Si un
+succès doit rapporter une donnée dont le domaine recouvre celui des codes d'erreur,
+contraindre le domaine (ici, effacer le bit de signe) ou passer la donnée par un
+paramètre de sortie. Et pour chaque champ qu'un composant est censé remplir, tester
+qu'il est **effectivement** rempli, pas seulement que l'appel a réussi.
+
+### 2026-09-04 | Test vert ≠ code qui marche | Exécuter le vrai jeu avant de déclarer un jalon terminé
+
+Le bug ci-dessus et un avertissement mixin ne sont apparus qu'au premier
+`./gradlew runGameTestServer`. Les tests unitaires et le test d'intégration natif
+étaient tous verts.
+
+**Règle** : un jalon n'est pas terminé tant que le mod n'a pas été lancé dans
+Minecraft et que ses journaux n'ont pas été relus ligne à ligne. Les logs disent des
+choses que les assertions ne pensent pas à demander.
+
+### 2026-09-04 | Niveau de compatibilité mixin choisi au jugé | Vérifier la valeur admise par la version embarquée
+
+En migrant le MDK, `compatibilityLevel` a été passé de `JAVA_8` à `JAVA_17` par
+analogie avec la version du langage. Or mixin plafonne à `JAVA_13` dans Forge 47, et
+son service annonce `JAVA_16` par défaut : le lancement affichait un avertissement.
+
+**Règle** : une valeur de configuration d'un outil tiers se lit dans cet outil, pas par
+analogie. En cas de doute, lancer et lire l'avertissement.
+
 ### 2026-09-04 | `gradle.properties` est lu en ISO-8859-1 | Garder ce fichier en ASCII pur
 
 Les fichiers `.properties` sont chargés par Java en ISO-8859-1 : un caractère accentué
