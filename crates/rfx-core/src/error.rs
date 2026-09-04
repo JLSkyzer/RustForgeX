@@ -31,6 +31,12 @@ pub enum ErrorCode {
     AbiIncompatible,
     /// `E-1004` : double initialisation du runtime. Majeure, la seconde est refusee.
     DoubleInit,
+    /// `E-1201` : cout du profilage au-dessus du budget. Mineure, la profondeur
+    /// de sondage descend d'un cran (PARTIE 5.5).
+    ProfilerOverBudget,
+    /// `E-2101` : collision de `WorkId`. Majeure, les deux unites de travail sont
+    /// exclues de toute mesure et de tout offload (R-202).
+    WorkIdCollision,
     /// `E-3001` : panic Rust capturee a la frontiere FFI. Majeure.
     PanicCaught,
     /// `E-3002` : depassement du budget memoire natif. Majeure.
@@ -57,6 +63,8 @@ impl ErrorCode {
             Self::InvalidArgument => 1000,
             Self::AbiIncompatible => 1002,
             Self::DoubleInit => 1004,
+            Self::ProfilerOverBudget => 1201,
+            Self::WorkIdCollision => 2101,
             Self::PanicCaught => 3001,
             Self::MemoryBudgetExceeded => 3002,
             Self::InvariantViolated => 3004,
@@ -73,8 +81,11 @@ impl ErrorCode {
     #[must_use]
     pub fn severity(self) -> Severity {
         match self {
-            Self::InvalidArgument => Severity::Minor,
-            Self::DoubleInit | Self::PanicCaught | Self::MemoryBudgetExceeded => Severity::Major,
+            Self::InvalidArgument | Self::ProfilerOverBudget => Severity::Minor,
+            Self::DoubleInit
+            | Self::WorkIdCollision
+            | Self::PanicCaught
+            | Self::MemoryBudgetExceeded => Severity::Major,
             Self::AbiIncompatible | Self::InvariantViolated => Severity::Critical,
         }
     }
@@ -86,6 +97,8 @@ impl ErrorCode {
             Self::InvalidArgument => "argument invalide a la frontiere FFI",
             Self::AbiIncompatible => "version d'ABI incompatible",
             Self::DoubleInit => "double initialisation du runtime",
+            Self::ProfilerOverBudget => "overhead du profiler au-dessus du budget",
+            Self::WorkIdCollision => "collision de WorkId",
             Self::PanicCaught => "panic Rust capturee a la frontiere FFI",
             Self::MemoryBudgetExceeded => "depassement du budget memoire natif",
             Self::InvariantViolated => "invariant viole",
@@ -106,10 +119,12 @@ pub const OK: i32 = 0;
 mod tests {
     use super::*;
 
-    const ALL: [ErrorCode; 6] = [
+    const ALL: [ErrorCode; 8] = [
         ErrorCode::InvalidArgument,
         ErrorCode::AbiIncompatible,
         ErrorCode::DoubleInit,
+        ErrorCode::ProfilerOverBudget,
+        ErrorCode::WorkIdCollision,
         ErrorCode::PanicCaught,
         ErrorCode::MemoryBudgetExceeded,
         ErrorCode::InvariantViolated,

@@ -236,6 +236,20 @@ impl ProbeBuffer {
     /// tombe pas sur un multiple de trente-deux octets laisse un enregistrement
     /// partiel, ignore.
     pub fn flush(&mut self, used: usize) -> Vec<ProbeRecord> {
+        let mut records = Vec::new();
+        self.flush_with(used, |record| records.push(record));
+        records
+    }
+
+    /// Remet les enregistrements ecrits par Java au consommateur, sans allouer.
+    ///
+    /// R-709 exige qu'un flush n'alloue pas. Rendre un `Vec` en allouerait un par tick
+    /// et par thread ; ici, chaque enregistrement est remis a `on_record` au fil de la
+    /// lecture, et rien n'est materialise. [`Self::flush`] reste disponible pour les
+    /// usages ou une collection est commode, hors chemin de tick.
+    ///
+    /// Renvoie le nombre d'enregistrements remis.
+    pub fn flush_with<F: FnMut(ProbeRecord)>(&mut self, used: usize, mut on_record: F) -> usize {
         self.flushes = self.flushes.saturating_add(1);
 
         if used > self.capacity() {
@@ -247,14 +261,15 @@ impl ProbeBuffer {
 
         let readable = used.min(self.capacity());
         let count = readable / PROBE_RECORD_SIZE;
-        let mut records = Vec::with_capacity(count);
+        let mut consumed = 0_usize;
         for index in 0..count {
             if let Some(record) = self.record_at(index) {
-                records.push(record);
+                consumed += 1;
+                on_record(record);
             }
         }
-        self.records_consumed = self.records_consumed.saturating_add(records.len() as u64);
-        records
+        self.records_consumed = self.records_consumed.saturating_add(consumed as u64);
+        consumed
     }
 
     /// Nombre de flushes effectues.

@@ -1,0 +1,24 @@
+[package]
+name = "rfx-profiler"
+description = "C-05 : agregation des mesures, chaleur et adaptation de la profondeur"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+rfx-memory = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# `deny` et non `forbid` : la bibliotheque n'a aucun bloc `unsafe`, mais le test T-142
+# installe un allocateur global pour compter les allocations, et `GlobalAlloc` est un
+# trait `unsafe`. `forbid` interdirait meme cette derogation locale et justifiee, donc
+# la preuve de R-320 elle-meme.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

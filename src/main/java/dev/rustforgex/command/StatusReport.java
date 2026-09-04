@@ -101,6 +101,11 @@ public final class StatusReport {
                     longValue(probes, "native_limit_bytes") / (1024L * 1024L)));
         }
 
+        Map<String, Object> profiler = mapValue(nativeStatus, "profiler");
+        if (profiler != null) {
+            appendProfiler(lines, profiler);
+        }
+
         Object components = nativeStatus.get("components");
         if (components instanceof List<?> list && !list.isEmpty()) {
             lines.add(Component.translatable(KEY_PREFIX + "components"));
@@ -111,6 +116,47 @@ public final class StatusReport {
             }
         }
         return lines;
+    }
+
+    /**
+     * Ajoute les lignes décrivant le profiler (C-05).
+     *
+     * <p>Le coût du profilage n'est affiché que lorsqu'il a effectivement été mesuré :
+     * un profiler qui n'a rien vu passer afficherait sinon « 0,00 % », ce qui se lirait
+     * comme une mesure alors que ce n'en est pas une (R-660).
+     */
+    private static void appendProfiler(List<Component> lines, Map<String, Object> profiler) {
+        lines.add(Component.translatable(KEY_PREFIX + "profiler",
+                stringValue(profiler, "level"),
+                longValue(profiler, "workloads_tracked")));
+
+        boolean measured = longValue(profiler, "records_ingested") > 0
+                || longValue(profiler, "samples_ingested") > 0;
+        lines.add(measured
+                ? Component.translatable(KEY_PREFIX + "profiler_overhead",
+                        percent(longValue(profiler, "overhead_pct_x100")),
+                        percent(longValue(profiler, "mspt_pct_x100")))
+                : Component.translatable(KEY_PREFIX + "profiler_overhead_unknown"));
+
+        // Évictions, collisions et enregistrements orphelins ne sont pas le
+        // fonctionnement normal : ils ne s'affichent que lorsqu'ils se produisent.
+        long evictions = longValue(profiler, "evictions");
+        long collisions = longValue(profiler, "collisions");
+        long unknown = longValue(profiler, "records_unknown");
+        if (evictions > 0 || collisions > 0 || unknown > 0) {
+            lines.add(Component.translatable(
+                    KEY_PREFIX + "profiler_anomalies", evictions, collisions, unknown));
+        }
+    }
+
+    /**
+     * Met en forme un pourcentage transmis en centièmes.
+     *
+     * <p>Le blob de statut ne transporte que des entiers : le lecteur CBOR ne décode
+     * volontairement aucun flottant.
+     */
+    private static String percent(long hundredths) {
+        return String.format(Locale.ROOT, "%d.%02d", hundredths / 100L, hundredths % 100L);
     }
 
     /** Libellé d'état, sous forme de composant traduit. */

@@ -64,12 +64,32 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 
 ### Étape E — C-05 Profiler — T-140..T-144
 
-- [ ] Agrégation côté Rust : EWMA, histogrammes, chaleur (DM-04)
-- [ ] Adaptation `OFF → LIGHT → NORMAL → DEEP → THROTTLED`
-- [ ] Auto-mesure de l'overhead, réduction de niveau au dépassement, `E-1201`
-- [ ] Aucune allocation dans le chemin chaud (R-320, T-142)
-- [ ] Éviction LRU au-delà de `max_workloads` (R-321)
-- [ ] Fonctionne sans aucune sonde, par échantillonnage seul (R-322)
+- [x] Agrégation côté Rust : EWMA, histogrammes, chaleur (DM-04)
+- [x] Adaptation `OFF → LIGHT → NORMAL → DEEP → THROTTLED`
+- [x] Auto-mesure de l'overhead, réduction de niveau au dépassement, `E-1201`
+- [x] Aucune allocation dans le chemin chaud (R-320, T-142) — prouvé par allocateur
+      compteur, pas par relecture du code
+- [x] Éviction LRU au-delà de `max_workloads` (R-321)
+- [x] Fonctionne sans aucune sonde : le temps attribué par échantillonnage prend le
+      relais du temps mesuré (R-322)
+- [x] Points d'entrée `rfx_workload_register`, `rfx_probe_levels`, `rfx_profiler_start`
+- [x] `/rfx status` expose niveau, unités suivies, coût mesuré et anomalies
+- [ ] Le producteur d'échantillons de pile (thread à 100 Hz) reste à écrire côté Java :
+      l'agrégation les accepte déjà, personne n'en produit encore
+- [ ] `profiler.max_workloads` et `profiler.cpu_budget_pct` dans `rustforgex.toml` —
+      le code lit aujourd'hui les valeurs par défaut du cahier des charges
+
+### Étape E bis — brancher les sondes (reste de C-04)
+
+C-05 sait désormais attribuer un identifiant de sonde et piloter les niveaux : la
+condition posée pour brancher le transformateur est levée.
+
+- [ ] `ProbeRegistry` côté Java : décrire l'unité de travail, obtenir son identifiant
+- [ ] Enregistrement du transformateur — la voie exacte sur Forge 47 reste à établir et
+      demandera un ADR (un JAR de mod n'est pas dans la couche de plugins de
+      ModLauncher)
+- [ ] Rafraîchir la table des niveaux en fin de tick (`RfxProbes.setLevels`)
+- [ ] Retrait d'une sonde sur régression JIT (R-313)
 
 ### Étape F — C-06 Event Observer — T-150..T-154
 

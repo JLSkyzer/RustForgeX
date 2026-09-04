@@ -408,6 +408,122 @@ pub extern "C" fn rfx_probe_buffer_flush(handle: u64, thread_id: i32, used: usiz
     })
 }
 
+/// Valeur ecrite dans `out_probe_id` quand l'unite de travail ne sera pas sondee.
+///
+/// Ce n'est pas une erreur : le plafond d'unites suivies est atteint et aucune unite
+/// froide n'est evincable. La methode s'execute normalement, sans mesure. La valeur
+/// est hors du domaine des identifiants, bornes par `profiler.max_workloads`.
+pub const RFX_PROBE_ID_NONE: u32 = u32::MAX;
+
+/// Enregistre une unite de travail et rend son identifiant de sonde (C-05, DM-01).
+///
+/// `descriptor` est un blob CBOR decrivant un `WorkDescriptor`. Le `WorkId` est
+/// calcule ici et nulle part ailleurs : deux implementations d'un meme hachage
+/// finiraient par diverger sur un detail d'encodage (DM-01).
+///
+/// # Safety
+///
+/// `descriptor` doit pointer sur au moins `len` octets lisibles, et `out_probe_id`
+/// sur un `u32` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_workload_register(
+    handle: u64,
+    descriptor: *const u8,
+    len: usize,
+    out_probe_id: *mut u32,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if descriptor.is_null() || out_probe_id.is_null() || len == 0 || len > MAX_TRANSFER_SIZE {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : precondition de la fonction, non nul et longueur verifies ci-dessus.
+        let bytes = unsafe { std::slice::from_raw_parts(descriptor, len) };
+        let Ok(descriptor) = rfx_model::from_cbor::<rfx_model::WorkDescriptor>(bytes) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+
+        match runtime::with(handle, |rt| rt.register_workload(work_id)) {
+            Ok(probe_id) => {
+                // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+                unsafe { out_probe_id.write(probe_id.unwrap_or(RFX_PROBE_ID_NONE)) };
+                OK
+            }
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
+/// Ecrit la table des niveaux de sonde dans `out`, si elle a change (ADR-016).
+///
+/// Meme protocole en deux temps que [`rfx_status`] : `cap == 0` rend la taille
+/// requise dans `out_len`, puis un second appel avec un tampon de cette taille copie
+/// la table et la declare transmise. Une table inchangee rend `out_len == 0` : il n'y
+/// a alors rien a appliquer, et rien ne traverse la frontiere.
+///
+/// # Safety
+///
+/// `out` doit pointer sur au moins `cap` octets inscriptibles (il peut etre nul si
+/// `cap` vaut zero), et `out_len` sur un `usize` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_probe_levels(
+    handle: u64,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if out_len.is_null() || (out.is_null() && cap > 0) {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        let result = runtime::with(handle, |rt| {
+            let Some(levels) = rt.pending_probe_levels() else {
+                return (0_usize, false);
+            };
+            let required = levels.len();
+            if cap == 0 || cap < required {
+                // Rien n'est copie : la table reste en attente pour le prochain appel.
+                return (required, false);
+            }
+            // SAFETY : `out` possede au moins `cap` octets inscriptibles, `cap` est
+            // superieur ou egal a `required`, et les zones ne se recouvrent pas — la
+            // table appartient au natif, le tampon a Java.
+            unsafe { std::ptr::copy_nonoverlapping(levels.as_ptr(), out, required) };
+            (required, true)
+        });
+
+        match result {
+            Ok((required, delivered)) => {
+                if delivered {
+                    let _ = runtime::with(handle, rfx_core::Runtime::clear_pending_probe_levels);
+                } else if cap > 0 && required > cap {
+                    // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+                    unsafe { out_len.write(required) };
+                    return ErrorCode::InvalidArgument.ffi_code();
+                }
+                // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+                unsafe { out_len.write(required) };
+                OK
+            }
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
+/// Demarre le profilage (C-05, `OFF -> LIGHT`).
+///
+/// Appelee par Java quand le jeu est en etat d'etre observe. Tant qu'elle ne l'a pas
+/// ete, les sondes posees dans le bytecode restent eteintes.
+#[no_mangle]
+pub extern "C" fn rfx_profiler_start(handle: u64) -> i32 {
+    guard_with_handle(handle, || {
+        match runtime::with(handle, rfx_core::Runtime::start_profiler) {
+            Ok(()) => OK,
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
 /// Verifie le confinement des panics : declenche volontairement une panic.
 ///
 /// Sert la commande `/rfx panic-test` (C-38), disponible **uniquement** en mode
@@ -460,6 +576,149 @@ mod tests {
             OK
         );
         rfx_model::from_cbor(&buffer[..written]).expect("statut decodable")
+    }
+
+    /// Enregistre une unite de travail et rend son identifiant de sonde.
+    fn register(handle: u64, method_name: &str) -> Option<u32> {
+        let descriptor = rfx_model::WorkDescriptor {
+            owner_id: "minecraft".to_owned(),
+            class_internal_name: "net/minecraft/world/entity/Mob".to_owned(),
+            method_name: method_name.to_owned(),
+            method_descriptor: "()V".to_owned(),
+            call_context_hash: 0,
+            side: rfx_model::Side::Server,
+        };
+        let blob = rfx_model::to_cbor(&descriptor).expect("encodage");
+        let mut probe_id = RFX_PROBE_ID_NONE;
+        assert_eq!(
+            unsafe { rfx_workload_register(handle, blob.as_ptr(), blob.len(), &mut probe_id) },
+            OK
+        );
+        (probe_id != RFX_PROBE_ID_NONE).then_some(probe_id)
+    }
+
+    /// Lit la table des niveaux, ou `None` si elle n'a pas change.
+    fn read_levels(handle: u64) -> Option<Vec<u8>> {
+        let mut size = 0_usize;
+        assert_eq!(
+            unsafe { rfx_probe_levels(handle, std::ptr::null_mut(), 0, &mut size) },
+            OK
+        );
+        if size == 0 {
+            return None;
+        }
+        let mut buffer = vec![0_u8; size];
+        let mut written = 0_usize;
+        assert_eq!(
+            unsafe { rfx_probe_levels(handle, buffer.as_mut_ptr(), buffer.len(), &mut written) },
+            OK
+        );
+        buffer.truncate(written);
+        Some(buffer)
+    }
+
+    /// Le meme descripteur rend toujours le meme identifiant de sonde (R-200).
+    #[test]
+    fn registering_the_same_workload_twice_yields_the_same_probe() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+
+        let first = register(handle, "tick").expect("sonde");
+        let again = register(handle, "tick").expect("sonde");
+        let other = register(handle, "aiStep").expect("sonde");
+
+        assert_eq!(first, again);
+        assert_ne!(first, other);
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    #[test]
+    fn an_undecodable_descriptor_is_refused_without_panicking() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+
+        let garbage = [0xff_u8; 8];
+        let mut probe_id = 0_u32;
+        assert_eq!(
+            unsafe {
+                rfx_workload_register(handle, garbage.as_ptr(), garbage.len(), &mut probe_id)
+            },
+            ErrorCode::InvalidArgument.ffi_code()
+        );
+        assert_eq!(read_status(handle).panics, 0, "aucune panic n'a traverse");
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// ADR-016 : la table des niveaux ne traverse la frontiere que si elle a change.
+    #[test]
+    fn the_level_table_crosses_the_boundary_only_when_it_changed() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        assert_eq!(rfx_profiler_start(handle), OK);
+
+        register(handle, "tick").expect("sonde");
+        register(handle, "aiStep").expect("sonde");
+
+        let levels = read_levels(handle).expect("table changee");
+        assert_eq!(levels.len(), 2);
+        assert!(read_levels(handle).is_none(), "table inchangee");
+
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// Le protocole en deux temps ne consomme pas la table a l'etape de la taille.
+    #[test]
+    fn asking_for_the_level_table_size_does_not_consume_it() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        register(handle, "tick").expect("sonde");
+
+        let mut size = 0_usize;
+        assert_eq!(
+            unsafe { rfx_probe_levels(handle, std::ptr::null_mut(), 0, &mut size) },
+            OK
+        );
+        assert_eq!(size, 1);
+        assert_eq!(
+            read_levels(handle)
+                .expect("table toujours disponible")
+                .len(),
+            1
+        );
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    #[test]
+    fn a_level_buffer_too_small_is_refused_and_the_table_stays_pending() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        register(handle, "tick").expect("sonde");
+        register(handle, "aiStep").expect("sonde");
+
+        let mut tiny = [0_u8; 1];
+        let mut required = 0_usize;
+        assert_eq!(
+            unsafe { rfx_probe_levels(handle, tiny.as_mut_ptr(), tiny.len(), &mut required) },
+            ErrorCode::InvalidArgument.ffi_code()
+        );
+        assert_eq!(required, 2, "la taille requise est rendue malgre le refus");
+        assert_eq!(read_levels(handle).expect("toujours en attente").len(), 2);
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// Le statut publie les compteurs du profiler (C-05).
+    #[test]
+    fn the_status_reports_the_profiler() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        assert_eq!(rfx_profiler_start(handle), OK);
+        register(handle, "tick").expect("sonde");
+
+        let status = read_status(handle);
+        assert_eq!(status.profiler.level, "LIGHT");
+        assert_eq!(status.profiler.workloads_tracked, 1);
+        assert_eq!(status.profiler.probes_allocated, 1);
+        assert_eq!(rfx_shutdown(handle), OK);
     }
 
     #[test]

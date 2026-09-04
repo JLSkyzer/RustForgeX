@@ -32,16 +32,20 @@ arbitrages de ce document.
                            │  JNI + DirectByteBuffer (ADR-004)
 ┌──────────────────────────▼───────────────────────────────┐
 │  Rust — crates/                                          │
-│    rfx-ffi     IF-01 points d'entrée, capture des panics │
-│    rfx-core    C-27  état global, erreurs                │
-│                C-45  sonde matérielle                    │
-│    rfx-model   DM-14 modèle canonique, CBOR              │
+│    rfx-ffi      IF-01 points d'entrée, capture des panics│
+│    rfx-core     C-27  état global, erreurs, tick         │
+│                 C-45  sonde matérielle                   │
+│    rfx-profiler C-05  agrégation, chaleur, profondeur    │
+│    rfx-memory   C-31  budget natif, tampons de profilage │
+│    rfx-model    DM-xx modèle canonique, CBOR             │
 └──────────────────────────────────────────────────────────┘
 ```
 
-Le sens des dépendances est strict et vérifié : `rfx-ffi` → `rfx-core` → `rfx-model`,
-jamais l'inverse (INV-13). `rfx-core` ne connaît ni Java, ni la JVM, ni Forge :
-toute la frontière est contenue dans `rfx-ffi`.
+Le sens des dépendances est strict et vérifié : `rfx-ffi` → `rfx-core` →
+`rfx-profiler` → `rfx-memory` → `rfx-model`, jamais l'inverse (INV-13). `rfx-core` ne
+connaît ni Java, ni la JVM, ni Forge : toute la frontière est contenue dans `rfx-ffi`.
+`rfx-profiler` ne connaît pas `rfx-core` : c'est `rfx-core` qui l'appelle, journalise
+`E-1201` quand la profondeur descend, et transmet la table des niveaux à Java.
 
 ## Frontière Java ↔ natif
 

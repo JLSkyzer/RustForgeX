@@ -193,6 +193,88 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_status(
     }
 }
 
+/// `RfxNative.workloadRegister(long, byte[])` : enregistre une unite de travail.
+///
+/// Renvoie l'identifiant de sonde, positif ou nul ; `-1` si l'unite ne sera pas
+/// sondee (plafond atteint) ; un code d'erreur de l'annexe A.2, donc inferieur ou
+/// egal a `-1000`, en cas d'echec. Les trois domaines sont disjoints : un identifiant
+/// de sonde est borne par `profiler.max_workloads`, tres en deca de mille.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_workloadRegister(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    descriptor_cbor: JByteArray,
+) -> jint {
+    let Ok(bytes) = env.convert_byte_array(&descriptor_cbor) else {
+        return to_jint(ErrorCode::InvalidArgument.ffi_code());
+    };
+    let mut probe_id: u32 = crate::RFX_PROBE_ID_NONE;
+    // SAFETY : `bytes` est un `Vec<u8>` vivant de longueur exacte, et `probe_id` une
+    // variable locale ; les deux restent valides pendant tout l'appel.
+    let result = unsafe {
+        crate::rfx_workload_register(handle as u64, bytes.as_ptr(), bytes.len(), &mut probe_id)
+    };
+    if result != OK {
+        return to_jint(result);
+    }
+    if probe_id == crate::RFX_PROBE_ID_NONE {
+        return -1;
+    }
+    jint::try_from(probe_id).unwrap_or(-1)
+}
+
+/// `RfxNative.probeLevels(long)` : table des niveaux, ou `null` si elle n'a pas change.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_probeLevels(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jbyteArray {
+    let null_array: jbyteArray = std::ptr::null_mut();
+
+    let mut size: usize = 0;
+    // SAFETY : tampon nul avec capacite nulle, forme explicitement admise par
+    // `rfx_probe_levels` pour interroger la taille requise ; `size` est une locale.
+    let result =
+        unsafe { crate::rfx_probe_levels(handle as u64, std::ptr::null_mut(), 0, &mut size) };
+    if result != OK || size == 0 {
+        return null_array;
+    }
+
+    let mut buffer = vec![0_u8; size];
+    let mut written: usize = 0;
+    // SAFETY : `buffer` possede exactement `size` octets inscriptibles et vit au-dela
+    // de l'appel.
+    let result = unsafe {
+        crate::rfx_probe_levels(
+            handle as u64,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut written,
+        )
+    };
+    if result != OK {
+        return null_array;
+    }
+    buffer.truncate(written);
+
+    match env.byte_array_from_slice(&buffer) {
+        Ok(array) => array.into_raw(),
+        Err(_) => null_array,
+    }
+}
+
+/// `RfxNative.profilerStart(long)` : demarre le profilage (C-05).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_profilerStart(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    to_jint(crate::rfx_profiler_start(handle as u64))
+}
+
 /// `RfxNative.tickBegin(long, long, int)` : ouvre la fenetre de tick (IF-02).
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_tickBegin(

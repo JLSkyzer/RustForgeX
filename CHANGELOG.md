@@ -6,6 +6,34 @@ Versionnement : cahier des charges, PARTIE 25.1.
 
 ## [Non publié]
 
+### Jalon M1 — Observation (en cours)
+
+Le mod observe : il ouvre une fenêtre de tick, reçoit des mesures, les agrège par
+unité de travail et adapte la profondeur de son observation à ce qu'elle coûte.
+**Aucune décision d'optimisation n'est prise** — ce n'est pas l'objet de ce jalon.
+
+#### Ajouté
+
+- **DM-01 `WorkId`** — identifiant stable d'une unité de travail, calculé une seule
+  fois, côté natif, selon `WORKID_V1`.
+- **DM-04 `WorkloadDynamics`** — moyennes mobiles, histogrammes logarithmiques de
+  taille fixe, classe de chaleur et classe de variance.
+- **SM-04 / IF-02** — fenêtre de tick, ses phases et ses compteurs d'anomalies.
+- **C-31 Memory Manager (partiel)** — budget mémoire natif par pool et tampons de
+  profilage alignés sur la ligne de cache.
+- **IF-03** — tampons de profilage possédés par le natif, un par thread, vidés une
+  fois par tick.
+- **C-04 Bytecode Instrumentation (partiel)** — injection `enter`/`exit` sous
+  `try/finally`, éligibilité conservatrice, niveau de sonde lu à l'exécution
+  (ADR-016).
+- **C-05 Profiler** — agrégation par `WorkId`, chaleur, adaptation
+  `OFF → LIGHT → NORMAL → DEEP → THROTTLED`, auto-mesure du coût du profilage et
+  réduction automatique de profondeur au dépassement (`E-1201`), éviction LRU des
+  unités froides (R-321), attribution par échantillonnage en l'absence de sonde
+  (R-322).
+- **`/rfx status`** — niveau du profiler, unités suivies, coût mesuré du profilage et
+  anomalies, affichés seulement lorsqu'ils existent.
+
 ### Jalon M0 — Bootstrap
 
 Premier jalon : le mod se charge, charge sa bibliothèque native, mesure la machine et

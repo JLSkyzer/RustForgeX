@@ -154,6 +154,7 @@ version = "0.1.0"
 dependencies = [
  "rfx-memory",
  "rfx-model",
+ "rfx-profiler",
 ]
 
 [[package]]
@@ -176,6 +177,14 @@ dependencies = [
  "ciborium",
  "serde",
  "xxhash-rust",
+]
+
+[[package]]
+name = "rfx-profiler"
+version = "0.1.0"
+dependencies = [
+ "rfx-memory",
+ "rfx-model",
 ]
 
 [[package]]

@@ -14,6 +14,7 @@ use rfx_model::{
     ComponentStatus, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
     RuntimeStatus, Side, TickStatus,
 };
+use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
@@ -53,6 +54,25 @@ pub struct Runtime {
     budget: MemoryBudget,
     probe_buffers: ProbeBufferPool,
     probe_records_consumed: u64,
+    profiler: Profiler,
+    /// Instant d'ouverture du tick precedent, pour mesurer la periode reelle.
+    ///
+    /// La periode n'est pas la duree du tick : entre deux ticks, le serveur dort. Le
+    /// budget « part d'un cœur » du profiler se calcule sur la periode, celui de MSPT
+    /// sur la duree utile (C-05).
+    last_tick_begin: Option<Instant>,
+    /// Duree ecoulee entre les deux dernieres ouvertures de tick, en nanosecondes.
+    last_period_ns: u64,
+    /// Temps passe dans le profilage pendant le tick courant, en nanosecondes.
+    profiling_ns_this_tick: u64,
+    /// Depassements du budget de profilage constates (`E-1201`).
+    profiler_over_budget: u64,
+    /// Table des niveaux prete a partir vers Java, en attente d'etre reclamee.
+    ///
+    /// Le protocole FFI se fait en deux temps — demander la taille, puis le contenu —
+    /// et le profiler ne signale un changement qu'une fois. Sans cette file d'attente,
+    /// la premiere etape consommerait le changement et la seconde ne rendrait rien.
+    pending_levels: Option<Vec<u8>>,
 }
 
 impl Runtime {
@@ -71,6 +91,12 @@ impl Runtime {
             budget: MemoryBudget::new(max_native_mb),
             probe_buffers: ProbeBufferPool::new(DEFAULT_BUFFER_BYTES, MAX_PROBED_THREADS),
             probe_records_consumed: 0,
+            profiler: Profiler::new(ProfilerConfig::default()),
+            last_tick_begin: None,
+            last_period_ns: 0,
+            profiling_ns_this_tick: 0,
+            profiler_over_budget: 0,
+            pending_levels: None,
         }
     }
 
@@ -102,19 +128,70 @@ impl Runtime {
         Some((buffer.address(), buffer.capacity()))
     }
 
-    /// Consomme les enregistrements ecrits par un thread (IF-03).
+    /// Consomme les enregistrements ecrits par un thread (IF-03) et les agrege (C-05).
     ///
-    /// Renvoie le nombre d'enregistrements lus. A ce jalon, ils sont comptes ; leur
-    /// agregation par `WorkId` viendra avec C-05, qui est le composant dont c'est le
-    /// role.
+    /// Renvoie le nombre d'enregistrements lus. Le temps passe ici compte comme du
+    /// temps de profilage : c'est precisement ce que l'auto-mesure de C-05 doit voir.
     pub fn flush_probe_buffer(&mut self, thread_id: i32, used: usize) -> usize {
+        let started = Instant::now();
+        // Emprunts disjoints de deux champs : le tampon est lu pendant que le profiler
+        // agrege, sans collection intermediaire (R-709).
+        let profiler = &mut self.profiler;
         let Some(buffer) = self.probe_buffers.get_mut(thread_id) else {
             return 0;
         };
-        let records = buffer.flush(used);
-        let count = records.len();
+        let count = buffer.flush_with(used, |record| profiler.ingest(&record));
         self.probe_records_consumed = self.probe_records_consumed.saturating_add(count as u64);
+        self.profiling_ns_this_tick = self
+            .profiling_ns_this_tick
+            .saturating_add(duration_ns(started.elapsed()));
         count
+    }
+
+    /// Enregistre une unite de travail et rend son identifiant de sonde (C-05).
+    ///
+    /// Renvoie `None` si le plafond d'unites suivies est atteint sans qu'aucune unite
+    /// froide ne soit evincable : la methode n'est alors pas sondee.
+    pub fn register_workload(&mut self, work_id: rfx_model::WorkId) -> Option<u32> {
+        self.profiler.register(work_id)
+    }
+
+    /// Signale une collision de `WorkId` (R-202, `E-2101`).
+    pub fn report_workload_collision(&mut self, work_id: rfx_model::WorkId) {
+        self.profiler.report_collision(work_id);
+    }
+
+    /// Table des niveaux de sonde en attente, si elle a change (ADR-016).
+    ///
+    /// Appelable plusieurs fois : tant que la table n'a pas ete reclamee par
+    /// [`Self::clear_pending_probe_levels`], elle reste disponible.
+    pub fn pending_probe_levels(&mut self) -> Option<&[u8]> {
+        if self.pending_levels.is_none() {
+            self.pending_levels = self.profiler.take_levels();
+        }
+        self.pending_levels.as_deref()
+    }
+
+    /// Declare la table des niveaux transmise a Java.
+    pub fn clear_pending_probe_levels(&mut self) {
+        self.pending_levels = None;
+    }
+
+    /// Profiler (C-05), pour inspection.
+    #[must_use]
+    pub fn profiler(&self) -> &Profiler {
+        &self.profiler
+    }
+
+    /// Demarre le profilage (`OFF -> LIGHT`).
+    pub fn start_profiler(&mut self) {
+        self.profiler.start();
+    }
+
+    /// Depassements du budget de profilage constates depuis le demarrage (`E-1201`).
+    #[must_use]
+    pub fn profiler_over_budget(&self) -> u64 {
+        self.profiler_over_budget
     }
 
     /// Enregistrements de sonde consommes depuis le demarrage.
@@ -138,6 +215,11 @@ impl Runtime {
     /// Ouvre la fenetre de tick (IF-02, `rfx_tick_begin`).
     pub fn tick_begin(&mut self, tick: u64, side: Side, now: Instant) {
         self.tick_window.begin(tick, side, now);
+        self.last_period_ns = self
+            .last_tick_begin
+            .map_or(0, |previous| duration_ns(now.duration_since(previous)));
+        self.last_tick_begin = Some(now);
+        self.profiling_ns_this_tick = 0;
     }
 
     /// Declare une transition de phase (IF-02, `rfx_phase`).
@@ -152,7 +234,20 @@ impl Runtime {
     ///
     /// Renvoie `false` si aucun tick n'etait ouvert.
     pub fn tick_end(&mut self, now: Instant) -> bool {
-        self.tick_window.end(now)
+        if !self.tick_window.end(now) {
+            // Aucun tick n'etait ouvert : il n'y a pas de cout de tick a attribuer, et
+            // cloturer une fenetre de profilage inexistante fausserait la mesure.
+            return false;
+        }
+        let report = self.profiler.end_tick(TickCost {
+            profiling_ns: self.profiling_ns_this_tick,
+            tick_ns: self.tick_window.metrics().last_window_ns,
+            period_ns: self.last_period_ns,
+        });
+        if report.over_budget {
+            self.profiler_over_budget = self.profiler_over_budget.saturating_add(1);
+        }
+        true
     }
 
     /// Comptabilise la duree d'un appel `rfx_tick_*` (R-707).
@@ -272,6 +367,7 @@ impl Runtime {
                 native_bytes: self.budget.in_use(),
                 native_limit_bytes: self.budget.limit(),
             },
+            profiler: self.profiler.status(),
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {
@@ -284,6 +380,11 @@ impl Runtime {
             },
         }
     }
+}
+
+/// Duree en nanosecondes, saturee a `u64::MAX`.
+fn duration_ns(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 // ---------------------------------------------------------------------------

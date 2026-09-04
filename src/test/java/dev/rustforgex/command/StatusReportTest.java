@@ -38,6 +38,31 @@ class StatusReportTest {
     }
 
     private static Map<String, Object> nativeStatus(boolean costsMeasured, boolean l3Measured) {
+        return nativeStatus(costsMeasured, l3Measured, profiler("LIGHT", 0L, 0L, 0L));
+    }
+
+    /** Compteurs du profiler (C-05), tels que le natif les publie. */
+    private static Map<String, Object> profiler(
+            String level, long workloads, long recordsIngested, long evictions) {
+        Map<String, Object> profiler = new LinkedHashMap<>();
+        profiler.put("level", level);
+        profiler.put("workloads_tracked", workloads);
+        profiler.put("probes_allocated", workloads);
+        profiler.put("overhead_pct_x100", 42L);
+        profiler.put("mspt_pct_x100", 7L);
+        profiler.put("records_ingested", recordsIngested);
+        profiler.put("records_unknown", 0L);
+        profiler.put("records_ignored", 0L);
+        profiler.put("samples_ingested", 0L);
+        profiler.put("evictions", evictions);
+        profiler.put("collisions", 0L);
+        profiler.put("zero_duration_exits", 0L);
+        profiler.put("level_changes", 1L);
+        return profiler;
+    }
+
+    private static Map<String, Object> nativeStatus(
+            boolean costsMeasured, boolean l3Measured, Map<String, Object> profiler) {
         Map<String, Object> simd = new LinkedHashMap<>();
         simd.put("sse2", Boolean.TRUE);
         simd.put("avx2", Boolean.TRUE);
@@ -79,6 +104,7 @@ class StatusReportTest {
         status.put("hardware", hardware);
         status.put("probe_coverage", coverage);
         status.put("components", List.of(component));
+        status.put("profiler", profiler);
         return status;
     }
 
@@ -156,6 +182,50 @@ class StatusReportTest {
     }
 
     @Test
+    @DisplayName("C-05 : le profiler est exposé avec son niveau et ses unités suivies")
+    void profilerIsReported() {
+        List<Component> lines = StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("NORMAL", 12L, 4_000L, 0L)), false);
+
+        assertTrue(keysOf(lines).contains("rustforgex.status.profiler"), keysOf(lines).toString());
+        assertArrayEqualsAsStrings(
+                new Object[] {"NORMAL", 12L}, argumentsOf(lines, "rustforgex.status.profiler"));
+        assertArrayEqualsAsStrings(
+                new Object[] {"0.42", "0.07"},
+                argumentsOf(lines, "rustforgex.status.profiler_overhead"));
+    }
+
+    @Test
+    @DisplayName("R-660 : un coût de profilage jamais mesuré n'est pas affiché comme nul")
+    void unmeasuredProfilingCostUsesItsOwnKey() {
+        List<String> keys = keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("OFF", 0L, 0L, 0L)), false));
+
+        assertTrue(keys.contains("rustforgex.status.profiler_overhead_unknown"), keys.toString());
+        assertFalse(keys.contains("rustforgex.status.profiler_overhead"),
+                "un profiler qui n'a rien vu passer n'a pas mesuré 0,00 %");
+    }
+
+    @Test
+    @DisplayName("Les anomalies du profiler ne s'affichent que lorsqu'elles se produisent")
+    void profilerAnomaliesAreOnlyShownWhenTheyHappen() {
+        List<String> quiet = keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("NORMAL", 3L, 100L, 0L)), false));
+        assertFalse(quiet.contains("rustforgex.status.profiler_anomalies"), quiet.toString());
+
+        List<Component> noisy = StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("NORMAL", 3L, 100L, 5L)), false);
+        assertTrue(keysOf(noisy).contains("rustforgex.status.profiler_anomalies"));
+        assertArrayEqualsAsStrings(
+                new Object[] {5L, 0L, 0L},
+                argumentsOf(noisy, "rustforgex.status.profiler_anomalies"));
+    }
+
+    @Test
     @DisplayName("Le mode dégradé est signalé avec sa cause")
     void degradedStatus() {
         Bootstrap.Report degraded = new Bootstrap.Report(
@@ -209,6 +279,9 @@ class StatusReportTest {
                 readyReport(), Configuration.defaults(), nativeStatus(false, false), false)));
         used.addAll(keysOf(StatusReport.compose(
                 readyReport(), Configuration.defaults(), null, true)));
+        used.addAll(keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("NORMAL", 3L, 100L, 5L)), false)));
         used.add("rustforgex.status.not_started");
         used.add("rustforgex.state.disabled");
 
