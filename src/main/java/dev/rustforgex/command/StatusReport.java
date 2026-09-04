@@ -79,6 +79,19 @@ public final class StatusReport {
             appendHardware(lines, hardware, coverage);
         }
 
+        Map<String, Object> tick = mapValue(nativeStatus, "tick");
+        if (tick != null) {
+            lines.add(Component.translatable(KEY_PREFIX + "ticks",
+                    longValue(tick, "ticks"), longValue(tick, "unbalanced")));
+            // Une transition refusée ou un hook trop long ne sont pas des anomalies
+            // de fonctionnement : ils ne s'affichent que lorsqu'ils se produisent.
+            if (longValue(tick, "invalid_transitions") > 0 || longValue(tick, "hook_budget_exceeded") > 0) {
+                lines.add(Component.translatable(KEY_PREFIX + "tick_anomalies",
+                        longValue(tick, "invalid_transitions"),
+                        longValue(tick, "hook_budget_exceeded")));
+            }
+        }
+
         Object components = nativeStatus.get("components");
         if (components instanceof List<?> list && !list.isEmpty()) {
             lines.add(Component.translatable(KEY_PREFIX + "components"));

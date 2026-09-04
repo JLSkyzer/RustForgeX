@@ -7,6 +7,7 @@ import dev.rustforgex.command.StatusReport;
 import dev.rustforgex.config.Configuration;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
+import dev.rustforgex.forge.TickCycle;
 import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
@@ -34,16 +35,24 @@ public final class RfxRuntime {
     private final Bootstrap.Report report;
     private final boolean observeOnly;
     private final NativeBridge bridge;
+    private final TickCycle tickCycle;
 
     private RfxRuntime(
             Configuration configuration,
             Bootstrap.Report report,
             boolean observeOnly,
-            NativeBridge bridge) {
+            NativeBridge bridge,
+            boolean clientSide) {
         this.configuration = configuration;
         this.report = report;
         this.observeOnly = observeOnly;
         this.bridge = bridge;
+        // Le cycle de tick n'existe que si le runtime natif tourne : sans lui, aucune
+        // fenêtre à ouvrir, et surtout aucun appel à émettre à chaque tick.
+        this.tickCycle = !observeOnly && report.ready()
+                ? new TickCycle(bridge, report.handle(),
+                        clientSide ? TickCycle.SIDE_CLIENT : TickCycle.SIDE_SERVER)
+                : null;
     }
 
     /**
@@ -75,7 +84,7 @@ public final class RfxRuntime {
             report = Bootstrap.start(Bootstrap.Context.real(root, configuration, clientSide));
         }
 
-        instance = new RfxRuntime(configuration, report, observeOnly, NativeBridge.real());
+        instance = new RfxRuntime(configuration, report, observeOnly, NativeBridge.real(), clientSide);
         return instance;
     }
 
@@ -97,6 +106,15 @@ public final class RfxRuntime {
     /** @return {@code true} si le runtime natif est actif */
     public boolean active() {
         return !observeOnly && report.ready();
+    }
+
+    /**
+     * Cycle de tick, ou {@code null} si le runtime natif n'est pas actif.
+     *
+     * @return le pilote de la fenêtre de tick (IF-02)
+     */
+    public TickCycle tickCycle() {
+        return tickCycle;
     }
 
     /** @return les avertissements de configuration, à journaliser au démarrage */

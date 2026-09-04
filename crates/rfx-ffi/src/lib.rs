@@ -26,8 +26,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use rfx_core::error::{ErrorCode, OK};
+use rfx_core::tick::TickPhase;
 use rfx_core::{hw, runtime, ABI_VERSION};
-use rfx_model::{RuntimeConfig, RuntimeMode};
+use rfx_model::{RuntimeConfig, RuntimeMode, Side};
 
 /// Taille maximale acceptee pour le blob de configuration, en octets.
 ///
@@ -247,6 +248,103 @@ pub unsafe extern "C" fn rfx_status(
         // superieur ou egal a la longueur copiee ; les zones ne se recouvrent pas,
         // `blob` etant une allocation locale.
         unsafe { std::ptr::copy_nonoverlapping(blob.as_ptr(), out, blob.len()) };
+        OK
+    })
+}
+
+// ---------------------------------------------------------------------------
+// IF-02 : cycle de tick
+// ---------------------------------------------------------------------------
+
+/// Execute une operation du cycle de tick en mesurant sa propre duree (R-707).
+///
+/// `rfx_tick_*` ne doit jamais retenir le thread autoritatif au-dela de
+/// `tick.max_hook_ns`. La mesure est prise ici, au plus pres de l'appel, et le
+/// depassement est compte dans la fenetre de tick.
+fn timed_tick_op(handle: u64, op: impl FnOnce(&mut rfx_core::Runtime) -> i32) -> i32 {
+    let started = Instant::now();
+    let outcome = runtime::with(handle, |rt| {
+        let code = op(rt);
+        rt.record_hook(started.elapsed());
+        code
+    });
+    match outcome {
+        Ok(code) => code,
+        Err(e) => e.ffi_code(),
+    }
+}
+
+/// Convertit le code de cote transmis par Java.
+fn side_from_code(code: i32) -> Option<Side> {
+    match code {
+        0 => Some(Side::Client),
+        1 => Some(Side::Server),
+        2 => Some(Side::Common),
+        _ => None,
+    }
+}
+
+/// Ouvre la fenetre de tick (IF-02).
+///
+/// Toujours appele depuis le thread autoritatif. Si la fenetre precedente est restee
+/// ouverte — un autre mod ayant interrompu le tick avant sa fin —, elle est fermee
+/// implicitement et comptee dans `rfx.tick.unbalanced` (R-706).
+#[no_mangle]
+pub extern "C" fn rfx_tick_begin(handle: u64, tick: u64, side: i32) -> i32 {
+    guard_with_handle(handle, || {
+        let Some(side) = side_from_code(side) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        timed_tick_op(handle, |rt| {
+            rt.tick_begin(tick, side, Instant::now());
+            OK
+        })
+    })
+}
+
+/// Declare une transition de phase (IF-02).
+///
+/// Une transition qui ne suit pas SM-04 est comptee et refusee, sans erreur remontee :
+/// le jeu ne doit jamais s'arreter parce qu'un tick s'est deroule autrement que prevu.
+/// Le refus est visible dans `rfx.tick.invalid_transitions`.
+#[no_mangle]
+pub extern "C" fn rfx_phase(handle: u64, phase: i32) -> i32 {
+    guard_with_handle(handle, || {
+        let Some(phase) = TickPhase::from_code(phase) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        timed_tick_op(handle, |rt| {
+            rt.tick_phase(phase);
+            OK
+        })
+    })
+}
+
+/// Ferme la fenetre de tick (IF-02).
+///
+/// `out_flags` recoit un jeu de drapeaux decrivant le tick ecoule ; a ce jalon, seul
+/// le bit 0 est defini : il vaut 1 si un hook a depasse sa deadline (R-707).
+///
+/// # Safety
+///
+/// `out_flags` doit pointer sur un `u64` inscriptible, ou etre nul si l'appelant ne
+/// veut pas les drapeaux.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_tick_end(handle: u64, out_flags: *mut u64) -> i32 {
+    guard_with_handle(handle, || {
+        let mut flags = 0_u64;
+        let code = timed_tick_op(handle, |rt| {
+            rt.tick_end(Instant::now());
+            flags = u64::from(rt.tick_window().metrics().hook_budget_exceeded > 0);
+            OK
+        });
+        if code != OK {
+            return code;
+        }
+        if !out_flags.is_null() {
+            // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+            unsafe { out_flags.write(flags) };
+        }
         OK
     })
 }

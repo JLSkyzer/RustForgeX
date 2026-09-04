@@ -94,6 +94,21 @@ class BootstrapTest {
         public int panicTest(long handle) {
             return -3001;
         }
+
+        @Override
+        public int tickBegin(long handle, long tick, int side) {
+            return 0;
+        }
+
+        @Override
+        public int tickPhase(long handle, int phase) {
+            return 0;
+        }
+
+        @Override
+        public long tickEnd(long handle) {
+            return 0;
+        }
     }
 
     /** Source de ressources simulée contenant un binaire et son empreinte. */

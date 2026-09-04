@@ -21,6 +21,8 @@ rfx-core = { path = "crates/rfx-core" }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ciborium = { version = "0.2", default-features = false }
 jni = "0.21"
+# WORKID_V1 impose xxh3_64 (cahier des charges, DM-01).
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 # R-522 : `panic = "unwind"` est OBLIGATOIRE. Avec `abort`, une panic Rust tuerait la
 # JVM au lieu d'etre capturee par `catch_unwind` a la frontiere FFI (C-27).

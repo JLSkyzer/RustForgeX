@@ -1,5 +1,5 @@
 {
-  "rustforgex.status.title": "RUSTFORGE-X — jalon M0 (bootstrap)",
+  "rustforgex.status.title": "RUSTFORGE-X — jalon M1 (observation)",
   "rustforgex.status.state": "État        : %s",
   "rustforgex.status.mode": "Mode        : %s",
   "rustforgex.status.startup": "Démarrage   : %s ms",
@@ -7,6 +7,8 @@
   "rustforgex.status.binary": "Binaire     : %s",
   "rustforgex.status.abi": "ABI native  : %s (version %s)",
   "rustforgex.status.panics": "Panics      : %s",
+  "rustforgex.status.ticks": "Ticks       : %s (déséquilibrés : %s)",
+  "rustforgex.status.tick_anomalies": "Anomalies   : %s transitions refusées, %s hooks hors délai",
   "rustforgex.status.cores": "Cœurs       : %s physiques / %s logiques",
   "rustforgex.status.memory": "Mémoire     : %s Gio",
   "rustforgex.status.memory_unknown": "Mémoire     : non mesurée",

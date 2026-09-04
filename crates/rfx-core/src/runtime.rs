@@ -9,11 +9,13 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use rfx_model::{
-    ComponentStatus, HardwareClass, Maturity, ProbeCoverage, RuntimeConfig, RuntimeStatus,
+    ComponentStatus, HardwareClass, Maturity, ProbeCoverage, RuntimeConfig, RuntimeStatus, Side,
+    TickStatus,
 };
 
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
+use crate::tick::{TickPhase, TickWindow};
 
 /// Version de l'ABI implementee par ce binaire (IF-01, `RFX_ABI_VERSION`).
 pub const ABI_VERSION: u32 = 1;
@@ -38,6 +40,7 @@ pub struct Runtime {
     state: RuntimeState,
     panics: u64,
     recent_panics: Vec<Instant>,
+    tick_window: TickWindow,
 }
 
 impl Runtime {
@@ -51,7 +54,42 @@ impl Runtime {
             state: RuntimeState::Running,
             panics: 0,
             recent_panics: Vec::new(),
+            tick_window: TickWindow::default(),
         }
+    }
+
+    /// Ouvre la fenetre de tick (IF-02, `rfx_tick_begin`).
+    pub fn tick_begin(&mut self, tick: u64, side: Side, now: Instant) {
+        self.tick_window.begin(tick, side, now);
+    }
+
+    /// Declare une transition de phase (IF-02, `rfx_phase`).
+    ///
+    /// Renvoie `false` si la transition ne suit pas SM-04 : elle est alors comptee et
+    /// ignoree, jamais appliquee.
+    pub fn tick_phase(&mut self, phase: TickPhase) -> bool {
+        self.tick_window.phase(phase)
+    }
+
+    /// Ferme la fenetre de tick (IF-02, `rfx_tick_end`).
+    ///
+    /// Renvoie `false` si aucun tick n'etait ouvert.
+    pub fn tick_end(&mut self, now: Instant) -> bool {
+        self.tick_window.end(now)
+    }
+
+    /// Comptabilise la duree d'un appel `rfx_tick_*` (R-707).
+    ///
+    /// Renvoie `false` si la deadline est depassee. Le depassement est compte, jamais
+    /// transforme en erreur : c'est le signal qui fera reduire l'activite du runtime.
+    pub fn record_hook(&mut self, duration: std::time::Duration) -> bool {
+        self.tick_window.record_hook(duration)
+    }
+
+    /// Fenetre de tick courante, pour inspection.
+    #[must_use]
+    pub fn tick_window(&self) -> &TickWindow {
+        &self.tick_window
     }
 
     /// Configuration effective de cette execution.
@@ -151,6 +189,16 @@ impl Runtime {
                     active: self.coverage.cores,
                 },
             ],
+            tick: {
+                let m = self.tick_window.metrics();
+                TickStatus {
+                    ticks: m.ticks,
+                    unbalanced: m.unbalanced,
+                    invalid_transitions: m.invalid_transitions,
+                    hook_budget_exceeded: m.hook_budget_exceeded,
+                    last_window_ns: m.last_window_ns,
+                }
+            },
         }
     }
 }

@@ -193,6 +193,49 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_status(
     }
 }
 
+/// `RfxNative.tickBegin(long, long, int)` : ouvre la fenetre de tick (IF-02).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_tickBegin(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    tick: jlong,
+    side: jint,
+) -> jint {
+    to_jint(crate::rfx_tick_begin(handle as u64, tick as u64, side))
+}
+
+/// `RfxNative.tickPhase(long, int)` : declare une transition de phase (IF-02).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_tickPhase(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    phase: jint,
+) -> jint {
+    to_jint(crate::rfx_phase(handle as u64, phase))
+}
+
+/// `RfxNative.tickEnd(long)` : ferme la fenetre de tick (IF-02).
+///
+/// Renvoie les drapeaux du tick ecoule, positifs, ou un code d'erreur negatif.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_tickEnd(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jlong {
+    let mut flags: u64 = 0;
+    // SAFETY : `flags` est une variable locale valide pendant tout l'appel.
+    let result = unsafe { crate::rfx_tick_end(handle as u64, &mut flags) };
+    if result != OK {
+        return jlong::from(result);
+    }
+    // Les drapeaux tiennent sur quelques bits : la conversion ne peut pas produire
+    // une valeur negative qui serait lue comme un code d'erreur.
+    jlong::try_from(flags & 0x7fff_ffff_ffff_ffff).unwrap_or(0)
+}
+
 /// `RfxNative.panicTest(long)` : verifie le confinement des panics (mode `debug`).
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_panicTest(

@@ -31,6 +31,24 @@ pub struct ProbeCoverage {
     pub ffi_transfer: bool,
 }
 
+/// Compteurs de la fenetre de tick (IF-02), publies vers Java.
+///
+/// Definis ici plutot que dans `rfx-core` parce que `rfx-model` est la couche la plus
+/// basse : le sens des dependances interdit l'inverse (INV-13).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TickStatus {
+    /// Ticks ouverts depuis le demarrage.
+    pub ticks: u64,
+    /// Ticks fermes implicitement faute de `tick_end` (R-706).
+    pub unbalanced: u64,
+    /// Transitions de phase refusees car non conformes a SM-04.
+    pub invalid_transitions: u64,
+    /// Hooks ayant depasse la deadline (R-707).
+    pub hook_budget_exceeded: u64,
+    /// Duree de la derniere fenetre fermee, en nanosecondes.
+    pub last_window_ns: u64,
+}
+
 /// Etat d'un composant, tel qu'affiche par `/rfx status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentStatus {
@@ -63,6 +81,8 @@ pub struct RuntimeStatus {
     pub probe_coverage: ProbeCoverage,
     /// Etat des composants natifs.
     pub components: Vec<ComponentStatus>,
+    /// Compteurs de la fenetre de tick (IF-02).
+    pub tick: TickStatus,
 }
 
 #[cfg(test)]
@@ -85,6 +105,7 @@ mod tests {
                 maturity: Maturity::Stable,
                 active: true,
             }],
+            tick: TickStatus::default(),
         };
         let bytes = crate::to_cbor(&s).expect("encodage");
         let back: RuntimeStatus = crate::from_cbor(&bytes).expect("decodage");

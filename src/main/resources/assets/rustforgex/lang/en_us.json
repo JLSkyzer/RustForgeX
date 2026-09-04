@@ -1,5 +1,5 @@
 {
-  "rustforgex.status.title": "RUSTFORGE-X — milestone M0 (bootstrap)",
+  "rustforgex.status.title": "RUSTFORGE-X — milestone M1 (observation)",
   "rustforgex.status.state": "State       : %s",
   "rustforgex.status.mode": "Mode        : %s",
   "rustforgex.status.startup": "Startup     : %s ms",
@@ -7,6 +7,8 @@
   "rustforgex.status.binary": "Binary      : %s",
   "rustforgex.status.abi": "Native ABI  : %s (version %s)",
   "rustforgex.status.panics": "Panics      : %s",
+  "rustforgex.status.ticks": "Ticks       : %s (unbalanced: %s)",
+  "rustforgex.status.tick_anomalies": "Anomalies   : %s refused transitions, %s hooks over deadline",
   "rustforgex.status.cores": "Cores       : %s physical / %s logical",
   "rustforgex.status.memory": "Memory      : %s GiB",
   "rustforgex.status.memory_unknown": "Memory      : not measured",

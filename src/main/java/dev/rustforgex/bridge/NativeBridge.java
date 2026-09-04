@@ -74,6 +74,33 @@ public interface NativeBridge {
     int panicTest(long handle);
 
     /**
+     * Ouvre la fenêtre de tick (IF-02).
+     *
+     * @param handle handle du runtime
+     * @param tick numéro du tick
+     * @param side {@code 0} client, {@code 1} serveur, {@code 2} commun
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    int tickBegin(long handle, long tick, int side);
+
+    /**
+     * Déclare une transition de phase (IF-02).
+     *
+     * @param handle handle du runtime
+     * @param phase {@code 0} PRE, {@code 1} VANILLA, {@code 2} DRAIN, {@code 3} POST
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    int tickPhase(long handle, int phase);
+
+    /**
+     * Ferme la fenêtre de tick (IF-02).
+     *
+     * @param handle handle du runtime
+     * @return les drapeaux du tick écoulé, ou un code d'erreur négatif
+     */
+    long tickEnd(long handle);
+
+    /**
      * Pont vers le binaire réellement chargé.
      *
      * <p>Ne doit être instancié qu'après le chargement de la bibliothèque par C-03 :
@@ -127,6 +154,21 @@ public interface NativeBridge {
             @Override
             public int panicTest(long handle) {
                 return RfxNative.panicTest(handle);
+            }
+
+            @Override
+            public int tickBegin(long handle, long tick, int side) {
+                return RfxNative.tickBegin(handle, tick, side);
+            }
+
+            @Override
+            public int tickPhase(long handle, int phase) {
+                return RfxNative.tickPhase(handle, phase);
+            }
+
+            @Override
+            public long tickEnd(long handle) {
+                return RfxNative.tickEnd(handle);
             }
         };
     }

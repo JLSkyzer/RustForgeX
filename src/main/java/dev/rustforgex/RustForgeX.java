@@ -3,8 +3,10 @@ package dev.rustforgex;
 import com.mojang.logging.LogUtils;
 import dev.rustforgex.command.RfxCommands;
 import dev.rustforgex.forge.HookGuard;
+import dev.rustforgex.forge.TickCycle;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -24,16 +26,15 @@ import java.nio.file.Path;
  *
  * <p>Cahier des charges : PARTIE 5.1. Tests : T-100 à T-103. Maturité : {@code STABLE}.
  *
- * <p>Ce jalon (M0) n'installe <strong>aucun hook de tick</strong>. Le livrable M0 exige
- * que « le jeu tourne exactement comme sans le mod, overhead mesuré proche de zéro » :
- * s'accrocher au tick pour n'y rien faire coûterait du temps à chaque tick sans rien
- * apporter. Les phases {@code rfx_tick_begin} / {@code rfx_phase} / {@code rfx_tick_end}
- * (IF-02) seront branchées avec C-04 et C-05, au jalon M1, quand elles auront quelque
- * chose à observer.
+ * <p>Ce composant démarre le runtime (C-02), vérifie la version de Forge (FM-01),
+ * délimite la fenêtre de tick (IF-02, via {@link TickCycle}), enregistre
+ * {@code /rfx status} (C-38) et arrête proprement le runtime.
  *
- * <p>Ce que ce composant fait à ce jalon : démarrer le runtime (C-02), vérifier la
- * version de Forge (FM-01), enregistrer {@code /rfx status} (C-38) et arrêter proprement
- * le runtime. Chaque accroche est protégée par un {@link HookGuard} : une exception de
+ * <p>Les accroches de tick sont posées au jalon M1, celui de l'observation : elles ont
+ * désormais quelque chose à mesurer. Elles se contentent d'ouvrir et de fermer la
+ * fenêtre — aucun travail du jeu n'est modifié, aucune tâche n'est encore soumise.
+ *
+ * <p>Chaque accroche est protégée par un {@link HookGuard} : une exception de
  * RUSTFORGE-X ne doit jamais empêcher le jeu de démarrer ou de tourner (FM-02).
  */
 @Mod(RustForgeX.MODID)
@@ -47,6 +48,8 @@ public class RustForgeX {
     private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
     private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
     private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
+    private final HookGuard tickPreGuard = new HookGuard("serverTickPre", LOGGER::warn);
+    private final HookGuard tickPostGuard = new HookGuard("serverTickPost", LOGGER::warn);
 
     /** Construit le mod et s'attache aux deux bus d'événements de Forge. */
     public RustForgeX() {
@@ -107,6 +110,48 @@ public class RustForgeX {
     }
 
     /**
+     * Ouvre la fenêtre de tick, avant que tout autre mod ne travaille.
+     *
+     * <p>Priorité la plus haute : la fenêtre doit encadrer le tick complet.
+     *
+     * @param event événement de tick serveur
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onServerTickPre(final TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) {
+            return;
+        }
+        TickCycle cycle = cycle();
+        if (cycle != null) {
+            tickPreGuard.run(cycle::onTickPre);
+        }
+    }
+
+    /**
+     * Ferme la fenêtre de tick, après que tout autre mod a terminé.
+     *
+     * <p>Priorité la plus basse, pour la raison symétrique.
+     *
+     * @param event événement de tick serveur
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onServerTickPost(final TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        TickCycle cycle = cycle();
+        if (cycle != null) {
+            tickPostGuard.run(cycle::onTickPost);
+        }
+    }
+
+    /** Cycle de tick courant, ou {@code null} si le runtime natif n'est pas actif. */
+    private static TickCycle cycle() {
+        RfxRuntime runtime = RfxRuntime.instance();
+        return runtime == null ? null : runtime.tickCycle();
+    }
+
+    /**
      * Arrête le runtime natif à l'extinction du serveur.
      *
      * <p>Priorité la plus basse : RUSTFORGE-X se retire après tous les autres mods.
@@ -117,10 +162,15 @@ public class RustForgeX {
     public void onServerStopping(final ServerStoppingEvent event) {
         shutdownGuard.run(() -> {
             RfxRuntime runtime = RfxRuntime.instance();
-            if (runtime != null) {
-                runtime.shutdown();
-                LOGGER.info("RUSTFORGE-X arrêté proprement.");
+            if (runtime == null) {
+                return;
             }
+            TickCycle cycle = runtime.tickCycle();
+            long ticks = cycle == null ? 0 : cycle.currentTick();
+            long rejected = cycle == null ? 0 : cycle.rejectedCalls();
+            runtime.shutdown();
+            LOGGER.info("RUSTFORGE-X arrêté proprement après {} ticks observés ({} appels refusés).",
+                    ticks, rejected);
         });
     }
 }

@@ -101,6 +101,39 @@ public final class RfxNative {
     public static native byte[] status(long handle);
 
     /**
+     * Ouvre la fenêtre de tick (IF-02).
+     *
+     * <p>Toujours appelée depuis le thread autoritatif. Si le tick précédent n'a pas
+     * été fermé — un autre mod ayant interrompu le tick —, il l'est implicitement et
+     * l'anomalie est comptée (R-706).
+     *
+     * @param handle handle du runtime
+     * @param tick numéro du tick
+     * @param side {@code 0} client, {@code 1} serveur, {@code 2} commun
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int tickBegin(long handle, long tick, int side);
+
+    /**
+     * Déclare une transition de phase (IF-02).
+     *
+     * <p>Une transition qui ne suit pas SM-04 est comptée et refusée, sans erreur.
+     *
+     * @param handle handle du runtime
+     * @param phase {@code 0} PRE, {@code 1} VANILLA, {@code 2} DRAIN, {@code 3} POST
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int tickPhase(long handle, int phase);
+
+    /**
+     * Ferme la fenêtre de tick (IF-02).
+     *
+     * @param handle handle du runtime
+     * @return les drapeaux du tick écoulé (positifs), ou un code d'erreur négatif
+     */
+    public static native long tickEnd(long handle);
+
+    /**
      * Vérifie le confinement des panics : provoque une panic dans le natif.
      *
      * <p>Sert la commande {@code /rfx panic-test}, disponible uniquement en mode

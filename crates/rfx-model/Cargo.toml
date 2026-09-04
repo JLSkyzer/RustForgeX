@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 serde = { workspace = true, features = ["std"] }
 ciborium = { workspace = true, features = ["std"] }
+xxhash-rust = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

@@ -1,115 +1,110 @@
 # TODO — RUSTFORGE-X
 
-**Jalon courant : M0 (Bootstrap) — étapes A à I terminées ; clôture du jalon en attente de la vérification client + serveur dédié et de la première release.**
+**Jalon courant : M1 (Observation).** M0 est livré : le mod se charge, mesure la
+machine, expose `/rfx status`, et le client rejoint le serveur de développement.
 Source de vérité : `docs/spec/RUSTFORGE-X_Cahier_des_Charges_v1.0.md`.
 
 ---
 
-## Étape 0 — Mise en place de l'espace de travail ✅ TERMINÉ (2026-09-04)
+## M0 — Bootstrap ✅ LIVRÉ (2026-09-04)
 
-- [x] Lire le cahier des charges et en extraire l'architecture, les jalons et le contrat agent
-- [x] Confronter le MDK Forge généré au CDC et relever les divergences structurantes
-- [x] Arbitrer les divergences avec l'utilisateur (package, layout, versioning)
-- [x] Migrer le package `fr.eriniumgroup.rustforgex` vers `dev.rustforgex` (CDC 3.6 / 3.7)
-- [x] Supprimer le code d'exemple du MDK (`example_block`, `example_item`, `Config` de démo)
-- [x] Corriger `rustforgex.mixins.json` (package `dev.rustforgex.mixin`, niveau `JAVA_17`)
-- [x] Renseigner `mod_group_id` et `mod_description` dans `gradle.properties`
-- [x] Créer `tasks/lessons.md` (interdits du contrat agent + leçons de session)
-- [x] Créer `tasks/todo.md` (ce fichier)
-- [x] Versionner la copie du CDC dans `docs/spec/`
-- [x] Écrire `docs/AGENT.md` (reprise de projet sans contexte, PARTIE 27.2)
-- [x] Écrire ADR-013 (layout du dépôt) et ADR-014 (numérotation des ADR)
-- [x] Écrire `README.md`, `BUILDING.md`, `LICENSE`
-- [x] Écrire `.gitignore`, initialiser le dépôt git, commit initial
-- [x] Vérifier que `./gradlew compileJava` passe sur le squelette migré
+C-27, C-45, C-03, C-02, C-37, C-01, C-38 (`/rfx status`), C-40 (build natif, CI,
+artifact-verify). 57 tests Java, 47 tests Rust. Vérifié en jeu : démarrage, sonde,
+arrêt propre, connexion client/serveur.
+
+Reste à faire à la première release : `INSTALLATION.md`, `RELEASING.md`.
 
 ---
 
-## Étape 1 — M0 : Bootstrap
+## M1 — Observation
 
-**Livrable** : un JAR Forge qui se charge, charge la bibliothèque native, sonde le
-matériel, expose `/rfx status`, et **ne fait rien d'autre**. Le jeu doit tourner
-exactement comme sans le mod, overhead mesuré proche de zéro.
+**Livrable** : « je sais ce que fait ce modpack ». Profilage adaptatif complet,
+dashboard textuel, rapports, overhead mesuré et affiché sous 2 %.
 
-**Lire avant de coder** : fiches C-01 (5.1), C-02 (5.2), C-03 (5.3), C-27 (5.27),
-C-37 (5.35), C-45 (5.43), C-40 (5.38 / PARTIE 24-25).
+**Composants** : C-04 (Instrumentation), C-05 (Profiler), C-06 (Event Observer),
+C-31 (Memory Manager), C-34 (Telemetry), C-35 (Diagnostics), C-38 (CLI complet),
+C-41 (Mod Discovery), C-36 (Benchmark Harness).
 
-### Étape A — Fondations du workspace Rust (C-27 squelette) — T-001
+**Lire avant de coder** : fiches 5.4, 5.5, 5.6, 5.28, 5.32, 5.33, 5.34, 5.36, 5.39 ;
+interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 
-- [x] `Cargo.toml` (workspace) + `rust-toolchain.toml` (toolchain épinglée)
-- [x] `crates/rfx-core` : `RuntimeState`, codes d'erreur `E-xxxx` (annexe A.2), `Runtime` (R-520/R-521)
-- [x] `crates/rfx-model` : DM-14 `HardwareClass`, structure de configuration, sérialisation CBOR (R-704)
-- [x] `crates/rfx-ffi` : `cdylib` `rfx_native`, `rfx_abi_version` / `rfx_init` / `rfx_shutdown` (IF-01)
-- [x] `panic = "unwind"` obligatoire (R-522) + `catch_unwind` sur **chaque** point d'entrée (R-523)
-- [x] Handle opaque validé par génération, jamais de pointeur brut (R-521)
+### Étape A — Cycle de tick (IF-02) et modèle de mesure — T-1xx
 
-### Étape B — Build natif intégré à Gradle (C-40 partiel) — T-002
+- [x] DM-01 `WorkId` : `xxh3_64` sur (owner, classe, méthode, descripteur, contexte, side)
+- [x] DM-04 `WorkloadDynamics` : EWMA, histogrammes à buckets log2, `Heat`, `VarianceClass`
+- [x] `rfx_tick_begin` / `rfx_phase` / `rfx_tick_end` (IF-02)
+- [x] Fermeture implicite d'un tick non terminé, compteur `rfx.tick.unbalanced` (R-706)
+- [x] Aucun hook au-dessus de `tick.max_hook_ns` (défaut 500 µs, R-707)
+- [x] Hooks de tick côté Java : PRE en priorité HIGHEST, POST en LOWEST
 
-- [x] Tâches `buildNative` / `copyNative` / `hashNative` dans `build.gradle` (CDC 23.2)
-- [x] Sélection de cible par plateforme hôte, `.sha256` généré à côté du binaire
-- [x] `processResources` dépend de `hashNative` ; vérifier le JAR produit
+### Étape B — C-31 Memory Manager — T-370..T-373
 
-### Étape C — C-03 Native Loader — T-120..T-123
+- [ ] Ring buffers de profilage possédés par le natif, taille fixe, écrasement borné
+- [ ] Budget mémoire natif appliqué (`memory.max_native_mb`, R-533)
+- [ ] Structures partagées alignées sur 64 octets (R-531)
+- [ ] Aucune fuite sur un cycle long, arènes remises à zéro correctement
 
-- [x] Extraction vers `<gameDir>/rustforgex/native/<sha256>/` (R-301, idempotent)
-- [x] Vérification SHA-256 **avant** chargement, refus sinon (R-300, `E-1003`)
-- [x] Repli `java.io.tmpdir` si `noexec` ou lecture seule (R-302)
-- [x] Écriture atomique (fichier temporaire puis renommage)
+### Étape C — IF-03 : flux de profilage
 
-### Étape D — C-37 Configuration — T-007
+- [ ] `rfx_probe_buffer_acquire` / `rfx_probe_buffer_flush`
+- [ ] `ProbeRecord` de 32 octets, little-endian, aligné 8
+- [ ] Le buffer appartient au natif ; Java ne le libère jamais (R-708)
+- [ ] Un flush n'alloue pas et ne bloque pas ; saturation ⇒ perte comptée (R-709)
+- [ ] Une seule traversée FFI par tick et par thread
 
-- [x] Schéma complet de la PARTIE 28.2 : défaut, plage et description pour **chaque** clé (R-590)
-- [x] Lecture/écriture de `<gameDir>/rustforgex/config/rustforgex.toml`, créé au premier lancement
-- [x] Clé inconnue conservée et signalée, jamais supprimée (R-591)
-- [x] Valeur hors plage rejetée avec message précis et remplacée par le défaut (28.5)
-- [x] Surcharges `-Drustforgex.<section>.<clé>` prioritaires sur le fichier (28.4)
-- [x] Clés structurelles marquées « redémarrage requis » (R-592)
+### Étape D — C-04 JVM Instrumentation — T-130..T-134
 
-### Étape E — C-02 Bootstrap — T-110..T-114
+- [ ] Transformateur enregistré en dernier dans la chaîne ModLauncher
+- [ ] `enter`/`exit` sous `try/finally` : une exception ne fausse jamais un compteur
+- [ ] Niveaux `COUNTER` / `TIMED` / `DEEP` avec leurs coûts cibles
+- [ ] Refus de sonder : méthodes trop courtes, `<clinit>`, natives, classes du bootstrap (R-311, R-312)
+- [ ] Sémantique observable inchangée (R-310)
+- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313)
 
-- [x] Machine à états `INIT → PROBE → LOAD_NATIVE → HANDSHAKE → CONFIGURE → READY | DEGRADED | DISABLED`
-- [x] Séquence normative en 10 étapes (5.2), aucune exception non capturée ne remonte
-- [x] Handshake ABI : `rfx_abi_version()` avant tout autre appel (R-702), écart ⇒ `DISABLED` + `E-1002`
-- [x] `DEGRADED` parfaitement jouable : aucune instrumentation, aucun thread supplémentaire
-- [x] Double initialisation impossible (T-114, `E-1004`)
+### Étape E — C-05 Profiler — T-140..T-144
 
-### Étape F — C-45 Hardware Probe — T-480..T-482
+- [ ] Agrégation côté Rust : EWMA, histogrammes, chaleur (DM-04)
+- [ ] Adaptation `OFF → LIGHT → NORMAL → DEEP → THROTTLED`
+- [ ] Auto-mesure de l'overhead, réduction de niveau au dépassement, `E-1201`
+- [ ] Aucune allocation dans le chemin chaud (R-320, T-142)
+- [ ] Éviction LRU au-delà de `max_workloads` (R-321)
+- [ ] Fonctionne sans aucune sonde, par échantillonnage seul (R-322)
 
-- [x] Topologie (cœurs physiques/logiques), capacités SIMD, mémoire totale
-- [x] Coût d'un aller-retour FFI mesuré sur 10 000 appels, débit de copie Java→natif
-- [x] Durée totale de sonde < 150 ms (T-482), stabilité inter-exécutions < 20 % (T-480)
-- [x] Aucune constante de coût codée en dur (R-660) ; tout champ non sondable est déclaré comme tel
+### Étape F — C-06 Event Observer — T-150..T-154
 
-### Étape G — C-01 Forge Integration — T-100..T-103
+- [ ] Énumération des listeners au `LOAD_COMPLETE`, proxy préservant ordre et priorité
+- [ ] L'ordre observable ne change jamais (R-330)
+- [ ] Annulation et `Event.Result` respectés (R-331, R-332)
+- [ ] Désenveloppement automatique si un mod inspecte le listener (FM-14)
 
-- [x] `PlatformAdapter` (IF-10) : isole tout le reste du système de l'API Forge (P-11)
-- [x] Attache aux deux bus, priorité HIGHEST en PRE et LOWEST en POST
-- [x] `try/catch` obligatoire autour de chaque hook, désactivation après 5 échecs (FM-02)
-- [x] Version de Forge hors plage ⇒ `OBSERVE_ONLY` + `E-1001` (FM-01)
-- [x] Tick sans POST ⇒ fermeture implicite au `tick_begin` suivant (R-706, FM-03)
-- [x] Aucun hook au-dessus de 50 µs en observation seule (critère d'acceptation)
+### Étape G — C-41 Mod Discovery — T-440..T-442
 
-### Étape H — `/rfx status` (C-38 partiel) — T-420..T-422
+- [ ] Inventaire des conteneurs de mods, `owner_mod_hash`, table chargeur → modid
+- [ ] Indexation paresseuse : aucune classe chargée qui ne le serait pas (R-620)
+- [ ] Moins de 500 ms pour 250 mods (R-621)
 
-- [x] Commande enregistrée via `RegisterCommandsEvent`, permission niveau 3 sur serveur (R-602)
-- [x] Affiche état du runtime, mode, état de boot, classe matérielle, maturité des composants
-- [x] Ne bloque pas le thread serveur plus de 5 ms (R-601)
+### Étape H — C-34 Telemetry, C-35 Diagnostics, C-38 complet
 
-### Étape I — Qualité, CI et documentation (C-40) — T-003..T-010
+- [ ] Métriques typées à cardinalité bornée, export JSON, coût < 0,2 % du MSPT
+- [ ] Aucune socket ouverte par RUSTFORGE-X (T-400)
+- [ ] `/rfx why`, `/rfx top`, `/rfx mods`, `/rfx workload`, `/rfx report`
+- [ ] Fiche d'explication au format normatif de la PARTIE 5.33, en moins de 50 ms
+- [ ] Anonymisation des chemins dans les rapports exportables (R-571)
 
-- [x] Tests de fondations T-003 (lints), T-006 (aucune fiction en STABLE), T-007, T-008, T-009, T-010
-- [x] CI : `fmt`, `lint`, `lint-no-fiction`, `build`, `test-unit`, `artifact-verify` (CDC 24.2)
-- [x] `ARCHITECTURE.md`, `CONFIGURATION.md`, `SECURITY.md`, `INSTALLATION.md`, `RELEASING.md`, `CHANGELOG.md`
-- [x] ADR des décisions prises pendant le jalon (à partir d'ADR-015)
+### Étape I — C-36 Benchmark Harness
+
+- [ ] Micro-benchmarks Rust (criterion)
+- [ ] Macro-benchmarks in-game scriptés, résultats versionnés en JSON
+- [ ] Aucun chiffre publié qui ne vienne d'un fichier de résultats généré (R-580)
+- [ ] Aucun benchmark sans intervalle de confiance ni nombre de répétitions (R-581)
 
 ### Definition of Done du jalon (CDC PARTIE 29.3)
 
-- [ ] Tests **T-001..T-010**, **T-100..T-103**, **T-110..T-114**, **T-120..T-123**, **T-480..T-482** verts
-- [ ] Chaque composant expose ses métriques et son niveau de maturité (contrat 4.1)
-- [ ] Chaque chemin natif a un fallback Java testé (contrat 4.2)
-- [ ] JAR installable et jouable, client **et** serveur dédié (contrat 4.10)
-- [ ] Retirer le JAR laisse le monde parfaitement jouable
-- [ ] Aucun chiffre de performance qui ne vienne d'une mesure (contrat 3.2)
+- [ ] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
+      T-410..T-412, T-420..T-422, T-440..T-442 verts
+- [ ] Overhead **mesuré** et affiché sous 2 % sur un profil de charge
+- [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
+- [ ] JAR installable et jouable, client et serveur dédié
 
 ---
 
