@@ -1,0 +1,26 @@
+RUSTFORGE-X
+Copyright (c) 2026 JLSkyzer / Erinium Group. Tous droits réservés.
+
+Aucune permission n'est accordée, expressément ou implicitement, de copier, modifier,
+fusionner, publier, distribuer, sous-licencier ou vendre des copies de ce logiciel ou
+de portions de celui-ci, sans autorisation écrite préalable du détenteur des droits.
+
+Ce logiciel est fourni « en l'état », sans garantie d'aucune sorte, expresse ou
+implicite, y compris mais sans s'y limiter les garanties de qualité marchande,
+d'adéquation à un usage particulier et d'absence de contrefaçon. En aucun cas les
+auteurs ou détenteurs des droits ne pourront être tenus responsables de toute
+réclamation, dommage ou autre responsabilité, contractuelle, délictuelle ou autre,
+découlant du logiciel ou de son utilisation.
+
+---
+
+RUSTFORGE-X ne redistribue ni Minecraft, ni Minecraft Forge, ni aucun mod ou asset
+tiers. Minecraft est une marque déposée de Mojang Studios ; ce projet n'est ni affilié
+à Mojang Studios, ni approuvé par Mojang Studios ou Microsoft.
+
+---
+
+Statut : licence par défaut du projet, cohérente avec `mod_license` dans
+gradle.properties. Le choix de licence définitif fait l'objet d'ADR-010 (cahier des
+charges, PARTIE 27.3), qui reste à rédiger. Toute modification de la licence est hors
+du périmètre de décision de l'agent d'implémentation (contrat agent, section 5).

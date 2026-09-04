@@ -1,0 +1,18 @@
+# Normalisation des fins de ligne : LF dans le depot, natif dans la copie de travail
+* text=auto
+
+# Scripts qui DOIVENT rester en LF (execution sous Unix / CI)
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Scripts qui doivent rester en CRLF (Windows)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaires : jamais de conversion
+*.jar binary
+*.png binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.zip binary

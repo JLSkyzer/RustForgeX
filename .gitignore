@@ -1,0 +1,50 @@
+# --- Gradle / Java ---
+.gradle/
+build/
+out/
+bin/
+!gradle/wrapper/gradle-wrapper.jar
+
+# --- ForgeGradle : environnements d'execution locaux ---
+run/
+run-data/
+runs/
+
+# --- Rust / Cargo (crates/, cf. PARTIE 23) ---
+target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# --- Binaires natifs generes par :buildNative (PARTIE 23.2) ---
+# Ils sont produits au build et empaquetes dans le JAR, jamais versionnes.
+src/main/resources/natives/
+
+# --- IDE ---
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+.idea/httpRequests/
+.idea/modules/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.eclipse/
+.classpath
+.project
+.settings/
+.metadata/
+eclipse/
+
+# --- Systeme ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Divers ---
+*.log
+*.hprof
+hs_err_pid*.log
+replay_pid*.log
+.idea/modules.xml
