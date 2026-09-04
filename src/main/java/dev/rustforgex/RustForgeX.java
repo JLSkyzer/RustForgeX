@@ -51,6 +51,16 @@ public class RustForgeX {
     private final HookGuard tickPreGuard = new HookGuard("serverTickPre", LOGGER::warn);
     private final HookGuard tickPostGuard = new HookGuard("serverTickPost", LOGGER::warn);
 
+    /**
+     * Intervalle, en ticks, de la trace de progression du cycle de tick.
+     *
+     * <p>Six cents ticks, soit trente secondes de jeu nominal. La trace est émise en
+     * {@code DEBUG} : elle ne parle qu'à qui la cherche, et son coût — un modulo par
+     * tick — ne se mesure pas. C'est le « journal de tick » que la PARTIE 5.32 prévoit
+     * pour la télémétrie.
+     */
+    private static final long TICK_LOG_INTERVAL = 600;
+
     /** Construit le mod et s'attache aux deux bus d'événements de Forge. */
     public RustForgeX() {
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -140,9 +150,17 @@ public class RustForgeX {
             return;
         }
         TickCycle cycle = cycle();
-        if (cycle != null) {
-            tickPostGuard.run(cycle::onTickPost);
+        if (cycle == null) {
+            return;
         }
+        tickPostGuard.run(() -> {
+            cycle.onTickPost();
+            long ticks = cycle.currentTick();
+            if (ticks % TICK_LOG_INTERVAL == 0) {
+                LOGGER.debug("Cycle de tick : {} ticks observés, {} appels refusés.",
+                        ticks, cycle.rejectedCalls());
+            }
+        });
     }
 
     /** Cycle de tick courant, ou {@code null} si le runtime natif n'est pas actif. */

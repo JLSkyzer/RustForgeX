@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rfx-model",
+    "crates/rfx-memory",
     "crates/rfx-core",
     "crates/rfx-ffi",
 ]
@@ -17,6 +18,7 @@ publish = false
 [workspace.dependencies]
 rfx-model = { path = "crates/rfx-model" }
 rfx-core = { path = "crates/rfx-core" }
+rfx-memory = { path = "crates/rfx-memory" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ciborium = { version = "0.2", default-features = false }

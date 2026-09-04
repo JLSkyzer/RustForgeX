@@ -39,10 +39,10 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 
 ### Étape B — C-31 Memory Manager — T-370..T-373
 
-- [ ] Ring buffers de profilage possédés par le natif, taille fixe, écrasement borné
-- [ ] Budget mémoire natif appliqué (`memory.max_native_mb`, R-533)
-- [ ] Structures partagées alignées sur 64 octets (R-531)
-- [ ] Aucune fuite sur un cycle long, arènes remises à zéro correctement
+- [x] Ring buffers de profilage possédés par le natif, taille fixe, écrasement borné
+- [x] Budget mémoire natif appliqué (`memory.max_native_mb`, R-533)
+- [x] Structures partagées alignées sur 64 octets (R-531)
+- [ ] Aucune fuite sur un cycle long (T-370) — demande le test long T-700
 
 ### Étape C — IF-03 : flux de profilage
 

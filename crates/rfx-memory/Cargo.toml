@@ -1,0 +1,20 @@
+[package]
+name = "rfx-memory"
+description = "C-31 : gestion memoire native bornee et sans contention"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints.rust]
+missing_docs = "deny"
+# Les tampons sont des `Vec` de lignes de cache : l'alignement est obtenu par le type,
+# pas par un allocateur manuel. Aucun `unsafe` n'est donc necessaire ici.
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
