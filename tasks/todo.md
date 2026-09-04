@@ -1,6 +1,6 @@
 # TODO — RUSTFORGE-X
 
-**Jalon courant : M0 (Bootstrap) — non démarré.**
+**Jalon courant : M0 (Bootstrap) — en cours : étapes A à F terminées, G à I restantes.**
 Source de vérité : `docs/spec/RUSTFORGE-X_Cahier_des_Charges_v1.0.md`.
 
 ---
@@ -36,49 +36,49 @@ C-37 (5.35), C-45 (5.43), C-40 (5.38 / PARTIE 24-25).
 
 ### Étape A — Fondations du workspace Rust (C-27 squelette) — T-001
 
-- [ ] `Cargo.toml` (workspace) + `rust-toolchain.toml` (toolchain épinglée)
-- [ ] `crates/rfx-core` : `RuntimeState`, codes d'erreur `E-xxxx` (annexe A.2), `Runtime` (R-520/R-521)
-- [ ] `crates/rfx-model` : DM-14 `HardwareClass`, structure de configuration, sérialisation CBOR (R-704)
-- [ ] `crates/rfx-ffi` : `cdylib` `rfx_native`, `rfx_abi_version` / `rfx_init` / `rfx_shutdown` (IF-01)
-- [ ] `panic = "unwind"` obligatoire (R-522) + `catch_unwind` sur **chaque** point d'entrée (R-523)
-- [ ] Handle opaque validé par génération, jamais de pointeur brut (R-521)
+- [x] `Cargo.toml` (workspace) + `rust-toolchain.toml` (toolchain épinglée)
+- [x] `crates/rfx-core` : `RuntimeState`, codes d'erreur `E-xxxx` (annexe A.2), `Runtime` (R-520/R-521)
+- [x] `crates/rfx-model` : DM-14 `HardwareClass`, structure de configuration, sérialisation CBOR (R-704)
+- [x] `crates/rfx-ffi` : `cdylib` `rfx_native`, `rfx_abi_version` / `rfx_init` / `rfx_shutdown` (IF-01)
+- [x] `panic = "unwind"` obligatoire (R-522) + `catch_unwind` sur **chaque** point d'entrée (R-523)
+- [x] Handle opaque validé par génération, jamais de pointeur brut (R-521)
 
 ### Étape B — Build natif intégré à Gradle (C-40 partiel) — T-002
 
-- [ ] Tâches `buildNative` / `copyNative` / `hashNative` dans `build.gradle` (CDC 23.2)
-- [ ] Sélection de cible par plateforme hôte, `.sha256` généré à côté du binaire
-- [ ] `processResources` dépend de `hashNative` ; vérifier le JAR produit
+- [x] Tâches `buildNative` / `copyNative` / `hashNative` dans `build.gradle` (CDC 23.2)
+- [x] Sélection de cible par plateforme hôte, `.sha256` généré à côté du binaire
+- [x] `processResources` dépend de `hashNative` ; vérifier le JAR produit
 
 ### Étape C — C-03 Native Loader — T-120..T-123
 
-- [ ] Extraction vers `<gameDir>/rustforgex/native/<sha256>/` (R-301, idempotent)
-- [ ] Vérification SHA-256 **avant** chargement, refus sinon (R-300, `E-1003`)
-- [ ] Repli `java.io.tmpdir` si `noexec` ou lecture seule (R-302)
-- [ ] Écriture atomique (fichier temporaire puis renommage)
+- [x] Extraction vers `<gameDir>/rustforgex/native/<sha256>/` (R-301, idempotent)
+- [x] Vérification SHA-256 **avant** chargement, refus sinon (R-300, `E-1003`)
+- [x] Repli `java.io.tmpdir` si `noexec` ou lecture seule (R-302)
+- [x] Écriture atomique (fichier temporaire puis renommage)
 
 ### Étape D — C-37 Configuration — T-007
 
-- [ ] Schéma complet de la PARTIE 28.2 : défaut, plage et description pour **chaque** clé (R-590)
-- [ ] Lecture/écriture de `<gameDir>/rustforgex/config/rustforgex.toml`, créé au premier lancement
-- [ ] Clé inconnue conservée et signalée, jamais supprimée (R-591)
-- [ ] Valeur hors plage rejetée avec message précis et remplacée par le défaut (28.5)
-- [ ] Surcharges `-Drustforgex.<section>.<clé>` prioritaires sur le fichier (28.4)
-- [ ] Clés structurelles marquées « redémarrage requis » (R-592)
+- [x] Schéma complet de la PARTIE 28.2 : défaut, plage et description pour **chaque** clé (R-590)
+- [x] Lecture/écriture de `<gameDir>/rustforgex/config/rustforgex.toml`, créé au premier lancement
+- [x] Clé inconnue conservée et signalée, jamais supprimée (R-591)
+- [x] Valeur hors plage rejetée avec message précis et remplacée par le défaut (28.5)
+- [x] Surcharges `-Drustforgex.<section>.<clé>` prioritaires sur le fichier (28.4)
+- [x] Clés structurelles marquées « redémarrage requis » (R-592)
 
 ### Étape E — C-02 Bootstrap — T-110..T-114
 
-- [ ] Machine à états `INIT → PROBE → LOAD_NATIVE → HANDSHAKE → CONFIGURE → READY | DEGRADED | DISABLED`
-- [ ] Séquence normative en 10 étapes (5.2), aucune exception non capturée ne remonte
-- [ ] Handshake ABI : `rfx_abi_version()` avant tout autre appel (R-702), écart ⇒ `DISABLED` + `E-1002`
-- [ ] `DEGRADED` parfaitement jouable : aucune instrumentation, aucun thread supplémentaire
-- [ ] Double initialisation impossible (T-114, `E-1004`)
+- [x] Machine à états `INIT → PROBE → LOAD_NATIVE → HANDSHAKE → CONFIGURE → READY | DEGRADED | DISABLED`
+- [x] Séquence normative en 10 étapes (5.2), aucune exception non capturée ne remonte
+- [x] Handshake ABI : `rfx_abi_version()` avant tout autre appel (R-702), écart ⇒ `DISABLED` + `E-1002`
+- [x] `DEGRADED` parfaitement jouable : aucune instrumentation, aucun thread supplémentaire
+- [x] Double initialisation impossible (T-114, `E-1004`)
 
 ### Étape F — C-45 Hardware Probe — T-480..T-482
 
-- [ ] Topologie (cœurs physiques/logiques), capacités SIMD, mémoire totale
-- [ ] Coût d'un aller-retour FFI mesuré sur 10 000 appels, débit de copie Java→natif
-- [ ] Durée totale de sonde < 150 ms (T-482), stabilité inter-exécutions < 20 % (T-480)
-- [ ] Aucune constante de coût codée en dur (R-660) ; tout champ non sondable est déclaré comme tel
+- [x] Topologie (cœurs physiques/logiques), capacités SIMD, mémoire totale
+- [x] Coût d'un aller-retour FFI mesuré sur 10 000 appels, débit de copie Java→natif
+- [x] Durée totale de sonde < 150 ms (T-482), stabilité inter-exécutions < 20 % (T-480)
+- [x] Aucune constante de coût codée en dur (R-660) ; tout champ non sondable est déclaré comme tel
 
 ### Étape G — C-01 Forge Integration — T-100..T-103
 
