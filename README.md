@@ -50,11 +50,14 @@ Prérequis et commandes complètes : [`BUILDING.md`](BUILDING.md).
 | [`docs/spec/`](docs/spec/) | cahier des charges V1.0 — **source de vérité du projet** |
 | [`docs/AGENT.md`](docs/AGENT.md) | carte du dépôt, jalons, invariants, procédures |
 | [`docs/decisions/`](docs/decisions/) | ADR — une décision structurante par fichier |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | couches, composants, frontière FFI |
+| [`CONFIGURATION.md`](CONFIGURATION.md) | toutes les options, plages et effets |
+| [`SECURITY.md`](SECURITY.md) | modèle de menace, unsafe, SBOM |
 | [`BUILDING.md`](BUILDING.md) | prérequis, commandes, dépannage de build |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | symptômes courants, causes, actions |
 
-Les documents `ARCHITECTURE.md`, `INSTALLATION.md`, `CONFIGURATION.md`,
-`COMPATIBILITY.md`, `TROUBLESHOOTING.md`, `BENCHMARKS.md`, `RELEASING.md`,
-`SECURITY.md` et `RUST_MOD_SDK.md` sont exigés par la PARTIE 27.1 du cahier des charges
+Les documents `INSTALLATION.md`, `COMPATIBILITY.md`, `BENCHMARKS.md`,
+`RELEASING.md` et `RUST_MOD_SDK.md` sont exigés par la PARTIE 27.1 du cahier des charges
 et seront rédigés au jalon où leur contenu devient réel — jamais avant, pour ne pas
 documenter des fonctionnalités inexistantes.
 

@@ -379,6 +379,49 @@ tasks.register('artifactVerify') {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Confort de developpement : le serveur de `run/` doit accepter le client lance par
+// `runClient`.
+//
+// Le client de ForgeGradle demarre sans session Mojang authentifiee. Un serveur en
+// `online-mode=true` demande a Mojang de valider cette session, echoue, et deconnecte
+// le client avec « Invalid session ». Le meme mecanisme s'applique a
+// `enforce-secure-profile`, qui exige une cle de profil signee.
+//
+// `run/` est un environnement de developpement jetable, ignore par git. Le basculer
+// hors ligne est sans consequence pour un serveur de production, qui n'utilise jamais
+// ce fichier. L'EULA, elle, n'est jamais touchee : son acceptation appartient a
+// l'utilisateur seul.
+// ---------------------------------------------------------------------------
+tasks.register('prepareDevServer') {
+    group = 'rustforgex'
+    description = 'Autorise le client de developpement a rejoindre le serveur de run/'
+    doLast {
+        var proprietes = file('run/server.properties')
+        if (!proprietes.exists()) {
+            // Le fichier est cree par le serveur a son premier demarrage : rien a faire
+            // avant qu'il existe.
+            return
+        }
+        var avant = proprietes.text
+        var apres = avant
+                .replaceAll(/(?m)^online-mode\s*=\s*true$/, 'online-mode=false')
+                .replaceAll(/(?m)^enforce-secure-profile\s*=\s*true$/, 'enforce-secure-profile=false')
+        if (apres != avant) {
+            proprietes.text = apres
+            logger.lifecycle('RUSTFORGE-X : run/server.properties bascule en mode hors ligne ' +
+                    "(online-mode et enforce-secure-profile a false) pour que le client de " +
+                    "developpement puisse se connecter. Ce fichier ne concerne que run/.")
+        }
+    }
+}
+
+// ForgeGradle cree ses taches `run*` apres l'evaluation du script : `tasks.named` ne
+// les trouverait pas encore. `matching` les configure des qu'elles apparaissent.
+tasks.matching { it.name == 'runServer' }.configureEach {
+    dependsOn 'prepareDevServer'
+}
+
 tasks.register('cleanNative', Delete) {
     group = 'rustforgex'
     description = 'Supprime les binaires natifs deposes dans les ressources'

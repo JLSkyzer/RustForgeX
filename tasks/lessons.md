@@ -92,6 +92,27 @@ son service annonce `JAVA_16` par défaut : le lancement affichait un avertissem
 **Règle** : une valeur de configuration d'un outil tiers se lit dans cet outil, pas par
 analogie. En cas de doute, lancer et lire l'avertissement.
 
+### 2026-09-04 | « Disconnected » attribué au mod alors que c'était l'authentification | Lire le log avant de supposer que le défaut vient de son propre code
+
+Le client était déconnecté du serveur de développement. Le réflexe aurait été de
+chercher un défaut de RUSTFORGE-X — handshake de registre, canal réseau, mixin. Le log
+du client disait exactement autre chose : `Failed to log in: Invalid session`. Le
+client de ForgeGradle démarre sans session Mojang, et un serveur en `online-mode=true`
+le rejette. Le mod n'était pour rien dans l'affaire.
+
+**Règle** : devant un symptôme, lire le message d'erreur réel avant de formuler la
+moindre hypothèse. Le fait qu'on vienne de modifier quelque chose ne fait pas de ce
+quelque chose la cause.
+
+### 2026-09-04 | Les logs du serveur avaient disparu | `run/` est partagé entre client et serveur
+
+`runClient` et `runServer` utilisent le même répertoire de travail : le second
+processus démarré prend la main sur `latest.log` et archive le précédent en
+`logs/<date>-N.log.gz`. Le log du serveur semblait s'arrêter au milieu.
+
+**Règle** : quand un log paraît tronqué dans `run/logs/`, la suite est dans les `.gz`
+horodatés. Vérifier aussi lequel des deux processus a écrit le fichier consulté.
+
 ### 2026-09-04 | Renommage global : la plateforme non compilée localement a été oubliée | Vérifier chaque cible avant de conclure
 
 Le passage des identifiants en anglais a renommé `SondeSysteme` en `SystemProbe` dans
