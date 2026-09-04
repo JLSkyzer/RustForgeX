@@ -92,6 +92,18 @@ son service annonce `JAVA_16` par défaut : le lancement affichait un avertissem
 **Règle** : une valeur de configuration d'un outil tiers se lit dans cet outil, pas par
 analogie. En cas de doute, lancer et lire l'avertissement.
 
+### 2026-09-05 | Fichier écrit avec un contenu provisoire, deux fois | Ne jamais matérialiser un fichier avant d'en avoir le contenu
+
+Deux fois dans la même session, un fichier a été créé avec un contenu factice — le mot
+« placeholder » — avant d'être aussitôt réécrit : d'abord `.github/workflows/ci.yml`,
+puis `docs/decisions/ADR-016.md`. Le contenu réel a suivi immédiatement dans les deux
+cas, mais entre-temps le dépôt contenait exactement ce que l'interdit n°1 du contrat
+agent proscrit.
+
+**Règle** : un fichier ne se crée qu'avec son contenu définitif. S'il n'est pas encore
+rédigé, il n'est pas encore écrit. Le fait de « le remplir juste après » n'est pas une
+excuse : si la session s'interrompt entre les deux, la fiction est commitée.
+
 ### 2026-09-04 | « Disconnected » attribué au mod alors que c'était l'authentification | Lire le log avant de supposer que le défaut vient de son propre code
 
 Le client était déconnecté du serveur de développement. Le réflexe aurait été de

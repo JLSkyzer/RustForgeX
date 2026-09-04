@@ -54,12 +54,13 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 
 ### Étape D — C-04 JVM Instrumentation — T-130..T-134
 
+- [x] `enter`/`exit` sous `try/finally` : une exception ne fausse jamais un compteur
+- [x] Niveaux `COUNTER` / `TIMED` / `DEEP`, pilotés à l'exécution (ADR-016)
+- [x] Refus de sonder : méthodes trop courtes, `<clinit>`, natives, classes du bootstrap (R-311, R-312)
+- [x] Sémantique observable inchangée (R-310), vérifiée en exécutant les classes transformées
 - [ ] Transformateur enregistré en dernier dans la chaîne ModLauncher
-- [ ] `enter`/`exit` sous `try/finally` : une exception ne fausse jamais un compteur
-- [ ] Niveaux `COUNTER` / `TIMED` / `DEEP` avec leurs coûts cibles
-- [ ] Refus de sonder : méthodes trop courtes, `<clinit>`, natives, classes du bootstrap (R-311, R-312)
-- [ ] Sémantique observable inchangée (R-310)
-- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313)
+- [ ] Coûts par niveau mesurés sous leur seuil (T-131) — demande le harnais C-36
+- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande C-05
 
 ### Étape E — C-05 Profiler — T-140..T-144
 
