@@ -84,11 +84,19 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 C-05 sait désormais attribuer un identifiant de sonde et piloter les niveaux : la
 condition posée pour brancher le transformateur est levée.
 
+- [x] Voie d'enregistrement établie et consignée : ADR-017 — `ILaunchPluginService`
+      dans un second JAR promu à la couche de plugins de ModLauncher
+- [ ] Sous-projet Gradle `launch/` produisant `rustforgex-launch.jar`
+- [ ] `RfxLaunchPlugin` : inerte tant que le mod ne l'a pas armé (couche parente)
 - [ ] `ProbeRegistry` côté Java : décrire l'unité de travail, obtenir son identifiant
-- [ ] Enregistrement du transformateur — la voie exacte sur Forge 47 reste à établir et
-      demandera un ADR (un JAR de mod n'est pas dans la couche de plugins de
-      ModLauncher)
-- [ ] Rafraîchir la table des niveaux en fin de tick (`RfxProbes.setLevels`)
+      du natif (`rfx_workload_register`)
+- [ ] Détecter et signaler l'absence du JAR de lancement — un mod qui ne sonde rien en
+      silence est le pire des symptômes
+- [ ] Rafraîchir la table des niveaux en fin de tick (`rfx_probe_levels`,
+      `RfxProbes.setLevels`)
+- [ ] Ordre relatif des `ILaunchPluginService`, notamment vis-à-vis de Mixin — la
+      PARTIE 5.4 exige « enregistré en DERNIER » (ADR complémentaire si non garanti)
+- [ ] C-40 : deux artefacts à construire, empreindre et vérifier
 - [ ] Retrait d'une sonde sur régression JIT (R-313)
 
 ### Étape F — C-06 Event Observer — T-150..T-154
