@@ -117,21 +117,23 @@ condition posée pour brancher le transformateur est levée.
       supprimé
 - [x] **Vérifié en production** : 272 mods, 5526 cibles, instrumentation armée,
       3462 méthodes sondées, aucun mod cassé, 20,001 TPS
-- [ ] **Cibler aussi les classes des mods.** Les cibler aujourd'hui casse le démarrage :
-      désigner une cible fait entrer la classe dans toute la chaîne de transformation,
-      et Mixin échoue sur le code client d'un mod, présent dans le JAR mais interdit sur
-      un serveur dédié. Il faut une règle de sélection qui écarte ce code
+- [x] **Classes des mods ciblées** : deux filtres, sur le contenu des classes et non
+      sur leur nom — le code qui référence le client, et les classes que Mixin patche
+      (classes mixin elles-mêmes et cibles déclarées par `@Mixin`, lues par ASM, T-135)
+- [x] **Vérifié en production** : 78 207 cibles (852 laissées à Mixin sur 1499
+      déclarées), 272 mods chargés, 0 échec, **17 546 méthodes sondées**, 19,998 TPS
 - [ ] Mesurer par C-36 le coût du décodage systématique en `ClassNode` avant de le
-      déclarer acceptable
-- [ ] Vérifier qu'une méthode portant un mixin **et** une sonde se comporte
-      identiquement — dette d'ADR-018, désormais prioritaire : l'ordre défavorable
-      devient systématique
+      déclarer acceptable ; les 5,2 s d'énumération au démarrage sont visibles, le coût
+      par classe chargée ne l'est pas
+- [x] Dette d'ADR-018 close **par construction** : une méthode ne peut plus porter un
+      mixin et une sonde, puisque les cibles de mixins sont exclues. L'hypothèse
+      d'ADR-018 était d'ailleurs fausse — un `@ModifyVariable` l'a réfutée
+- [ ] Cibles atteintes **indirectement** par un mixin (héritage, configuration
+      construite à l'exécution) : aucune constatée, aucune écartée
 - [x] Ordre relatif des `ILaunchPluginService` — tranché par ADR-018 : non
       garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
 - [x] Suppression de la configuration Mixin morte (zéro mixin déclaré, un avertissement
       à chaque lancement)
-- [ ] Confirmer par un essai réel qu'une méthode portant un mixin **et** une sonde se
-      comporte identiquement dans les deux ordres (hypothèse la plus fragile d'ADR-018)
 - [ ] Exposer l'instrumentation dans `/rfx status` (aujourd'hui seulement au journal)
 - [ ] C-40 : deux artefacts à construire, empreindre et vérifier
 - [ ] Retrait d'une sonde sur régression JIT (R-313)

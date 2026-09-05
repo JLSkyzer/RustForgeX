@@ -221,3 +221,34 @@ Les fichiers `.properties` sont chargés par Java en ISO-8859-1 : un caractère 
 
 **Règle** : `gradle.properties` reste en ASCII. Si un texte accentué doit être affiché,
 il passe par une ressource UTF-8, pas par une propriété Gradle.
+
+### 2026-09-05 | Un transformateur qui ne transformait rien a cassé un serveur | Déclarer une cible est déjà un acte
+
+Première énumération complète des classes de mods : 87 981 cibles, et six mods qui
+échouent à se construire. L'accusation évidente — notre injecteur — était fausse : au
+moment des échecs le journal ne portait aucun « Transformateur armé », `probeIds` valait
+`null`, et `transform()` rendait chaque `ClassNode` inchangé. Pas un octet modifié.
+
+`ClassTransformer` a un chemin rapide : sans preneur, les octets d'une classe passent
+sans être décodés. La déclarer comme cible la fait entrer dans toute la chaîne, phase
+`AFTER` comprise, donc Mixin — qui échoue sur ce qu'il ne sait pas résoudre.
+
+**Règle** : avant d'accuser une transformation, vérifier dans le journal qu'elle a
+seulement eu lieu. Et se souvenir que l'ensemble des cibles est lui-même un effet de
+bord, indépendamment de ce qu'on en fait.
+
+### 2026-09-05 | Sonder une classe patchée par un mixin l'a rendue impatchable | Ne jamais toucher ce qu'un autre outil va réécrire
+
+`Critical injection failure: Variable modifier method ValkyrienSkies$entity(…) failed
+injection check, (0/1) succeeded.` Un `@ModifyVariable` d'un mod, posé sur la classe
+d'un autre mod, que nous avions instrumentée juste avant.
+
+Nos `ITransformer` passent toujours avant Mixin — l'ordre n'est pas négociable. Toute
+classe qu'un mixin patche doit donc nous rester interdite. Les cibles se lisent dans
+l'annotation `@Mixin` : `value` (littéraux de classe) **et** `targets` (noms textuels,
+la forme employée quand la cible n'est pas visible à la compilation, donc le cas courant
+entre mods). Oublier la seconde forme laisserait passer précisément les cas inter-mods.
+
+**Règle** : quand deux outils réécrivent le même bytecode et que l'ordre est imposé,
+celui qui passe en premier n'a pas à « faire attention » — il doit s'interdire le
+terrain de l'autre. Le coût mesuré ici est de 1 % des cibles.

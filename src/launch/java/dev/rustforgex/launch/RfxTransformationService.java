@@ -43,6 +43,9 @@ public final class RfxTransformationService implements ITransformationService {
     /** Répertoire de jeu, connu après {@link #initialize(IEnvironment)}. */
     private Path gameDirectory;
 
+    /** {@code true} sur un serveur dédié : le code client n'y est pas chargeable. */
+    private boolean dedicatedServer;
+
     /** Constructeur sans argument, exigé par {@code ServiceLoader}. */
     public RfxTransformationService() {
         // Intentionnellement vide : rien de ce dont ce mod a besoin n'existe encore.
@@ -58,6 +61,12 @@ public final class RfxTransformationService implements ITransformationService {
         // Le répertoire de jeu mène au dossier `mods`, d'où viennent la plupart des
         // classes à cibler. Il n'est pas connu à la construction.
         gameDirectory = environment.getProperty(IEnvironment.Keys.GAMEDIR.get()).orElse(null);
+        // La cible de lancement dit de quel côté on se trouve. Un serveur dédié ne peut
+        // pas charger le code de rendu, et le désigner comme cible l'empêcherait de
+        // démarrer.
+        dedicatedServer = environment.getProperty(IEnvironment.Keys.LAUNCHTARGET.get())
+                .map(target -> target.toLowerCase(java.util.Locale.ROOT).contains("server"))
+                .orElse(true);
         if (gameDirectory == null) {
             LOGGER.warn("Répertoire de jeu inconnu : seules les classes de plateforme "
                     + "seront sondées.");
@@ -73,7 +82,7 @@ public final class RfxTransformationService implements ITransformationService {
     @SuppressWarnings("rawtypes")
     public List<ITransformer> transformers() {
         try {
-            Set<String> targets = TargetScanner.scan(gameDirectory);
+            Set<String> targets = TargetScanner.scan(gameDirectory, dedicatedServer);
             if (targets.isEmpty()) {
                 LOGGER.warn("Aucune cible énumérée : aucune méthode ne sera sondée. "
                         + "Le jeu tourne normalement.");

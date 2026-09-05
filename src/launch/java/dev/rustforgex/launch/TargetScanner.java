@@ -1,14 +1,22 @@
 package dev.rustforgex.launch;
 
+import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -74,6 +82,42 @@ public final class TargetScanner {
     /** Au-delà, l'énumération est jugée aberrante et abandonnée. */
     private static final int MAX_TARGETS = 400_000;
 
+    /**
+     * Empreintes, en UTF-8, du code qui n'existe pas sur un serveur dédié.
+     *
+     * <p>Une classe de mod qui les mentionne référence du rendu ou se déclare cliente.
+     * La désigner comme cible sur un serveur dédié suffit à faire échouer le démarrage :
+     * elle entre alors dans la chaîne de transformation, où Mixin ne sait pas la
+     * résoudre. Le nom du paquet ne suffit pas à les reconnaître — le cas qui a cassé un
+     * serveur de production s'appelait {@code common.events.ClientEvents} — d'où ce
+     * filtre sur ce que la classe <strong>référence</strong>, et non sur ce qu'elle
+     * s'appelle.
+     */
+    private static final byte[][] CLIENT_MARKERS = {
+        "net/minecraft/client/".getBytes(StandardCharsets.UTF_8),
+        "com/mojang/blaze3d/".getBytes(StandardCharsets.UTF_8),
+        "Lnet/minecraftforge/api/distmarker/OnlyIn;".getBytes(StandardCharsets.UTF_8),
+    };
+
+    /**
+     * Empreinte d'une classe mixin.
+     *
+     * <p>Une classe portant {@code @Mixin} n'est pas du code qui s'exécute : c'est une
+     * description que Mixin lit, puis dont il transplante les méthodes dans une classe
+     * cible. Y injecter une sonde revient à modifier le patch avant qu'il soit appliqué,
+     * et Mixin échoue alors à retrouver ses points d'injection — constaté en production
+     * sur un {@code @ModifyVariable} de ValkyrienSkies.
+     *
+     * <p>Elles sont écartées des deux côtés, client comme serveur.
+     */
+    private static final String MIXIN_ANNOTATION = "Lorg/spongepowered/asm/mixin/Mixin;";
+
+    private static final byte[] MIXIN_MARKER =
+            MIXIN_ANNOTATION.getBytes(StandardCharsets.UTF_8);
+
+    /** Classes écartées faute de pouvoir exister de ce côté, ou parce que mixin. */
+    private static int skippedForSide;
+
     private TargetScanner() {
         throw new AssertionError("classe utilitaire, non instanciable");
     }
@@ -85,18 +129,21 @@ public final class TargetScanner {
      * partielle produit une instrumentation partielle, ce qui reste préférable à un
      * démarrage interrompu.
      *
-     * @param gameDirectory répertoire de jeu, ou {@code null} s'il est inconnu ;
-     *     conservé pour l'extension aux classes de mods, qui n'est pas active
+     * @param gameDirectory répertoire de jeu, ou {@code null} s'il est inconnu
+     * @param dedicatedServer {@code true} sur un serveur dédié, où le code client ne
+     *     peut pas être chargé
      * @return les noms internes, par exemple {@code net/minecraft/world/entity/Mob}
      */
-    public static Set<String> scan(Path gameDirectory) {
+    public static Set<String> scan(Path gameDirectory, boolean dedicatedServer) {
         Set<String> targets = new LinkedHashSet<>(16_384);
+        Set<String> mixinTargets = new HashSet<>(8_192);
+        skippedForSide = 0;
+        long startedAt = System.nanoTime();
 
-        // Les classes des mods ne sont pas ciblées à ce jour : voir ADR-019, complément
-        // du 2026-09-05. Désigner une cible n'est pas neutre — ModLauncher fait alors
-        // passer la classe par toute la chaîne de transformation, y compris Mixin, là où
-        // elle prenait le chemin rapide. Sur les classes de mods, cela suffit à faire
-        // échouer le démarrage d'un serveur.
+        if (gameDirectory != null) {
+            scanModsDirectory(gameDirectory.resolve("mods"), targets, dedicatedServer,
+                    mixinTargets);
+        }
         scanLegacyClassPath(targets);
 
         // En production, le JAR du jeu ne figure pas sur le classpath : FML le localise
@@ -107,7 +154,23 @@ public final class TargetScanner {
                     .resolve("minecraft"), targets);
         }
 
-        LOGGER.info("Cibles d'instrumentation énumérées : {} classes.", targets.size());
+        // Une classe qu'un mixin patche ne peut pas être sondée : nos instructions
+        // s'intercalent avant que Mixin cherche ses points d'injection, et un injecteur
+        // qui raisonne sur les variables locales ne s'y retrouve plus. Constaté en
+        // production sur un @ModifyVariable de ValkyrienSkies, dont l'échec est fatal.
+        int protectedFromMixins = 0;
+        for (String mixinTarget : mixinTargets) {
+            if (targets.remove(mixinTarget)) {
+                protectedFromMixins++;
+            }
+        }
+
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        LOGGER.info("Cibles d'instrumentation énumérées : {} classes en {} ms"
+                + " ({} écartées, absentes de ce côté ; {} laissées à Mixin sur {} cibles"
+                + " de mixins déclarées).",
+                targets.size(), elapsedMs, skippedForSide, protectedFromMixins,
+                mixinTargets.size());
         return targets;
     }
 
@@ -125,7 +188,8 @@ public final class TargetScanner {
         try (var paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
-                    .forEach(jar -> collectFromArchive(jar, targets, true));
+                    .forEach(jar ->
+                            collectFromArchive(jar, targets, true, false, false, null));
         } catch (IOException | RuntimeException e) {
             LOGGER.warn("Bibliothèques du jeu illisibles sous {} : les classes du jeu ne "
                     + "seront pas sondées.", root);
@@ -133,7 +197,9 @@ public final class TargetScanner {
     }
 
     /** Énumère toutes les classes des archives de {@code mods}. */
-    private static void scanModsDirectory(Path modsDirectory, Set<String> targets) {
+    private static void scanModsDirectory(
+            Path modsDirectory, Set<String> targets, boolean dedicatedServer,
+            Set<String> mixinTargets) {
         if (!Files.isDirectory(modsDirectory)) {
             // Environnement de développement : les mods viennent du classpath, pas d'un
             // dossier. Ce n'est pas une anomalie.
@@ -141,7 +207,7 @@ public final class TargetScanner {
         }
         try (DirectoryStream<Path> jars = Files.newDirectoryStream(modsDirectory, "*.jar")) {
             for (Path jar : jars) {
-                collectFromArchive(jar, targets, false);
+                collectFromArchive(jar, targets, false, true, dedicatedServer, mixinTargets);
             }
         } catch (IOException e) {
             LOGGER.warn("Dossier {} illisible : les mods ne seront pas sondés.",
@@ -163,7 +229,7 @@ public final class TargetScanner {
             if (Files.isDirectory(path)) {
                 collectFromDirectory(path, targets);
             } else if (entry.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-                collectFromArchive(path, targets, true);
+                collectFromArchive(path, targets, true, false, false, null);
             }
         }
     }
@@ -172,26 +238,143 @@ public final class TargetScanner {
      * Ajoute les classes d'une archive.
      *
      * @param platformOnly {@code true} pour ne retenir que les paquets de plateforme
+     * @param checkSide {@code true} pour inspecter le contenu des classes — classes
+     *     mixin toujours, code client sur un serveur dédié
+     * @param dedicatedServer {@code true} si le code client doit être écarté
+     * @param mixinTargets ensemble à compléter des classes que les mixins patcheront,
+     *     ou {@code null} quand l'archive n'est pas inspectée
      */
-    private static void collectFromArchive(Path archive, Set<String> targets, boolean platformOnly) {
+    private static void collectFromArchive(
+            Path archive, Set<String> targets, boolean platformOnly, boolean checkSide,
+            boolean dedicatedServer, Set<String> mixinTargets) {
         try (ZipFile zip = new ZipFile(archive.toFile())) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
-                String name = entries.nextElement().getName();
-                String internal = internalName(name);
-                if (internal != null && accepts(internal, platformOnly)) {
-                    if (targets.size() >= MAX_TARGETS) {
-                        LOGGER.warn("Énumération interrompue à {} cibles : au-delà, le coût "
-                                + "de l'instrumentation dépasserait ce qu'elle rapporte.",
-                                MAX_TARGETS);
-                        return;
-                    }
-                    targets.add(internal);
+                ZipEntry entry = entries.nextElement();
+                String internal = internalName(entry.getName());
+                if (internal == null || !accepts(internal, platformOnly)) {
+                    continue;
                 }
+                if (targets.size() >= MAX_TARGETS) {
+                    LOGGER.warn("Énumération interrompue à {} cibles : au-delà, le coût "
+                            + "de l'instrumentation dépasserait ce qu'elle rapporte.",
+                            MAX_TARGETS);
+                    return;
+                }
+                if (checkSide && mustSkip(zip, entry, dedicatedServer, mixinTargets)) {
+                    skippedForSide++;
+                    continue;
+                }
+                targets.add(internal);
             }
         } catch (IOException | RuntimeException e) {
             LOGGER.warn("Archive {} illisible : ses classes ne seront pas sondées.", archive);
         }
+    }
+
+    /**
+     * Indique si une classe référence du code qui n'existe pas sur un serveur dédié.
+     *
+     * <p>Recherche brute des empreintes dans les octets de la classe : le pool de
+     * constantes porte tous les noms de types référencés, et une recherche d'octets y
+     * est bien moins coûteuse qu'une analyse du format.
+     *
+     * <p>En cas de doute — entrée illisible — la classe est écartée. C'est le principe
+     * UNKNOWN = CONSERVATIVE : une classe non sondée dégrade la mesure, une classe
+     * sondée à tort empêche le serveur de démarrer.
+     */
+    private static boolean mustSkip(ZipFile zip, ZipEntry entry, boolean dedicatedServer,
+            Set<String> mixinTargets) {
+        try (InputStream stream = zip.getInputStream(entry)) {
+            byte[] bytes = stream.readAllBytes();
+            if (contains(bytes, MIXIN_MARKER)) {
+                if (mixinTargets != null) {
+                    collectMixinTargets(bytes, mixinTargets);
+                }
+                return true;
+            }
+            if (!dedicatedServer) {
+                return false;
+            }
+            for (byte[] marker : CLIENT_MARKERS) {
+                if (contains(bytes, marker)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (IOException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    /**
+     * Relève les classes qu'un mixin patchera.
+     *
+     * <p>L'annotation {@code @Mixin} les désigne de deux façons : {@code value} porte
+     * des littéraux de classe, {@code targets} des noms sous forme textuelle — la forme
+     * employée quand la cible n'est pas visible à la compilation, ce qui est le cas
+     * courant entre mods. Les deux sont relevées.
+     *
+     * <p>L'analyse saute le code, les tables de débogage et les cartes de pile : seul
+     * l'en-tête d'annotations est lu. Une classe illisible ne fait rien échouer, mais
+     * ses cibles ne seront pas protégées — c'est le seul point de ce filtre où l'inconnu
+     * n'est pas traité de façon conservatrice, faute de savoir quoi écarter.
+     *
+     * <p>Visible dans le paquet pour T-135, qui vérifie les deux formes de désignation.
+     */
+    static void collectMixinTargets(byte[] bytes, Set<String> mixinTargets) {
+        try {
+            new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+                @Override
+                public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                    if (!MIXIN_ANNOTATION.equals(descriptor)) {
+                        return null;
+                    }
+                    return new AnnotationVisitor(Opcodes.ASM9) {
+                        @Override
+                        public AnnotationVisitor visitArray(String arrayName) {
+                            if (!"value".equals(arrayName) && !"targets".equals(arrayName)) {
+                                return null;
+                            }
+                            return new AnnotationVisitor(Opcodes.ASM9) {
+                                @Override
+                                public void visit(String elementName, Object value) {
+                                    if (value instanceof Type type) {
+                                        mixinTargets.add(type.getInternalName());
+                                    } else if (value instanceof String target) {
+                                        mixinTargets.add(target.replace('.', '/'));
+                                    }
+                                }
+                            };
+                        }
+                    };
+                }
+            }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        } catch (RuntimeException | LinkageError e) {
+            LOGGER.debug("Annotation @Mixin illisible : ses cibles ne seront pas protégées.");
+        }
+    }
+
+    /** Recherche d'une suite d'octets dans une autre. */
+    private static boolean contains(byte[] haystack, byte[] needle) {
+        if (needle.length == 0 || haystack.length < needle.length) {
+            return false;
+        }
+        byte first = needle[0];
+        int last = haystack.length - needle.length;
+        for (int i = 0; i <= last; i++) {
+            if (haystack[i] != first) {
+                continue;
+            }
+            int j = 1;
+            while (j < needle.length && haystack[i + j] == needle[j]) {
+                j++;
+            }
+            if (j == needle.length) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Ajoute les classes d'un répertoire de sortie, forme du développement. */
