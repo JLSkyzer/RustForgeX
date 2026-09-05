@@ -105,6 +105,8 @@ pub struct ProfilerStatus {
     pub baseline_overhead_ns: u64,
     /// Le meme cout, en centiemes de pourcent de la duree d'un tick sans profilage.
     pub baseline_overhead_pct_x100: u64,
+    /// Cycles appaires agreges dans la derniere mesure de ligne de base.
+    pub baseline_cycles: u64,
     /// Tick auquel la derniere mesure de ligne de base s'est achevee.
     pub baseline_tick: u64,
     /// Ticks restants avant la prochaine pause de mesure.

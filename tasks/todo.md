@@ -169,6 +169,16 @@ condition posée pour brancher le transformateur est levée.
       profiler reste à `DEEP` en permanence et le gouverneur ne se déclenche jamais.
       Pistes dans ADR-020, quatrième volet — à départager par une campagne, pas par un
       raisonnement
+- [x] **Piste 1 implémentée et vérifiée en jeu** : cadence 300/20 au lieu de 6000/20,
+      médiane de 30 différences **signées**, borne à zéro appliquée une seule fois à la
+      fin. Résultat sur serveur de production : 5,86 % sur 30 cycles, et
+      `profiler_level: THROTTLED` — **le gouverneur d'overhead s'est déclenché pour la
+      première fois**
+- [ ] Mesurer la correspondance entre les deux instruments à profondeur **figée** :
+      5,86 % décrit `LIGHT`, +36 % décrivait `DEEP`. Ce ne sont pas deux mesures du même
+      état, et rien n'autorise encore à les rapprocher
+- [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
+      d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour

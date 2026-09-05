@@ -232,6 +232,7 @@ public final class StatusReport {
         lines.add(Component.translatable(KEY_PREFIX + "profiler_baseline",
                 micros(longValue(profiler, "baseline_overhead_ns")),
                 percent(longValue(profiler, "baseline_overhead_pct_x100")),
+                longValue(profiler, "baseline_cycles"),
                 longValue(profiler, "baseline_tick")));
     }
 

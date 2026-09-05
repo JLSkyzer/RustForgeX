@@ -302,6 +302,8 @@ public final class MacroRecorder {
         state.append("      \"overhead_pct\": ")
                 .append(format(longValue(profiler, "baseline_overhead_pct_x100") / 100.0))
                 .append(",\n");
+        state.append("      \"cycles\": ")
+                .append(longValue(profiler, "baseline_cycles")).append(",\n");
         state.append("      \"tick\": ")
                 .append(longValue(profiler, "baseline_tick")).append("\n");
         state.append("    }");

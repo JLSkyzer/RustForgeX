@@ -492,6 +492,7 @@ impl Profiler {
             baseline_measurements: self.baseline.measurements(),
             baseline_overhead_ns: baseline.map_or(0, |m| m.overhead_ns),
             baseline_overhead_pct_x100: baseline.map_or(0, |m| pct_x100(m.overhead_pct())),
+            baseline_cycles: baseline.map_or(0, |m| u64::from(m.cycles)),
             baseline_tick: baseline.map_or(0, |m| m.tick),
             baseline_ticks_until_pause: self.baseline.ticks_until_pause(),
             records_dropped_paused: self.records_dropped_paused,
@@ -862,7 +863,7 @@ mod tests {
     /// longue pour que les vingt ticks de la fenetre active soient tous mesures.
     fn with_short_baseline() -> Profiler {
         let mut profiler = started();
-        profiler.baseline = BaselineSampler::with_period(200, 20);
+        profiler.baseline = BaselineSampler::with_cadence(200, 20, 1);
         profiler
     }
 

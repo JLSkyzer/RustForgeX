@@ -64,6 +64,7 @@ class StatusReportTest {
         profiler.put("baseline_measurements", 0L);
         profiler.put("baseline_overhead_ns", 0L);
         profiler.put("baseline_overhead_pct_x100", 0L);
+        profiler.put("baseline_cycles", 0L);
         profiler.put("baseline_tick", 0L);
         profiler.put("baseline_ticks_until_pause", 5_900L);
         return profiler;
@@ -221,6 +222,7 @@ class StatusReportTest {
         profiler.put("baseline_measurements", 3L);
         profiler.put("baseline_overhead_ns", 850_000L);
         profiler.put("baseline_overhead_pct_x100", 170L);
+        profiler.put("baseline_cycles", 30L);
         profiler.put("baseline_tick", 18_000L);
         profiler.put("baseline_ticks_until_pause", 4_200L);
         return profiler;
@@ -299,7 +301,7 @@ class StatusReportTest {
         assertTrue(keysOf(lines).contains("rustforgex.status.profiler_baseline"),
                 keysOf(lines).toString());
         assertArrayEqualsAsStrings(
-                new Object[] {"850.000", "1.70", 18_000L},
+                new Object[] {"850.000", "1.70", 30L, 18_000L},
                 argumentsOf(lines, "rustforgex.status.profiler_baseline"));
     }
 
