@@ -50,12 +50,13 @@ Le script lance le serveur dédié une fois par exécution et par configuration 
 rend les répétitions indépendantes, JIT et caches compris. Chaque exécution écrit
 `benchmarks/runs/<configuration>-<n>.json`, puis `rfx-bench macro` les agrège.
 
-Deux configurations sont comparées :
+Deux configurations sont comparées. Ce sont les configurations **B** et **C** de la
+PARTIE 21.2, dont l'écart mesure le **coût du système** :
 
 | Étiquette | Ce qui tourne |
 |---|---|
-| `a-rfx-off` | serveur seul, `general.enabled=false` |
-| `b-rfx-on` | serveur + RUSTFORGE-X, instrumentation armée |
+| `b-mods-seuls` | le modpack sans RUSTFORGE-X : JAR du transformateur retiré de `mods`, `general.enabled=false` |
+| `c-rfx-actif` | le même modpack, RUSTFORGE-X observant, instrumentation armée |
 
 L'écart entre les deux est le **coût du profilage**. C'est le passage de B à C de la
 PARTIE 21.2, à ceci près qu'il n'y a pas de modpack : la mesure décrit un serveur nu,
@@ -70,6 +71,13 @@ et rien d'autre. Un profil de charge de la PARTIE 22 donnera un chiffre différe
 - **`rejected`** signale une dispersion inter-exécutions supérieure à 10 % sur le
   MSPT p95 (PARTIE 21.3, point 7). La machine n'était pas au repos : le chiffre décrit
   l'environnement, pas le logiciel.
+Retirer le JAR du transformateur n'est pas un détail de mise en scène :
+`general.enabled=false` éteint le runtime, mais laisse le transformateur énumérer ses
+cibles et décoder en `ClassNode` chaque classe désignée. Une configuration B qui le
+garderait ne mesurerait que le coût des sondes, en dissimulant celui de la
+transformation. Le JAR du mod, lui, reste en place des deux côtés : il porte
+l'enregistreur, et ce qui est présent des deux côtés ne pèse pas sur la différence.
+
 - **`comparison.trustworthy`** ne vaut `true` que si les deux configurations sont
   conformes et non rejetées. Un écart entre deux campagnes douteuses n'est pas une
   mesure de coût.
