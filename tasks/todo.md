@@ -134,9 +134,10 @@ condition posée pour brancher le transformateur est levée.
 - [x] **Coût mesuré par C-36**, campagne conforme PARTIE 21.3 (5 × 12 000 ticks × 2
       configurations, commit `784d8d9`) : MSPT p95 2,523 → 3,372 ms, soit **+33,7 %** ;
       p50 +40,8 % ; TPS inchangé à 20,000 ; démarrage 110 → 118 s
-- [ ] **Le budget de 2 % (H-07, acceptance C-05) n'est pas tenu** : +33,7 % sur le p95.
-      En absolu 0,85 ms sur 50 ms, donc le jeu ne souffre pas sur cette machine — mais le
-      budget est normatif, et il est dépassé d'un ordre de grandeur
+- [ ] **Le budget de 2 % (H-07, acceptance C-05) n'est pas tenu** : +36,4 % sur le p95,
+      mesuré deux fois à un jour d'intervalle. En absolu 0,90 ms sur 50 ms, donc le jeu
+      ne souffre pas sur cette machine — mais le budget est normatif, et il est dépassé
+      d'un ordre de grandeur. **C'est le défaut ouvert le plus important du jalon**
 - [x] **`OverheadMeter` ne mesurait pas la dépense dominante** — corrigé : la ligne de
       base de la PARTIE 12.4 mesure le tick entier, donc aussi les `RfxProbes.enter` et
       `exit` injectés. Les deux instruments convergent (32,3 % contre 33,7 %)
@@ -159,13 +160,15 @@ condition posée pour brancher le transformateur est levée.
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
-- [ ] **La ligne de base est bruitée d'une mesure à l'autre.** Deux mesures sur le même
-      serveur à cinq minutes d'intervalle : 13,3 % puis 0,0 %. Le zéro n'est pas un coût
-      nul, c'est la borne : la fenêtre en pause a duré plus longtemps que la fenêtre
-      active, la charge ayant bougé entre les deux. Vingt ticks contre vingt ne suffisent
-      pas toujours à faire ressortir quelques dixièmes de milliseconde. À trancher sur
-      les cinq mesures de la campagne, pas sur deux — allonger les fenêtres, ou exiger
-      deux mesures concordantes avant d'agir
+- [ ] **La mise en pause de la PARTIE 12.4 ne suffit pas à gouverner.** Cinq mesures sur
+      la campagne : 13,3 % · 0,0 % · 0,5 % · 0,0 % · 0,0 %, quand la comparaison de
+      configurations donne un écart stable de +36,4 %. Elle a vu juste une fois sur cinq.
+      Un zéro est la borne, pas un coût nul : la fenêtre en pause a duré plus longtemps
+      que la fenêtre active, la charge ayant bougé. Vingt ticks contre vingt ne sortent
+      pas 0,9 ms d'un signal qui varie de plusieurs millisecondes. Conséquence : le
+      profiler reste à `DEEP` en permanence et le gouverneur ne se déclenche jamais.
+      Pistes dans ADR-020, quatrième volet — à départager par une campagne, pas par un
+      raisonnement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
@@ -261,8 +264,11 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [x] **Campagne normative exécutée** le 2026-09-05 sur `784d8d9` : 5 exécutions ×
       12 000 ticks × 2 configurations, conforme et déclarée fiable par l'agrégateur.
       Résultat dans `benchmarks/results/macro-1788623402-784d8d9.json`
-- [ ] Seconde campagne sur `38eacfa`, après le filtre des types absents et l'auto-mesure
-      de la 12.4, pour mesurer ce que ces deux correctifs changent
+- [x] **Seconde campagne exécutée** sur `38eacfa`, conforme et fiable. Résultat :
+      `benchmarks/results/macro-1788636356-38eacfa.json`. **Le coût n'a pas baissé** :
+      MSPT p95 2,468 → 3,366 ms, soit **+36,4 %** contre +33,7 % la veille. Les deux
+      correctifs du jour n'y changent rien — le filtre n'a retiré que 2,6 % des cibles,
+      et le gouverneur d'overhead ne s'est jamais déclenché
 - [ ] **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
       le lancement. Agréger depuis un `git checkout 38eacfa` détaché — `benchmarks/runs`
       est ignoré par git et survit au changement — sans quoi le résultat citerait un

@@ -1064,11 +1064,16 @@ mod tests {
         run_until_measured(&mut profiler, 10_000_000).expect("mesure aboutie");
         let after_reduction = profiler.level();
 
-        // Mille ticks bon marche : dix fois de quoi declencher une remontee.
-        for _ in 0..(COMFORTABLE_TICKS_BEFORE_RAISE * 10) {
+        // De quoi declencher une remontee, sans atteindre la pause suivante : c'est
+        // bien le refus qu'on mesure, pas l'effet d'une seconde mesure.
+        for _ in 0..(COMFORTABLE_TICKS_BEFORE_RAISE + 50) {
             profiler.end_tick(tick_of(10_000_000));
         }
 
+        assert!(
+            !profiler.baseline_paused(),
+            "la pause suivante n'a pas commence"
+        );
         assert_eq!(
             profiler.level(),
             after_reduction,
