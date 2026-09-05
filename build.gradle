@@ -188,7 +188,7 @@ tasks.register('launchJar', Jar) {
                 'Implementation-Vendor' : mod_authors
                 // Pas de FMLModType : cet attribut ferait adopter le JAR par FML comme
                 // fichier de mod, donc comme module de la couche du jeu -- alors qu'il
-                // est deja module de la couche d'amorcage. La resolution echouerait sur
+                // est deja charge par ailleurs. La resolution echouerait sur
                 // « reads more than one module named rustforgex.launch ».
         ])
     }
@@ -198,21 +198,18 @@ tasks.named('assemble').configure {
     dependsOn 'launchJar'
 }
 
-// Le JAR de lancement doit figurer dans le classpath que BootstrapLauncher lit pour
-// batir la couche d'amorcage (ADR-017).
+// Le JAR du transformateur rejoint le classpath des runs de developpement (ADR-019).
 //
-// C'est la que les ILaunchPluginService sont cherches, et il n'y a pas de seconde
-// chance : LaunchPluginHandler s'execute avant que les ITransformerDiscoveryService
-// n'aient rendu leurs candidats. Un JAR decouvert plus tard peut encore fournir un
-// ITransformationService, jamais un plugin de lancement.
+// En production, rien de special n'est requis : ModDirTransformerDiscoverer trouve le
+// JAR dans mods/, ModLauncher charge son ITransformationService et lui demande ses
+// transformateurs. En developpement ce dossier n'est pas parcouru -- le discoverer s'en
+// abstient des que la cible de lancement contient « dev » -- et le JAR doit donc arriver
+// par le classpath.
 //
-// Une declaration `runtimeOnly files(...)` ne suffit pas : ForgeGradle compose ce
-// classpath depuis getRuntimeClasspathArtifacts(), qui ne retient que les artefacts de
-// modules resolus depuis un depot -- une dependance sur un fichier local n'en fait pas
-// partie. Reecrire le fichier apres coup ne marche pas davantage : la tache de run le
-// regenere a chaque execution.
-//
-// FG expose cette collection sur la tache : c'est le point d'extension prevu.
+// `minecraftArtifacts` et non `runtimeClasspathArtifacts` : ForgeGradle compose le
+// fichier que lit BootstrapLauncher depuis la premiere de ces deux collections, et une
+// declaration `runtimeOnly files(...)` n'y figure pas -- il ne retient que les artefacts
+// de modules resolus depuis un depot.
 tasks.matching { it.name in ['runClient', 'runServer', 'runData', 'runGameTestServer'] }
         .configureEach {
     dependsOn 'launchJar'

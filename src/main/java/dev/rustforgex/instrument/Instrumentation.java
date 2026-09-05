@@ -20,11 +20,10 @@ public final class Instrumentation {
     public enum State {
         /** Le transformateur est armé : les classes chargées ensuite sont sondées. */
         ARMED,
-        /** Le JAR de lancement est absent : aucune sonde ne sera posée. */
+        /** Le JAR du transformateur est absent : aucune sonde ne sera posée. */
         PLUGIN_MISSING,
-        /** Le JAR est présent mais n'a pas rejoint la couche d'amorçage de
-         * ModLauncher : le plugin n'a jamais été instancié, donc aucune classe ne lui
-         * est soumise. */
+        /** Le JAR est présent mais ModLauncher n'a jamais enregistré le
+         * transformateur : aucune classe ne lui est soumise. */
         PLUGIN_NOT_INSTALLED,
         /** Le runtime natif n'est pas actif : il n'y a personne pour attribuer les
          * identifiants de sonde. */

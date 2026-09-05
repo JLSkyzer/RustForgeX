@@ -113,10 +113,14 @@ condition posée pour brancher le transformateur est levée.
       `ITransformationService` + `ITransformer` à cibles énumérées, la seule voie
       supportée depuis `mods/`, et la seule qui rende le développement identique à la
       production
-- [ ] **À IMPLÉMENTER** : `RfxTransformationService.transformers()` rend un vrai
-      transformateur ; énumération des cibles depuis `<gameDir>/mods` et
-      `legacyClassPath` ; suppression de `RfxLaunchPlugin` et de
-      `minecraftArtifacts.from(launchJar)`
+- [x] ADR-019 implémenté : `RfxClassTransformer`, `TargetScanner`, `RfxLaunchPlugin`
+      supprimé
+- [x] **Vérifié en production** : 272 mods, 5526 cibles, instrumentation armée,
+      3462 méthodes sondées, aucun mod cassé, 20,001 TPS
+- [ ] **Cibler aussi les classes des mods.** Les cibler aujourd'hui casse le démarrage :
+      désigner une cible fait entrer la classe dans toute la chaîne de transformation,
+      et Mixin échoue sur le code client d'un mod, présent dans le JAR mais interdit sur
+      un serveur dédié. Il faut une règle de sélection qui écarte ce code
 - [ ] Mesurer par C-36 le coût du décodage systématique en `ClassNode` avant de le
       déclarer acceptable
 - [ ] Vérifier qu'une méthode portant un mixin **et** une sonde se comporte

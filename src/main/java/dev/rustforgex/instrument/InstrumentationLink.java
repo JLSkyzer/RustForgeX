@@ -1,17 +1,17 @@
 package dev.rustforgex.instrument;
 
 import dev.rustforgex.bridge.NativeBridge;
-import dev.rustforgex.launch.RfxLaunchPlugin;
+import dev.rustforgex.launch.RfxClassTransformer;
 
 /**
  * Point de contact unique avec le plugin de lancement (ADR-017).
  *
  * <p>Composant : C-04. Maturité : {@code STABLE}.
  *
- * <p>RUSTFORGE-X est livré en deux fichiers : le mod et son plugin de lancement, ce
- * dernier étant nécessairement dans un JAR distinct — un JAR promu à la couche de
- * plugins de ModLauncher est exclu de la découverte des mods. L'utilisateur peut donc
- * n'installer que le mod.
+ * <p>RUSTFORGE-X est livré en deux fichiers : le mod et son transformateur de bytecode,
+ * ce dernier étant nécessairement dans un JAR distinct — un JAR déclarant un
+ * {@code ITransformationService} est exclu de la découverte des mods. L'utilisateur
+ * peut donc n'installer que le mod.
  *
  * <p><strong>Toutes</strong> les références aux classes de {@code dev.rustforgex.launch}
  * sont rassemblées ici, et nulle part ailleurs. C'est ce qui rend l'absence du plugin
@@ -37,34 +37,34 @@ final class InstrumentationLink {
      * @return le registre installé, pour ses compteurs
      */
     static ProbeRegistry arm(NativeBridge bridge, long handle, boolean clientSide) {
-        if (!RfxLaunchPlugin.installed()) {
-            // La classe est chargeable, mais ModLauncher ne l'a jamais instanciée : le
-            // JAR n'a pas rejoint la couche d'amorçage. Armer réussirait sans rien
+        if (!RfxClassTransformer.installed()) {
+            // La classe est chargeable, mais ModLauncher n'a jamais réclamé nos cibles :
+            // le transformateur n'est pas enregistré. Armer réussirait sans rien
             // produire, et le mod annoncerait une instrumentation qui ne sonde rien.
             return null;
         }
         ProbeRegistry registry = new ProbeRegistry(bridge, handle, new ModOwnerResolver(), clientSide);
-        RfxLaunchPlugin.arm(registry);
+        RfxClassTransformer.arm(registry);
         return registry;
     }
 
     /** Désarme le transformateur : les classes chargées ensuite ne sont plus sondées. */
     static void disarm() {
-        RfxLaunchPlugin.disarm();
+        RfxClassTransformer.disarm();
     }
 
     /** @return le nombre de classes vues passer par le transformateur */
     static long classesSeen() {
-        return RfxLaunchPlugin.classesSeen();
+        return RfxClassTransformer.classesSeen();
     }
 
     /** @return le nombre de méthodes effectivement sondées */
     static long methodsProbed() {
-        return RfxLaunchPlugin.methodsProbed();
+        return RfxClassTransformer.methodsProbed();
     }
 
     /** @return le nombre d'échecs de transformation (FM-09) */
     static long transformFailures() {
-        return RfxLaunchPlugin.transformFailures();
+        return RfxClassTransformer.transformFailures();
     }
 }
