@@ -84,6 +84,7 @@ pub struct OverheadMeter {
     total_profiling_ns: u64,
     last_baseline: Option<BaselineMeasurement>,
     baseline_over_budget: u64,
+    baseline_allows_raise: bool,
 }
 
 impl OverheadMeter {
@@ -110,6 +111,7 @@ impl OverheadMeter {
             total_profiling_ns: 0,
             last_baseline: None,
             baseline_over_budget: 0,
+            baseline_allows_raise: false,
         }
     }
 
@@ -124,11 +126,27 @@ impl OverheadMeter {
     /// compare des durees de tick, ce qui est exactement l'echelle du premier.
     pub fn record_baseline(&mut self, measurement: BaselineMeasurement) -> OverheadVerdict {
         self.last_baseline = Some(measurement);
-        if measurement.overhead_pct() > self.mspt_budget_pct {
+        let measured = measurement.overhead_pct();
+        // La permission de remonter vient de la DERNIERE mesure, pas de l'existence
+        // d'une mesure. Sans cela, les compteurs — aveugles au cout des appels injectes
+        // — refont grimper la profondeur d'un cran toutes les cinq secondes, et
+        // defont en quinze secondes ce que la mesure vient de decider. Constate en
+        // production : ligne de base a 13,3 %, et le profiler termine a `DEEP`.
+        self.baseline_allows_raise = measured < self.mspt_budget_pct * RAISE_RATIO;
+        if measured > self.mspt_budget_pct {
             self.baseline_over_budget = self.baseline_over_budget.saturating_add(1);
             return OverheadVerdict::OverBudget;
         }
         OverheadVerdict::WithinBudget
+    }
+
+    /// Indique si la derniere mesure par mise en pause laisse de la place.
+    ///
+    /// Vaut `false` tant qu'aucune mesure n'a abouti : monter en profondeur sur la
+    /// seule foi des compteurs, c'est monter sur une preuve qu'on sait incomplete.
+    #[must_use]
+    pub fn baseline_allows_raise(&self) -> bool {
+        self.baseline_allows_raise
     }
 
     /// Derniere mesure par mise en pause, si une a abouti (PARTIE 12.4).

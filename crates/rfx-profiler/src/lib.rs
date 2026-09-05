@@ -350,13 +350,13 @@ impl Profiler {
             }
             OverheadVerdict::Comfortable => {
                 self.comfortable_streak = self.comfortable_streak.saturating_add(1);
-                // Tant qu'aucune ligne de base n'a abouti, la seule preuve disponible
-                // vient des compteurs — et ils ne voient pas les appels injectes dans
-                // le bytecode. Monter en profondeur sur cette foi, c'est monter sur une
-                // preuve qu'on sait incomplete : constate en production, ou le profiler
-                // atteignait DEEP en vingt-cinq secondes alors que son cout reel etait
-                // de 32 %. C'est le meme argument que celui de `start`, prolonge.
-                if self.overhead.last_baseline().is_none() {
+                // La permission de monter vient de la derniere ligne de base, jamais
+                // des compteurs seuls : ils ne voient pas les appels injectes dans le
+                // bytecode. Constate deux fois en production — le profiler atteignait
+                // DEEP en vingt-cinq secondes alors que son cout reel etait de 32 %,
+                // puis y revenait en quinze secondes apres chaque reduction. C'est
+                // l'argument de `start`, prolonge a toute la vie du profiler.
+                if !self.overhead.baseline_allows_raise() {
                     return;
                 }
                 if self.comfortable_streak >= COMFORTABLE_TICKS_BEFORE_RAISE {
@@ -1051,6 +1051,30 @@ mod tests {
             ProfilerLevel::Normal,
             "une mesure sous le budget autorise a monter"
         );
+    }
+
+    /// Le defaut que la seconde campagne a rendu visible : une ligne de base au-dessus
+    /// du budget faisait descendre la profondeur, puis les compteurs la faisaient
+    /// remonter d'un cran toutes les cinq secondes. En quinze secondes, la mesure etait
+    /// defaite. La permission de monter doit venir de la DERNIERE mesure.
+    #[test]
+    fn t140_une_ligne_de_base_au_dessus_du_budget_interdit_de_remonter() {
+        let mut profiler = with_short_baseline();
+        run_until_paused(&mut profiler, 12_000_000);
+        run_until_measured(&mut profiler, 10_000_000).expect("mesure aboutie");
+        let after_reduction = profiler.level();
+
+        // Mille ticks bon marche : dix fois de quoi declencher une remontee.
+        for _ in 0..(COMFORTABLE_TICKS_BEFORE_RAISE * 10) {
+            profiler.end_tick(tick_of(10_000_000));
+        }
+
+        assert_eq!(
+            profiler.level(),
+            after_reduction,
+            "les compteurs ne defont pas ce qu'une mesure vient de decider"
+        );
+        assert!(!profiler.overhead().baseline_allows_raise());
     }
 
     /// R-770 : tant qu'aucune pause n'a abouti, le statut ne pretend pas connaitre le

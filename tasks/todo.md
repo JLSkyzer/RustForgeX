@@ -256,6 +256,12 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       Résultat dans `benchmarks/results/macro-1788623402-784d8d9.json`
 - [ ] Seconde campagne sur `38eacfa`, après le filtre des types absents et l'auto-mesure
       de la 12.4, pour mesurer ce que ces deux correctifs changent
+- [ ] **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
+      le lancement. Agréger depuis un `git checkout 38eacfa` détaché — `benchmarks/runs`
+      est ignoré par git et survit au changement — sans quoi le résultat citerait un
+      commit dont le code n'a jamais été mesuré
+- [ ] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
+      n'ait plus à le déduire de `HEAD`
 - [ ] Profils de modpack **reproductibles** de la PARTIE 22. La mesure actuelle porte
       bien sur un profil chargé — 272 mods — mais c'est le modpack personnel de
       l'utilisateur, non versionnable et non reproductible par un tiers. Il manque aussi
