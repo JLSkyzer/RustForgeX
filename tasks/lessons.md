@@ -142,6 +142,30 @@ appelés. Ici, le constructeur note son propre passage, et l'armement échoue
 explicitement s'il n'a pas eu lieu. Un composant doit pouvoir répondre « on m'a
 installé », pas seulement « j'existe ».
 
+### 2026-09-05 | Deux fois le même bloc détruit par une découpe entre deux repères | Ne jamais découper un fichier « du repère A au repère B »
+
+Pour retirer un bloc de `build.gradle`, j'ai deux fois découpé le fichier de son
+commentaire d'ouverture jusqu'à un repère situé plus loin. Les deux fois, le bloc
+`dependencies` se trouvait entre les deux et a disparu, avec pour seul symptôme un
+« Missing 'minecraft' dependency » sans rapport apparent.
+
+**Règle** : un retrait de bloc se fait sur son texte exact, ou sur des bornes de lignes
+vérifiées par leur contenu avant modification. Une découpe entre deux repères suppose
+qu'on sait ce qu'il y a entre eux — et c'est justement ce qu'on ne regarde pas.
+
+### 2026-09-05 | Lire la source de l'outil plutôt que d'essayer ses réglages | Quand un outil refuse, chercher où il décide
+
+Faire parvenir un JAR à la couche d'amorçage de ModLauncher sous ForgeGradle m'a coûté
+sept configurations successives — classpath, `ignoreList`, manifeste, `run/mods/`,
+réécriture du fichier de classpath, `runtimeClasspathArtifacts` — toutes plausibles,
+toutes fausses. La réponse tenait dans deux méthodes de `RunConfigGenerator` :
+`legacyClassPath.file` vaut `{minecraft_classpath_file}`, composé depuis
+`getMinecraftArtifacts()`, et la tâche de run expose cette collection.
+
+**Règle** : devant un outil qui ne fait pas ce qu'on attend, ouvrir son code avant
+d'essayer ses réglages. Un `javap` sur la classe qui décide coûte moins qu'un seul
+cycle d'essai, et rend une réponse au lieu d'une hypothèse.
+
 ### 2026-09-05 | Cinq configurations essayées avant de comparer avec un cas qui marche | Comparer d'abord avec l'exemple qui fonctionne
 
 Le plugin de lancement n'était pas découvert. J'ai essayé successivement le classpath,

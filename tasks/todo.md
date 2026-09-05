@@ -99,13 +99,17 @@ condition posée pour brancher le transformateur est levée.
       instancié réussit sans rien produire
 - [x] Rafraîchir la table des niveaux en fin de tick (`rfx_probe_levels`,
       `RfxProbes.setLevels`)
-- [ ] **Bloquant** : faire parvenir le JAR à la couche d'amorçage en développement.
-      ForgeGradle bâtit le fichier de classpath de BootstrapLauncher à partir des
-      seules dépendances externes et exclut les artefacts du projet ; et
-      `ModDirTransformerDiscoverer` ignore `<gameDir>/mods` quand la cible contient
-      `dev`. Tant que ce point n'est pas levé, aucune méthode n'est réellement sondée
-      en développement (voir ADR-017, complément du 2026-09-05)
-- [ ] Vérifier en production, deux JAR dans `mods/` d'une instance réelle
+- [x] Faire parvenir le JAR à la couche d'amorçage en développement :
+      `minecraftArtifacts.from(launchJar)` sur les tâches de run — c'est de cette
+      collection, et non de `runtimeClasspathArtifacts`, que ForgeGradle compose le
+      fichier lu par BootstrapLauncher
+- [x] **Vérifié en jeu** : 1800 ticks à 20 TPS, 1366 classes vues, 3679 méthodes
+      sondées, 0 échec, 11 mises à jour de niveaux
+- [ ] Vérifier en production, deux JAR dans `mods/` d'une instance réelle — le chemin
+      de découverte y diffère de celui du développement
+- [ ] Ordre relatif des `ILaunchPluginService` : les journaux montrent
+      `[mixin,rustforgex,...]` alors que la PARTIE 5.4 exige « enregistré en DERNIER »
+- [ ] Exposer l'instrumentation dans `/rfx status` (aujourd'hui seulement au journal)
 - [ ] Ordre relatif des `ILaunchPluginService`, notamment vis-à-vis de Mixin — la
       PARTIE 5.4 exige « enregistré en DERNIER » (ADR complémentaire si non garanti)
 - [ ] C-40 : deux artefacts à construire, empreindre et vérifier

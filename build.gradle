@@ -176,36 +176,28 @@ tasks.named('assemble').configure {
     dependsOn 'launchJar'
 }
 
-// Le JAR de lancement doit figurer dans le fichier de classpath que BootstrapLauncher
-// lit pour batir la couche d'amorcage (ADR-017).
+// Le JAR de lancement doit figurer dans le classpath que BootstrapLauncher lit pour
+// batir la couche d'amorcage (ADR-017).
 //
 // C'est la que les ILaunchPluginService sont cherches, et il n'y a pas de seconde
 // chance : LaunchPluginHandler s'execute avant que les ITransformerDiscoveryService
 // n'aient rendu leurs candidats. Un JAR decouvert plus tard peut encore fournir un
 // ITransformationService, jamais un plugin de lancement.
 //
-// Une declaration `runtimeOnly` ne suffit pas : ForgeGradle ecrit ce fichier depuis sa
-// propre resolution, et un artefact produit par le projet lui-meme n'y figure pas.
-// On l'y ajoute donc apres coup, sur les taches de preparation des runs.
+// Une declaration `runtimeOnly files(...)` ne suffit pas : ForgeGradle compose ce
+// classpath depuis getRuntimeClasspathArtifacts(), qui ne retient que les artefacts de
+// modules resolus depuis un depot -- une dependance sur un fichier local n'en fait pas
+// partie. Reecrire le fichier apres coup ne marche pas davantage : la tache de run le
+// regenere a chaque execution.
 //
-// Reglage propre au developpement. En production, ModDirTransformerDiscoverer parcourt
-// <gameDir>/mods des l'initialisation precoce, avant la construction de la couche --
-// mais il s'en abstient explicitement quand la cible de lancement contient « dev ».
+// FG expose cette collection sur la tache : c'est le point d'extension prevu.
 tasks.matching { it.name in ['runClient', 'runServer', 'runData', 'runGameTestServer'] }
         .configureEach {
     dependsOn 'launchJar'
-    // Sur la tache de run et non sur `prepareRun*` : celle-ci est souvent a jour, donc
-    // sautee, et l'ajout ne serait fait qu'une fois sur deux.
-    doFirst {
-        def launchJarFile = tasks.named('launchJar', Jar).get().archiveFile.get().asFile
-        fileTree(project.file('build/classpath')) { include '*_minecraftClasspath.txt' }
-                .each { classpathFile ->
-                    def entries = classpathFile.readLines()
-                    if (!entries.any { it.trim() == launchJarFile.absolutePath }) {
-                        classpathFile.append(System.lineSeparator() + launchJarFile.absolutePath)
-                    }
-                }
-    }
+    // `minecraftArtifacts` et non `runtimeClasspathArtifacts` : le userdev de Forge
+    // fixe legacyClassPath.file = {minecraft_classpath_file}, et c'est de cette
+    // collection-la que ce fichier est compose.
+    minecraftArtifacts.from(tasks.named('launchJar'))
 }
 
 repositories {
