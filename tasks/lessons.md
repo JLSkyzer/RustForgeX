@@ -128,6 +128,33 @@ d'environnement, répertoire courant, horloge simulée — doit vivre dans un bi
 test qui ne contient qu'un seul test. Un échec de ce genre ressemble à un défaut du
 code mesuré, et c'est ainsi qu'on va corriger du code correct.
 
+### 2026-09-05 | Un plugin chargeable pris pour un plugin installé | Vérifier que le mécanisme a été emprunté, pas seulement qu'il est disponible
+
+L'armement du transformateur de bytecode réussissait, et le mod journalisait
+« instrumentation active » — alors que ModLauncher n'avait jamais instancié le plugin.
+La classe était atteignable, donc l'appel passait ; le plugin n'était pas installé,
+donc aucune classe ne lui était soumise. Aucune erreur nulle part, et un mod qui
+annonce sondes actives et ne sonde rien.
+
+**Règle** : « la classe se charge » ne prouve pas « le composant est en service ». Quand
+un mécanisme dépend d'un tiers qui doit nous appeler, la seule preuve est qu'il nous a
+appelés. Ici, le constructeur note son propre passage, et l'armement échoue
+explicitement s'il n'a pas eu lieu. Un composant doit pouvoir répondre « on m'a
+installé », pas seulement « j'existe ».
+
+### 2026-09-05 | Cinq configurations essayées avant de comparer avec un cas qui marche | Comparer d'abord avec l'exemple qui fonctionne
+
+Le plugin de lancement n'était pas découvert. J'ai essayé successivement le classpath,
+`ignoreList`, la suppression de `FMLModType`, `run/mods/`, et l'ajout au fichier de
+classpath — sans succès et sans comprendre. La réponse a tenu en une commande : lister
+le contenu du JAR de Mixin, dont le plugin **est** découvert, et constater qu'il embarque
+un `module-info.class` que le nôtre n'avait pas.
+
+**Règle** : devant un mécanisme qui refuse de fonctionner alors qu'il fonctionne pour
+d'autres, comparer avec un cas qui marche **avant** de modifier quoi que ce soit. Une
+seule comparaison structurelle vaut mieux que cinq essais successifs, et coûte moins
+cher que le premier d'entre eux.
+
 ### 2026-09-04 | « Disconnected » attribué au mod alors que c'était l'authentification | Lire le log avant de supposer que le défaut vient de son propre code
 
 Le client était déconnecté du serveur de développement. Le réflexe aurait été de

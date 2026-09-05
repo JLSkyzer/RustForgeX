@@ -166,4 +166,36 @@ public final class RfxNative {
      * @return {@code -3001} si le confinement fonctionne
      */
     public static native int panicTest(long handle);
+
+    /**
+     * Enregistre une unité de travail et rend son identifiant de sonde (C-05, DM-01).
+     *
+     * <p>Le {@code WorkId} est calculé côté natif, jamais ici : deux implémentations
+     * d'un même hachage finiraient par diverger sur un détail d'encodage.
+     *
+     * @param handle handle du runtime
+     * @param descriptorCbor {@code WorkDescriptor} sérialisé en CBOR
+     * @return l'identifiant de sonde, positif ou nul ; {@code -1} si l'unité ne sera
+     *     pas sondée ; un code d'erreur de l'annexe A.2 sinon, donc inférieur ou égal
+     *     à {@code -1000}. Les trois domaines sont disjoints : un identifiant de sonde
+     *     est borné par {@code profiler.max_workloads}, très en deçà de mille.
+     */
+    public static native int workloadRegister(long handle, byte[] descriptorCbor);
+
+    /**
+     * Récupère la table des niveaux de sonde si elle a changé (ADR-016).
+     *
+     * @param handle handle du runtime
+     * @return le niveau de chaque sonde, indexé par identifiant, ou {@code null} si
+     *     la table n'a pas changé depuis le dernier appel
+     */
+    public static native byte[] probeLevels(long handle);
+
+    /**
+     * Démarre le profilage (C-05).
+     *
+     * @param handle handle du runtime
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int profilerStart(long handle);
 }

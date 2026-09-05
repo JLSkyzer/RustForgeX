@@ -120,6 +120,32 @@ public interface NativeBridge {
     int probeBufferFlush(long handle, int threadId, int used);
 
     /**
+     * Enregistre une unité de travail et rend son identifiant de sonde (C-05, DM-01).
+     *
+     * @param handle handle du runtime
+     * @param descriptorCbor {@code WorkDescriptor} sérialisé en CBOR
+     * @return l'identifiant de sonde, {@code -1} si l'unité ne sera pas sondée, ou un
+     *     code d'erreur de l'annexe A.2, inférieur ou égal à {@code -1000}
+     */
+    int workloadRegister(long handle, byte[] descriptorCbor);
+
+    /**
+     * Récupère la table des niveaux de sonde si elle a changé (ADR-016).
+     *
+     * @param handle handle du runtime
+     * @return le niveau de chaque sonde, ou {@code null} si rien n'a changé
+     */
+    byte[] probeLevels(long handle);
+
+    /**
+     * Démarre le profilage (C-05).
+     *
+     * @param handle handle du runtime
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    int profilerStart(long handle);
+
+    /**
      * Pont vers le binaire réellement chargé.
      *
      * <p>Ne doit être instancié qu'après le chargement de la bibliothèque par C-03 :
@@ -198,6 +224,21 @@ public interface NativeBridge {
             @Override
             public int probeBufferFlush(long handle, int threadId, int used) {
                 return RfxNative.probeBufferFlush(handle, threadId, used);
+            }
+
+            @Override
+            public int workloadRegister(long handle, byte[] descriptorCbor) {
+                return RfxNative.workloadRegister(handle, descriptorCbor);
+            }
+
+            @Override
+            public byte[] probeLevels(long handle) {
+                return RfxNative.probeLevels(handle);
+            }
+
+            @Override
+            public int profilerStart(long handle) {
+                return RfxNative.profilerStart(handle);
             }
         };
     }

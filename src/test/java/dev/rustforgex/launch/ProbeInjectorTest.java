@@ -1,6 +1,8 @@
-package dev.rustforgex.instrument;
+package dev.rustforgex.launch;
 
 import dev.rustforgex.bridge.FakeNativeBridge;
+import dev.rustforgex.instrument.ProbeSink;
+import dev.rustforgex.instrument.RfxProbes;
 import rfxtest.workload.SampleWorkload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

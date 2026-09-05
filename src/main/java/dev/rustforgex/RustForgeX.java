@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import dev.rustforgex.command.RfxCommands;
 import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.TickCycle;
+import dev.rustforgex.instrument.Instrumentation;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -98,11 +99,68 @@ public class RustForgeX {
         if (runtime.active()) {
             LOGGER.info("RUSTFORGE-X actif ({} ms) : {}",
                     runtime.report().durationMs(), runtime.report().message());
+            logInstrumentation(runtime);
         } else {
             // Un démarrage non nominal n'est pas une erreur du jeu : il doit être
             // lisible sans être alarmant, et dire explicitement que rien n'est cassé.
             LOGGER.warn("RUSTFORGE-X inactif ({}) : {} Le jeu tourne normalement, sans RUSTFORGE-X.",
                     runtime.report().state(), runtime.report().message());
+        }
+    }
+
+    /**
+     * Trace périodique du cycle de tick et de l'instrumentation.
+     *
+     * <p>Elle dit ce que les assertions ne pensent pas à demander : combien de classes
+     * sont passées par le transformateur, combien de méthodes en sont ressorties
+     * sondées, et combien de fois la table des niveaux a changé. Un profileur qui ne
+     * sonde rien et un profileur qui sonde tout produisent le même silence.
+     */
+    private static void logTickTrace(long ticks, TickCycle cycle) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        Instrumentation instrumentation = runtime == null ? null : runtime.instrumentation();
+        if (instrumentation == null || !instrumentation.armed()) {
+            LOGGER.debug("Cycle de tick : {} ticks observés, {} appels refusés.",
+                    ticks, cycle.rejectedCalls());
+            return;
+        }
+        LOGGER.debug(
+                "Cycle de tick : {} ticks observés, {} appels refusés. Instrumentation : "
+                        + "{} classes vues, {} méthodes sondées, {} échecs, "
+                        + "{} mises à jour de niveaux.",
+                ticks, cycle.rejectedCalls(),
+                instrumentation.classesSeen(), instrumentation.methodsProbed(),
+                instrumentation.transformFailures(), cycle.levelUpdates());
+    }
+
+    /**
+     * Journalise l'état de l'instrumentation (ADR-017).
+     *
+     * <p>RUSTFORGE-X est livré en deux fichiers. Un utilisateur qui n'installe que le
+     * mod obtient un runtime qui démarre, mesure la machine, répond à
+     * {@code /rfx status} — et ne sonde rien. C'est le pire des symptômes, parce qu'il
+     * ressemble à un fonctionnement normal : il est dit explicitement, et il est dit
+     * que le jeu n'en souffre pas.
+     */
+    private static void logInstrumentation(RfxRuntime runtime) {
+        switch (runtime.instrumentation().state()) {
+            case ARMED -> LOGGER.info(
+                    "RUSTFORGE-X : instrumentation active, les classes chargées ensuite "
+                            + "seront sondées.");
+            case PLUGIN_MISSING -> LOGGER.warn(
+                    "RUSTFORGE-X : le fichier « {}-launch.jar » est absent du dossier mods. "
+                            + "Aucune méthode ne sera sondée : le mod observe la machine et "
+                            + "les ticks, mais pas le code des mods. Le jeu tourne "
+                            + "normalement. Installez les deux fichiers pour profiler.",
+                    MODID);
+            case PLUGIN_NOT_INSTALLED -> LOGGER.warn(
+                    "RUSTFORGE-X : « {}-launch.jar » est présent mais n'a pas été chargé "
+                            + "par ModLauncher. Aucune méthode ne sera sondée. Vérifiez "
+                            + "qu'il est bien dans le dossier mods, à côté du mod, et non "
+                            + "dans un sous-dossier. Le jeu tourne normalement.",
+                    MODID);
+            case RUNTIME_INACTIVE -> LOGGER.debug(
+                    "RUSTFORGE-X : instrumentation non armée, le runtime natif est inactif.");
         }
     }
 
@@ -157,8 +215,7 @@ public class RustForgeX {
             cycle.onTickPost();
             long ticks = cycle.currentTick();
             if (ticks % TICK_LOG_INTERVAL == 0) {
-                LOGGER.debug("Cycle de tick : {} ticks observés, {} appels refusés.",
-                        ticks, cycle.rejectedCalls());
+                logTickTrace(ticks, cycle);
             }
         });
     }

@@ -2,6 +2,7 @@ package dev.rustforgex.forge;
 
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.instrument.ProbeSink;
+import dev.rustforgex.instrument.RfxProbes;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -60,6 +61,8 @@ public final class TickCycle {
     private final int side;
     private final ProbeSink probeSink;
     private final AtomicLong tick = new AtomicLong();
+    private final AtomicLong levelUpdates = new AtomicLong();
+
     private final AtomicLong rejectedCalls = new AtomicLong();
     private volatile boolean windowOpen;
 
@@ -131,6 +134,7 @@ public final class TickCycle {
 
         long flags = bridge.tickEnd(handle);
         windowOpen = false;
+        refreshProbeLevels();
         if (flags < 0) {
             rejectedCalls.incrementAndGet();
             return 0;
@@ -163,5 +167,30 @@ public final class TickCycle {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Applique la table des niveaux de sonde si le profiler l'a modifiée (ADR-016).
+     *
+     * <p>Appelée une fois par tick, après la fermeture de la fenêtre. Le natif ne rend
+     * la table que lorsqu'elle a changé : le cas courant, de très loin, est un
+     * {@code null} qui ne coûte qu'un aller-retour.
+     *
+     * <p>Changer un niveau ne demande aucune retransformation de classe — c'est tout
+     * l'intérêt d'ADR-016 : une écriture dans un tableau, et les sondes déjà posées
+     * changent de profondeur au prochain appel.
+     */
+    private void refreshProbeLevels() {
+        byte[] levels = bridge.probeLevels(handle);
+        if (levels == null) {
+            return;
+        }
+        RfxProbes.setLevels(levels);
+        levelUpdates.incrementAndGet();
+    }
+
+    /** @return le nombre de fois que la table des niveaux a été appliquée */
+    public long levelUpdates() {
+        return levelUpdates.get();
     }
 }

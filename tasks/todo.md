@@ -86,14 +86,26 @@ condition posée pour brancher le transformateur est levée.
 
 - [x] Voie d'enregistrement établie et consignée : ADR-017 — `ILaunchPluginService`
       dans un second JAR promu à la couche de plugins de ModLauncher
-- [ ] Sous-projet Gradle `launch/` produisant `rustforgex-launch.jar`
-- [ ] `RfxLaunchPlugin` : inerte tant que le mod ne l'a pas armé (couche parente)
-- [ ] `ProbeRegistry` côté Java : décrire l'unité de travail, obtenir son identifiant
+- [x] Jeu de sources `src/launch/` produisant `rustforgex-launch.jar`, module nommé
+      (`module-info.java`) — un `META-INF/services` seul reste invisible dans la couche
+      d'amorçage
+- [x] `RfxLaunchPlugin` : inerte tant que le mod ne l'a pas armé (couche parente)
+- [x] `ProbeRegistry` côté Java : décrire l'unité de travail, obtenir son identifiant
       du natif (`rfx_workload_register`)
-- [ ] Détecter et signaler l'absence du JAR de lancement — un mod qui ne sonde rien en
-      silence est le pire des symptômes
-- [ ] Rafraîchir la table des niveaux en fin de tick (`rfx_probe_levels`,
+- [x] `ModOwnerResolver` : attribution d'une classe à son mod par la liste de Forge,
+      sans aucun nom de mod en dur (INV-12)
+- [x] Détecter et signaler l'absence du JAR de lancement, **et** le cas où il est
+      présent sans avoir été installé par ModLauncher — armer un plugin jamais
+      instancié réussit sans rien produire
+- [x] Rafraîchir la table des niveaux en fin de tick (`rfx_probe_levels`,
       `RfxProbes.setLevels`)
+- [ ] **Bloquant** : faire parvenir le JAR à la couche d'amorçage en développement.
+      ForgeGradle bâtit le fichier de classpath de BootstrapLauncher à partir des
+      seules dépendances externes et exclut les artefacts du projet ; et
+      `ModDirTransformerDiscoverer` ignore `<gameDir>/mods` quand la cible contient
+      `dev`. Tant que ce point n'est pas levé, aucune méthode n'est réellement sondée
+      en développement (voir ADR-017, complément du 2026-09-05)
+- [ ] Vérifier en production, deux JAR dans `mods/` d'une instance réelle
 - [ ] Ordre relatif des `ILaunchPluginService`, notamment vis-à-vis de Mixin — la
       PARTIE 5.4 exige « enregistré en DERNIER » (ADR complémentaire si non garanti)
 - [ ] C-40 : deux artefacts à construire, empreindre et vérifier

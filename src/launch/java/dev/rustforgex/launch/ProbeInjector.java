@@ -1,4 +1,4 @@
-package dev.rustforgex.instrument;
+package dev.rustforgex.launch;
 
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;

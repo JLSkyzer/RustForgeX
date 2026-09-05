@@ -3,7 +3,7 @@ package rfxtest.workload;
 import java.util.ArrayList;
 import java.util.List;
 
-import dev.rustforgex.instrument.ProbeEligibility;
+import dev.rustforgex.launch.ProbeEligibility;
 
 /**
  * Corpus de méthodes de référence pour T-130.

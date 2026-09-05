@@ -8,6 +8,7 @@ import dev.rustforgex.config.Configuration;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
 import dev.rustforgex.forge.TickCycle;
+import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.ProbeSink;
 import net.minecraft.network.chat.Component;
 
@@ -38,6 +39,7 @@ public final class RfxRuntime {
     private final NativeBridge bridge;
     private final TickCycle tickCycle;
     private final ProbeSink probeSink;
+    private final Instrumentation instrumentation;
 
     private RfxRuntime(
             Configuration configuration,
@@ -58,6 +60,14 @@ public final class RfxRuntime {
                 ? new TickCycle(bridge, report.handle(),
                         clientSide ? TickCycle.SIDE_CLIENT : TickCycle.SIDE_SERVER, probeSink)
                 : null;
+
+        // C-05 avant C-04 : le profiler plafonne la profondeur des sondes, et une
+        // sonde enregistrée alors qu'il est encore à l'arrêt serait armée à OFF.
+        if (live) {
+            bridge.profilerStart(report.handle());
+        }
+        this.instrumentation =
+                Instrumentation.arm(live ? bridge : null, report.handle(), clientSide);
     }
 
     /**
@@ -123,6 +133,15 @@ public final class RfxRuntime {
     }
 
     /**
+     * État de l'instrumentation (C-04).
+     *
+     * @return l'état, jamais {@code null} — voir {@link Instrumentation.State}
+     */
+    public Instrumentation instrumentation() {
+        return instrumentation;
+    }
+
+    /**
      * Puits de sondes, ou {@code null} si le runtime natif n'est pas actif.
      *
      * @return le puits d'enregistrements de profilage (IF-03)
@@ -180,6 +199,9 @@ public final class RfxRuntime {
      * éventuel arrêt anormal.
      */
     public synchronized void shutdown() {
+        // Désarmer d'abord : le transformateur ne doit plus demander d'identifiant à
+        // un runtime qu'on est en train de fermer.
+        instrumentation.disarm();
         if (active()) {
             try {
                 bridge.shutdown(report.handle());

@@ -88,4 +88,25 @@ public class FakeNativeBridge implements NativeBridge {
     public int probeBufferFlush(long handle, int threadId, int used) {
         return 0;
     }
+
+    @Override
+    public int workloadRegister(long handle, byte[] descriptorCbor) {
+        // Chaque descripteur reçoit un identifiant distinct, dans l'ordre où il
+        // arrive : c'est le comportement du natif, en beaucoup plus simple.
+        return nextProbeId++;
+    }
+
+    /** Prochain identifiant de sonde attribué par {@link #workloadRegister}. */
+    protected int nextProbeId;
+
+    @Override
+    public byte[] probeLevels(long handle) {
+        // Aucune table à appliquer : le pont simulé ne profile rien.
+        return null;
+    }
+
+    @Override
+    public int profilerStart(long handle) {
+        return 0;
+    }
 }
