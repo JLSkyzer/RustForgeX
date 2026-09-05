@@ -174,9 +174,17 @@ condition posée pour brancher le transformateur est levée.
       fin. Résultat sur serveur de production : 5,86 % sur 30 cycles, et
       `profiler_level: THROTTLED` — **le gouverneur d'overhead s'est déclenché pour la
       première fois**
-- [ ] Mesurer la correspondance entre les deux instruments à profondeur **figée** :
-      5,86 % décrit `LIGHT`, +36 % décrivait `DEEP`. Ce ne sont pas deux mesures du même
-      état, et rien n'autorise encore à les rapprocher
+- [x] **Campagne sur `5c9b24a`** : conforme, fiable, la moins dispersée des trois
+      (écart-type inter-exécutions sous 4 % partout). MSPT p95 **+36,1 %**, contre
+      +36,4 % et +33,7 %. **Trois campagnes, le même chiffre : le coût est stable et rien
+      de ce qui a été fait ne l'a réduit**
+- [ ] **Le gouverneur ne peut pas ramener le coût sous 2 %** (ADR-020, cinquième volet).
+      L'exécution descendue à `THROTTLED` — aucune sonde armée — donne un p95 de
+      3,186 ms, indistinguable des 3,181 à 3,268 ms des exécutions restées à `DEEP`.
+      La dépense n'est pas ce que les sondes font, c'est qu'elles existent. **Le seul
+      levier est le nombre de méthodes instrumentées**
+- [ ] Corollaire : reprendre en priorité « réduire l'ensemble des cibles », qui cesse
+      d'être une optimisation de confort pour devenir le seul chemin vers H-07
 - [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
       d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis

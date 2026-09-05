@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "rfx_version": "0.1.0",
+  "commit": "5c9b24a875a0f4c4e444c33d504ef03331839b9e",
+  "dirty": false,
+  "level": "macro",
+  "collected_at": 1788649609,
+  "hardware": {
+    "physical_cores": 8,
+    "logical_cores": 16,
+    "ram_gb": 31,
+    "probed": true
+  },
+  "configurations": {
+    "b-mods-seuls": {
+      "runs": 5,
+      "run_indices": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "methodology_compliant": true,
+      "compliance_notes": [],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1490.0,
+          "iqr": 17.0,
+          "relative_stddev": 0.009480830475566948,
+          "min": 1471.0,
+          "max": 1506.0,
+          "runs": 5
+        },
+        "gc_contaminated_ticks": {
+          "median": 1401.0,
+          "iqr": 28.0,
+          "relative_stddev": 0.035418854372626124,
+          "min": 1348.0,
+          "max": 1483.0,
+          "runs": 5
+        },
+        "gc_time_ms": {
+          "median": 3370.0,
+          "iqr": 371.0,
+          "relative_stddev": 0.05669304361177038,
+          "min": 3179.0,
+          "max": 3573.0,
+          "runs": 5
+        },
+        "mspt_max": {
+          "median": 1279.904,
+          "iqr": 731.731,
+          "relative_stddev": 0.35723157886624046,
+          "min": 659.368,
+          "max": 1429.623,
+          "runs": 5
+        },
+        "mspt_p50": {
+          "median": 1.59,
+          "iqr": 0.06500000000000017,
+          "relative_stddev": 0.028463463296114554,
+          "min": 1.505,
+          "max": 1.605,
+          "runs": 5
+        },
+        "mspt_p95": {
+          "median": 2.359,
+          "iqr": 0.06300000000000017,
+          "relative_stddev": 0.02996702639994309,
+          "min": 2.285,
+          "max": 2.471,
+          "runs": 5
+        },
+        "mspt_p99": {
+          "median": 3.621,
+          "iqr": 0.16999999999999993,
+          "relative_stddev": 0.03578054024385868,
+          "min": 3.527,
+          "max": 3.847,
+          "runs": 5
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": 0.0,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 5
+        },
+        "window_seconds": {
+          "median": 600.0,
+          "iqr": 0.0029999999999290594,
+          "relative_stddev": 2.5276234628751044e-6,
+          "min": 599.999,
+          "max": 600.002,
+          "runs": 5
+        }
+      }
+    },
+    "c-rfx-actif": {
+      "runs": 5,
+      "run_indices": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "methodology_compliant": true,
+      "compliance_notes": [],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1617.0,
+          "iqr": 59.0,
+          "relative_stddev": 0.025811079567204773,
+          "min": 1563.0,
+          "max": 1665.0,
+          "runs": 5
+        },
+        "gc_contaminated_ticks": {
+          "median": 1615.0,
+          "iqr": 57.0,
+          "relative_stddev": 0.02583409619841268,
+          "min": 1560.0,
+          "max": 1663.0,
+          "runs": 5
+        },
+        "gc_time_ms": {
+          "median": 3850.0,
+          "iqr": 325.0,
+          "relative_stddev": 0.05098427932467681,
+          "min": 3550.0,
+          "max": 3954.0,
+          "runs": 5
+        },
+        "mspt_max": {
+          "median": 902.7,
+          "iqr": 420.1009999999999,
+          "relative_stddev": 0.24652307830427617,
+          "min": 734.197,
+          "max": 1241.38,
+          "runs": 5
+        },
+        "mspt_p50": {
+          "median": 2.185,
+          "iqr": 0.05400000000000027,
+          "relative_stddev": 0.016801097807590763,
+          "min": 2.163,
+          "max": 2.248,
+          "runs": 5
+        },
+        "mspt_p95": {
+          "median": 3.211,
+          "iqr": 0.08199999999999985,
+          "relative_stddev": 0.021300748196949857,
+          "min": 3.181,
+          "max": 3.345,
+          "runs": 5
+        },
+        "mspt_p99": {
+          "median": 4.721,
+          "iqr": 0.07000000000000028,
+          "relative_stddev": 0.03146142674246641,
+          "min": 4.576,
+          "max": 4.986,
+          "runs": 5
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": 0.0,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 5
+        },
+        "window_seconds": {
+          "median": 600.001,
+          "iqr": 0.0009999999999763531,
+          "relative_stddev": 5.217478034183085e-6,
+          "min": 599.999,
+          "max": 600.007,
+          "runs": 5
+        }
+      }
+    }
+  },
+  "comparison": {
+    "baseline": "b-mods-seuls",
+    "candidate": "c-rfx-actif",
+    "delta_pct": {
+      "gc_collections": 8.523489932885905,
+      "gc_contaminated_ticks": 15.274803711634547,
+      "gc_time_ms": 14.243323442136498,
+      "mspt_max": -29.47127284546341,
+      "mspt_p50": 37.42138364779874,
+      "mspt_p95": 36.11699872827469,
+      "mspt_p99": 30.378348522507597,
+      "tps": 0.0,
+      "window_seconds": 0.00016666666666272553
+    },
+    "trustworthy": true
+  },
+  "notes": []
+}
