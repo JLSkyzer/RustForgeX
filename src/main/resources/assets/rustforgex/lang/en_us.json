@@ -14,6 +14,8 @@
   "rustforgex.status.profiler": "Profiler    : %s, %s workloads tracked",
   "rustforgex.status.profiler_overhead": "Prof. cost  : %s %% of a core, %s %% of tick time",
   "rustforgex.status.profiler_overhead_unknown": "Prof. cost  : not measured yet",
+  "rustforgex.status.profiler_baseline": "Measured    : %s us per tick, %s %% of the tick, at tick %s",
+  "rustforgex.status.profiler_baseline_pending": "Measured    : not yet, next measurement in %s ticks",
   "rustforgex.status.profiler_anomalies": "Prof. anom. : %s evictions, %s WorkId collisions, %s orphan records",
   "rustforgex.status.cores": "Cores       : %s physical / %s logical",
   "rustforgex.status.memory": "Memory      : %s GiB",

@@ -138,6 +138,8 @@ public final class StatusReport {
                         percent(longValue(profiler, "mspt_pct_x100")))
                 : Component.translatable(KEY_PREFIX + "profiler_overhead_unknown"));
 
+        appendBaseline(lines, profiler);
+
         // Évictions, collisions et enregistrements orphelins ne sont pas le
         // fonctionnement normal : ils ne s'affichent que lorsqu'ils se produisent.
         long evictions = longValue(profiler, "evictions");
@@ -147,6 +149,41 @@ public final class StatusReport {
             lines.add(Component.translatable(
                     KEY_PREFIX + "profiler_anomalies", evictions, collisions, unknown));
         }
+    }
+
+    /**
+     * Ajoute la ligne du coût mesuré par mise en pause (PARTIE 12.4, R-770).
+     *
+     * <p>C'est la seule ligne qui réponde vraiment à « combien est-ce que je coûte ? ».
+     * Les compteurs de la ligne précédente ne voient que le temps passé dans le code
+     * natif ; celle-ci compare la durée d'un tick avec et sans profilage, et voit donc
+     * aussi le coût des appels injectés dans le bytecode.
+     *
+     * <p>Tant qu'aucune pause n'a abouti, la ligne annonce l'attente et le nombre de
+     * ticks restants. Elle n'annonce jamais un coût nul : ne pas savoir n'est pas la
+     * même chose que ne rien coûter.
+     */
+    private static void appendBaseline(List<Component> lines, Map<String, Object> profiler) {
+        long measurements = longValue(profiler, "baseline_measurements");
+        if (measurements == 0) {
+            lines.add(Component.translatable(KEY_PREFIX + "profiler_baseline_pending",
+                    longValue(profiler, "baseline_ticks_until_pause")));
+            return;
+        }
+        lines.add(Component.translatable(KEY_PREFIX + "profiler_baseline",
+                micros(longValue(profiler, "baseline_overhead_ns")),
+                percent(longValue(profiler, "baseline_overhead_pct_x100")),
+                longValue(profiler, "baseline_tick")));
+    }
+
+    /**
+     * Met en forme une durée en nanosecondes, exprimée en microsecondes.
+     *
+     * <p>La microseconde est l'échelle du surcoût d'un tick : l'afficher en
+     * nanosecondes donnerait six chiffres illisibles, en millisecondes un zéro.
+     */
+    private static String micros(long nanos) {
+        return String.format(Locale.ROOT, "%d.%03d", nanos / 1_000L, nanos % 1_000L);
     }
 
     /**

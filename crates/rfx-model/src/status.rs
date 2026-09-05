@@ -98,6 +98,19 @@ pub struct ProfilerStatus {
     pub zero_duration_exits: u64,
     /// Changements de profondeur decides par l'auto-mesure.
     pub level_changes: u64,
+    /// Mesures de ligne de base abouties (PARTIE 12.4). Zero signifie « pas encore
+    /// mesure » : les champs qui suivent sont alors sans signification.
+    pub baseline_measurements: u64,
+    /// Cout de RUSTFORGE-X mesure par mise en pause, en nanosecondes par tick.
+    pub baseline_overhead_ns: u64,
+    /// Le meme cout, en centiemes de pourcent de la duree d'un tick sans profilage.
+    pub baseline_overhead_pct_x100: u64,
+    /// Tick auquel la derniere mesure de ligne de base s'est achevee.
+    pub baseline_tick: u64,
+    /// Ticks restants avant la prochaine pause de mesure.
+    pub baseline_ticks_until_pause: u64,
+    /// Enregistrements ecartes parce qu'arrives pendant une pause de mesure.
+    pub records_dropped_paused: u64,
 }
 
 /// Etat d'un composant, tel qu'affiche par `/rfx status`.

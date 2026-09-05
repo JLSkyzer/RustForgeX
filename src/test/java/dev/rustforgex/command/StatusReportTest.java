@@ -58,6 +58,13 @@ class StatusReportTest {
         profiler.put("collisions", 0L);
         profiler.put("zero_duration_exits", 0L);
         profiler.put("level_changes", 1L);
+        // Aucune pause de mesure n'a encore abouti : c'est l'état d'un serveur pendant
+        // ses cinq premières minutes (PARTIE 12.4).
+        profiler.put("baseline_measurements", 0L);
+        profiler.put("baseline_overhead_ns", 0L);
+        profiler.put("baseline_overhead_pct_x100", 0L);
+        profiler.put("baseline_tick", 0L);
+        profiler.put("baseline_ticks_until_pause", 5_900L);
         return profiler;
     }
 
@@ -208,6 +215,47 @@ class StatusReportTest {
                 "un profiler qui n'a rien vu passer n'a pas mesuré 0,00 %");
     }
 
+    /** Remplace les compteurs de ligne de base par ceux d'une mesure aboutie. */
+    private static Map<String, Object> measuredBaseline(Map<String, Object> profiler) {
+        profiler.put("baseline_measurements", 3L);
+        profiler.put("baseline_overhead_ns", 850_000L);
+        profiler.put("baseline_overhead_pct_x100", 170L);
+        profiler.put("baseline_tick", 18_000L);
+        profiler.put("baseline_ticks_until_pause", 4_200L);
+        return profiler;
+    }
+
+    @Test
+    @DisplayName("PARTIE 12.4 : le coût mesuré par mise en pause est affiché")
+    void measuredBaselineCostIsReported() {
+        List<Component> lines = StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, measuredBaseline(profiler("NORMAL", 12L, 4_000L, 0L))),
+                false);
+
+        assertTrue(keysOf(lines).contains("rustforgex.status.profiler_baseline"),
+                keysOf(lines).toString());
+        assertArrayEqualsAsStrings(
+                new Object[] {"850.000", "1.70", 18_000L},
+                argumentsOf(lines, "rustforgex.status.profiler_baseline"));
+    }
+
+    @Test
+    @DisplayName("R-770 : tant qu'aucune pause n'a abouti, le coût n'est pas annoncé nul")
+    void pendingBaselineAnnouncesTheWaitRatherThanZero() {
+        List<Component> lines = StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, profiler("LIGHT", 3L, 100L, 0L)), false);
+        List<String> keys = keysOf(lines);
+
+        assertTrue(keys.contains("rustforgex.status.profiler_baseline_pending"), keys.toString());
+        assertFalse(keys.contains("rustforgex.status.profiler_baseline"),
+                "ne pas savoir ce qu'on coûte n'est pas coûter zéro");
+        assertArrayEqualsAsStrings(
+                new Object[] {5_900L},
+                argumentsOf(lines, "rustforgex.status.profiler_baseline_pending"));
+    }
+
     @Test
     @DisplayName("Les anomalies du profiler ne s'affichent que lorsqu'elles se produisent")
     void profilerAnomaliesAreOnlyShownWhenTheyHappen() {
@@ -282,6 +330,10 @@ class StatusReportTest {
         used.addAll(keysOf(StatusReport.compose(
                 readyReport(), Configuration.defaults(),
                 nativeStatus(true, true, profiler("NORMAL", 3L, 100L, 5L)), false)));
+        used.addAll(keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(),
+                nativeStatus(true, true, measuredBaseline(profiler("NORMAL", 3L, 100L, 5L))),
+                false)));
         used.add("rustforgex.status.not_started");
         used.add("rustforgex.state.disabled");
 

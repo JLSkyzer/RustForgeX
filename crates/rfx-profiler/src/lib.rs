@@ -10,12 +10,18 @@
 //! profondeur de sondage a appliquer au tick suivant. Il ne connait ni la JVM, ni
 //! Forge, ni le moindre nom de mod (INV-12).
 //!
-//! # Le profiler se mesure lui-meme
+//! # Le profiler se mesure lui-meme, de deux facons
 //!
 //! Un profiler qui ignore son propre cout attribue aux autres un temps qu'il consomme.
 //! Chaque tick, le runtime lui remet le temps qu'il a passe a profiler ; au-dela du
 //! budget, la profondeur descend d'un cran, jusqu'a l'arret complet. Voir
 //! [`overhead`].
+//!
+//! Ces compteurs ne voient que le code natif. Le cout des appels injectes dans le
+//! bytecode Java leur echappe, et c'est probablement la depense dominante. Une fois
+//! toutes les [`baseline::BASELINE_PERIOD_TICKS`], le profilage s'eteint donc pendant
+//! vingt ticks : la difference entre les durees de tick avec et sans mesure est le
+//! cout de RUSTFORGE-X, observe de l'exterieur. Voir [`baseline`] et la PARTIE 12.4.
 //!
 //! # Sens des dependances
 //!
@@ -25,6 +31,7 @@
 
 #![doc(html_root_url = "https://example.invalid/rustforgex")]
 
+pub mod baseline;
 pub mod level;
 pub mod overhead;
 pub mod store;
@@ -32,6 +39,10 @@ pub mod store;
 use rfx_memory::probe_buffer::{ProbeRecord, RecordKind};
 use rfx_model::{Heat, ProfilerStatus};
 
+pub use baseline::{
+    BaselineEvent, BaselineMeasurement, BaselineSampler, BASELINE_PAUSE_TICKS,
+    BASELINE_PERIOD_TICKS,
+};
 pub use level::{wants_call_context, ProbeLevel, ProfilerLevel};
 pub use overhead::{OverheadMeter, OverheadVerdict, TickCost, DEFAULT_CPU_BUDGET_PCT};
 pub use store::{WorkloadEntry, WorkloadStore};
@@ -79,6 +90,10 @@ pub struct TickReport {
     pub over_budget: bool,
     /// `true` si la table des niveaux doit etre retransmise a Java.
     pub levels_dirty: bool,
+    /// `true` si le profilage est eteint pour mesurer une ligne de base (PARTIE 12.4).
+    pub baseline_paused: bool,
+    /// Mesure de ligne de base achevee pendant ce tick, si une a abouti.
+    pub baseline: Option<BaselineMeasurement>,
 }
 
 /// C-05 : agregation des mesures et adaptation de la profondeur.
@@ -88,6 +103,8 @@ pub struct Profiler {
     store: WorkloadStore,
     level: ProfilerLevel,
     overhead: OverheadMeter,
+    baseline: BaselineSampler,
+    records_dropped_paused: u64,
     tick: u64,
     comfortable_streak: u32,
     records_ingested: u64,
@@ -109,6 +126,8 @@ impl Profiler {
         Self {
             store: WorkloadStore::new(config.max_workloads),
             overhead: OverheadMeter::new(config.cpu_budget_pct),
+            baseline: BaselineSampler::new(),
+            records_dropped_paused: 0,
             config,
             level: ProfilerLevel::Off,
             tick: 0,
@@ -149,7 +168,11 @@ impl Profiler {
         // Une unite dont rien n'est connu est traitee comme froide : le compteur, et
         // rien de plus, sous le plafond de l'etat courant. Attendre la fin du tick
         // pour armer la sonde perdrait les mesures du tick en cours.
-        let wanted = ProbeLevel::for_heat(Heat::Cold).min(self.level.max_probe_level());
+        //
+        // Pendant une pause de mesure, le plafond est `OFF` : armer une sonde neuve
+        // ajouterait au tick pause un cout que le tick actif n'avait pas, et la ligne
+        // de base mesurerait alors n'importe quoi.
+        let wanted = ProbeLevel::for_heat(Heat::Cold).min(self.probe_cap());
         if let Some(entry) = self.store.get_mut(probe_id) {
             entry.level = wanted;
         }
@@ -170,6 +193,14 @@ impl Profiler {
     /// tick, mais toujours depuis le vidage de fin de tick — jamais depuis le code du
     /// jeu.
     pub fn ingest(&mut self, record: &ProbeRecord) {
+        if self.baseline.is_paused() {
+            // Une pause de mesure doit etre invisible pour l'etat du profiler. Les
+            // rares enregistrements encore en vol decriraient une fenetre ou les
+            // sondes s'eteignent : les agreger deformerait les moyennes glissantes au
+            // moment precis ou l'on cherche a mesurer proprement.
+            self.records_dropped_paused = self.records_dropped_paused.saturating_add(1);
+            return;
+        }
         let Some(entry) = self.store.get_mut(record.probe_id) else {
             self.records_unknown = self.records_unknown.saturating_add(1);
             return;
@@ -219,9 +250,43 @@ impl Profiler {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
 
-        self.consolidate(tick);
+        // Pendant une pause de mesure, le profiler ne fait rien : ni consolidation, ni
+        // integration au budget. C'est le sens meme d'une ligne de base — le tick doit
+        // couter ce qu'il couterait sans nous. Consolider ici ajouterait au tick pause
+        // une depense que la comparaison attribuerait ensuite au jeu, et refroidirait
+        // vingt ticks durant des unites de travail qui n'ont rien cesse de faire.
+        let paused = self.baseline.is_paused();
+        if !paused {
+            self.consolidate(tick);
+        }
 
-        let verdict = self.overhead.record_tick(cost);
+        let event = self.baseline.record_tick(tick, cost);
+
+        let mut verdict = if paused {
+            OverheadVerdict::WithinBudget
+        } else {
+            self.overhead.record_tick(cost)
+        };
+
+        let mut measurement = None;
+        match event {
+            BaselineEvent::PauseBegan => {
+                // Rien a faire ici : `adapt_probe_levels` lira le nouveau plafond.
+            }
+            BaselineEvent::PauseEnded(result) => {
+                measurement = result;
+                if let Some(measured) = result {
+                    // Une mesure prime sur une estimation (R-770) : elle voit le cout
+                    // des appels injectes dans le bytecode, que les compteurs natifs
+                    // ne peuvent pas voir.
+                    if self.overhead.record_baseline(measured) == OverheadVerdict::OverBudget {
+                        verdict = OverheadVerdict::OverBudget;
+                    }
+                }
+            }
+            BaselineEvent::None => {}
+        }
+
         let before = self.level;
         self.apply_verdict(verdict);
         let level_changed = before != self.level;
@@ -235,6 +300,8 @@ impl Profiler {
             level_changed,
             over_budget: verdict == OverheadVerdict::OverBudget,
             levels_dirty: self.levels_dirty,
+            baseline_paused: self.baseline.is_paused(),
+            baseline: measurement,
         }
     }
 
@@ -297,9 +364,23 @@ impl Profiler {
         }
     }
 
+    /// Plafond de profondeur applicable a l'instant present.
+    ///
+    /// Pendant une pause de mesure, il vaut `OFF` quel que soit l'etat du profiler :
+    /// la pause n'est pas un changement d'etat, c'est une extinction temporaire des
+    /// sondes. L'etat, lui, ne bouge pas, et la profondeur revient d'elle-meme a la
+    /// fin de la pause puisqu'elle se deduit de la chaleur.
+    fn probe_cap(&self) -> ProbeLevel {
+        if self.baseline.is_paused() {
+            ProbeLevel::Off
+        } else {
+            self.level.max_probe_level()
+        }
+    }
+
     /// Aligne la profondeur de chaque sonde sur la chaleur, sous le plafond global.
     fn adapt_probe_levels(&mut self) {
-        let cap = self.level.max_probe_level();
+        let cap = self.probe_cap();
         let mut dirty = false;
         for entry in self.store.iter_mut() {
             let wanted = ProbeLevel::for_heat(entry.dynamics.heat).min(cap);
@@ -351,10 +432,22 @@ impl Profiler {
         self.config
     }
 
-    /// Auto-mesure du cout du profilage.
+    /// Auto-mesure du cout du profilage, par compteurs.
     #[must_use]
     pub fn overhead(&self) -> &OverheadMeter {
         &self.overhead
+    }
+
+    /// Cycle de mesure par mise en pause (PARTIE 12.4).
+    #[must_use]
+    pub fn baseline(&self) -> &BaselineSampler {
+        &self.baseline
+    }
+
+    /// `true` si le profilage est temporairement eteint pour mesurer une ligne de base.
+    #[must_use]
+    pub fn baseline_paused(&self) -> bool {
+        self.baseline.is_paused()
     }
 
     /// Ticks clotures depuis le demarrage.
@@ -369,6 +462,10 @@ impl Profiler {
     /// que des entiers, par choix assume du lecteur CBOR de Java.
     #[must_use]
     pub fn status(&self) -> ProfilerStatus {
+        // `baseline_measurements` a zero signifie « pas encore mesure ». Les champs
+        // qui en dependent valent alors zero, et l'affichage doit le dire ainsi plutot
+        // que d'annoncer un cout nul, qui serait faux (R-770).
+        let baseline = self.overhead.last_baseline();
         ProfilerStatus {
             level: self.level.label().to_owned(),
             workloads_tracked: self.store.live_count() as u64,
@@ -383,6 +480,12 @@ impl Profiler {
             collisions: self.store.collisions(),
             zero_duration_exits: self.zero_duration_exits,
             level_changes: self.level_changes,
+            baseline_measurements: self.baseline.measurements(),
+            baseline_overhead_ns: baseline.map_or(0, |m| m.overhead_ns),
+            baseline_overhead_pct_x100: baseline.map_or(0, |m| pct_x100(m.overhead_pct())),
+            baseline_tick: baseline.map_or(0, |m| m.tick),
+            baseline_ticks_until_pause: self.baseline.ticks_until_pause(),
+            records_dropped_paused: self.records_dropped_paused,
         }
     }
 }
@@ -720,5 +823,204 @@ mod tests {
 
         assert!(profiler.store().live_count() <= 8);
         assert!(profiler.status().evictions > 0);
+    }
+
+    // ----------------------------------------------------------------------
+    // T-140 : auto-mesure par mise en pause (PARTIE 12.4)
+    // ----------------------------------------------------------------------
+
+    /// Un tick de duree choisie, dont le cout de profilage tient le budget sans le
+    /// laisser confortable — ce qui evite qu'une remontee de profondeur vienne se
+    /// meler aux assertions.
+    fn tick_of(tick_ns: u64) -> TickCost {
+        TickCost {
+            profiling_ns: 100_000,
+            tick_ns,
+            period_ns: 50_000_000,
+        }
+    }
+
+    /// Profiler demarre, cycle de mesure raccourci pour tenir dans un test.
+    ///
+    /// La periode normative est de six mille ticks : la reproduire ici ferait tourner
+    /// le test cinq minutes de jeu simule sans rien prouver de plus. Elle reste assez
+    /// longue pour que les vingt ticks de la fenetre active soient tous mesures.
+    fn with_short_baseline() -> Profiler {
+        let mut profiler = started();
+        profiler.baseline = BaselineSampler::with_period(200, 20);
+        profiler
+    }
+
+    /// Fait tourner le profiler jusqu'a l'entree en pause.
+    fn run_until_paused(profiler: &mut Profiler, tick_ns: u64) {
+        for _ in 0..10_000 {
+            if profiler.end_tick(tick_of(tick_ns)).baseline_paused {
+                return;
+            }
+        }
+        panic!("la pause n'est jamais arrivee");
+    }
+
+    /// Comme [`run_until_paused`], en alimentant une sonde a chaque tick.
+    ///
+    /// Rend la profondeur de cette sonde telle qu'elle etait au dernier tick actif :
+    /// c'est a elle que la profondeur d'apres la pause doit etre comparee.
+    fn run_until_paused_feeding(profiler: &mut Profiler, probe: u32, tick_ns: u64) -> ProbeLevel {
+        for _ in 0..10_000 {
+            profiler.ingest(&record(probe, RecordKind::Exit, 5_000_000));
+            let level = profiler.store().get(probe).expect("unite").level;
+            if profiler.end_tick(tick_of(tick_ns)).baseline_paused {
+                return level;
+            }
+        }
+        panic!("la pause n'est jamais arrivee");
+    }
+
+    /// Fait tourner le profiler jusqu'a la fin de la pause et rend la mesure.
+    fn run_until_measured(profiler: &mut Profiler, tick_ns: u64) -> Option<BaselineMeasurement> {
+        for _ in 0..10_000 {
+            let report = profiler.end_tick(tick_of(tick_ns));
+            if !report.baseline_paused {
+                return report.baseline;
+            }
+        }
+        panic!("la pause ne s'acheve jamais");
+    }
+
+    #[test]
+    fn t140_pendant_la_pause_toutes_les_sondes_sont_eteintes() {
+        let mut profiler = with_short_baseline();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        let before = run_until_paused_feeding(&mut profiler, probe, 12_000_000);
+
+        assert_ne!(before, ProbeLevel::Off, "la sonde etait bien armee");
+        assert!(profiler.baseline_paused());
+        assert_eq!(
+            profiler.store().get(probe).expect("unite").level,
+            ProbeLevel::Off,
+            "une pause de mesure eteint toutes les sondes"
+        );
+        assert!(
+            profiler.take_levels().is_some(),
+            "Java doit recevoir la table eteinte, sans quoi la pause ne mesure rien"
+        );
+    }
+
+    #[test]
+    fn t140_apres_la_pause_les_sondes_reprennent_leur_profondeur() {
+        let mut profiler = with_short_baseline();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        let before = run_until_paused_feeding(&mut profiler, probe, 12_000_000);
+        // Une ligne de base sous le budget : la profondeur ne doit changer que du fait
+        // de la pause, jamais d'une reduction decidee par la mesure.
+        run_until_measured(&mut profiler, 11_990_000);
+
+        assert!(!profiler.baseline_paused());
+        assert_eq!(
+            profiler.store().get(probe).expect("unite").level,
+            before,
+            "la profondeur se deduit de la chaleur : elle revient d'elle-meme"
+        );
+    }
+
+    #[test]
+    fn t140_les_enregistrements_arrives_pendant_la_pause_sont_ecartes() {
+        let mut profiler = with_short_baseline();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        run_until_paused(&mut profiler, 12_000_000);
+
+        let ingested_before = profiler.status().records_ingested;
+        profiler.ingest(&record(probe, RecordKind::Exit, 9_000_000));
+
+        let status = profiler.status();
+        assert_eq!(
+            status.records_ingested, ingested_before,
+            "rien ne s'agrege pendant une pause de mesure"
+        );
+        assert_eq!(status.records_dropped_paused, 1);
+    }
+
+    /// La pause doit etre invisible pour l'etat du profiler, pas seulement pour le
+    /// joueur : vingt ticks de silence artificiel refroidiraient des unites de travail
+    /// qui n'ont rien cesse de faire.
+    #[test]
+    fn t140_la_pause_ne_refroidit_pas_les_unites_de_travail() {
+        let mut profiler = with_short_baseline();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        run_until_paused_feeding(&mut profiler, probe, 12_000_000);
+
+        let entry = profiler.store().get(probe).expect("unite");
+        let heat_before = entry.dynamics.heat;
+        let calls_before = entry.dynamics.calls_per_tick.value();
+        let seen_before = entry.dynamics.last_seen_tick;
+
+        run_until_measured(&mut profiler, 11_990_000);
+
+        let entry = profiler.store().get(probe).expect("unite");
+        assert_eq!(entry.dynamics.heat, heat_before);
+        assert_eq!(entry.dynamics.last_seen_tick, seen_before);
+        assert!(
+            (entry.dynamics.calls_per_tick.value() - calls_before).abs() < f64::EPSILON,
+            "les moyennes glissantes n'avancent pas pendant la pause"
+        );
+    }
+
+    #[test]
+    fn t140_une_ligne_de_base_au_dessus_du_budget_fait_descendre_la_profondeur() {
+        let mut profiler = with_short_baseline();
+        run_until_paused(&mut profiler, 12_000_000);
+        let level_before = profiler.level();
+
+        // Dix millisecondes sans profilage contre douze avec : vingt pour cent, bien
+        // au-dela des 1,5 % de budget de MSPT.
+        let measurement = run_until_measured(&mut profiler, 10_000_000).expect("mesure aboutie");
+        assert_eq!(measurement.overhead_ns, 2_000_000);
+
+        assert_eq!(
+            profiler.level(),
+            level_before.reduce(),
+            "une mesure au-dessus du budget fait descendre d'un cran"
+        );
+        assert_eq!(profiler.overhead().baseline_over_budget(), 1);
+    }
+
+    #[test]
+    fn t140_une_ligne_de_base_dans_le_budget_ne_change_rien() {
+        let mut profiler = with_short_baseline();
+        run_until_paused(&mut profiler, 10_050_000);
+        let level_before = profiler.level();
+
+        // Cinquante microsecondes sur dix millisecondes : 0,5 %, sous le budget.
+        let measurement = run_until_measured(&mut profiler, 10_000_000).expect("mesure aboutie");
+        assert_eq!(measurement.overhead_ns, 50_000);
+
+        assert_eq!(profiler.level(), level_before);
+        assert_eq!(profiler.overhead().baseline_over_budget(), 0);
+    }
+
+    /// R-770 : tant qu'aucune pause n'a abouti, le statut ne pretend pas connaitre le
+    /// cout. Zero mesure signifie « pas encore mesure », jamais « ne coute rien ».
+    #[test]
+    fn t140_le_statut_distingue_pas_encore_mesure_de_cout_nul() {
+        let mut profiler = started();
+        for _ in 0..50 {
+            profiler.end_tick(tick_of(10_000_000));
+        }
+        let status = profiler.status();
+        assert_eq!(status.baseline_measurements, 0);
+        assert_eq!(status.baseline_overhead_ns, 0);
+        assert!(
+            status.baseline_ticks_until_pause > 0,
+            "la prochaine mesure est annoncee, ce qui distingue l'attente de l'absence"
+        );
+
+        let mut measured = with_short_baseline();
+        run_until_paused(&mut measured, 12_000_000);
+        run_until_measured(&mut measured, 10_000_000);
+        let status = measured.status();
+        assert_eq!(status.baseline_measurements, 1);
+        assert_eq!(status.baseline_overhead_ns, 2_000_000);
+        assert_eq!(status.baseline_overhead_pct_x100, 2_000);
+        assert!(status.baseline_tick > 0);
     }
 }

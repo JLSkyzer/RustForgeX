@@ -14,6 +14,8 @@
   "rustforgex.status.profiler": "Profiler    : %s, %s unités suivies",
   "rustforgex.status.profiler_overhead": "Coût profil.: %s %% d'un cœur, %s %% du temps de tick",
   "rustforgex.status.profiler_overhead_unknown": "Coût profil.: pas encore mesuré",
+  "rustforgex.status.profiler_baseline": "Coût mesuré : %s µs par tick, %s %% du tick, au tick %s",
+  "rustforgex.status.profiler_baseline_pending": "Coût mesuré : pas encore, prochaine mesure dans %s ticks",
   "rustforgex.status.profiler_anomalies": "Anom. prof. : %s évictions, %s collisions de WorkId, %s enregistrements orphelins",
   "rustforgex.status.cores": "Cœurs       : %s physiques / %s logiques",
   "rustforgex.status.memory": "Mémoire     : %s Gio",

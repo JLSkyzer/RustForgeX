@@ -9,6 +9,8 @@ bin/
 run/
 run-data/
 runs/
+# Journaux ecrits a la racine par un processus Java lance depuis le depot.
+logs/
 
 # --- Rust / Cargo (crates/, cf. PARTIE 23) ---
 target/

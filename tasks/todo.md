@@ -131,9 +131,14 @@ condition posée pour brancher le transformateur est levée.
 - [ ] **`OverheadMeter` ne mesure pas la dépense dominante** : il compte le travail du
       profiler, pas les `RfxProbes.enter`/`exit` injectés dans 17 554 méthodes Java. Un
       budget aveugle à sa principale dépense ne borne rien
-- [ ] Implémenter l'auto-mesure de la PARTIE 12.4 : pause de 20 ticks toutes les 6000
-      pour établir une ligne de base, seule façon de répondre à R-770 avec un chiffre
-      mesuré plutôt qu'estimé
+- [x] **Auto-mesure de la PARTIE 12.4 implémentée** : `BaselineSampler`, pause de
+      20 ticks toutes les 6000, comparaison de deux médianes adjacentes, verdict
+      immédiat (ADR-020). Le statut distingue « pas encore mesuré » de « ne coûte rien »
+      (R-770). 8 tests T-140 côté Rust, 2 côté Java
+- [ ] Vérifier en jeu que la ligne de base mesure bien le coût constaté par C-36 : les
+      deux instruments doivent converger, et s'ils divergent l'un des deux ment
+- [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
+      `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
       séparer le coût de la transformation de celui des sondes
 - [x] Dette d'ADR-018 close **par construction** : une méthode ne peut plus porter un

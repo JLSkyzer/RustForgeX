@@ -16,7 +16,19 @@
 //! Un serveur peu charge tient largement la seconde mesure tout en depassant la
 //! premiere, et un serveur sature fait l'inverse. Depasser l'une des deux suffit a
 //! declencher la reduction de profondeur.
+//!
+//! # Deux sources, et l'une prime
+//!
+//! Les compteurs ci-dessus ne voient que le temps passe dans le code natif. Le cout des
+//! appels injectes dans le bytecode Java leur echappe entierement, et c'est
+//! probablement la depense dominante. [`crate::baseline`] le mesure de l'exterieur, en
+//! eteignant periodiquement le profilage.
+//!
+//! Quand les deux sources se contredisent, **la mesure par mise en pause prime** : elle
+//! observe le tick entier, la ou les compteurs n'observent que ce qu'ils savent
+//! compter. C'est ce qu'exige R-770 — un chiffre mesure, jamais estime.
 
+use crate::baseline::BaselineMeasurement;
 use rfx_model::Ewma;
 
 /// Part d'un cœur accordee au profilage, en pourcentage (PARTIE 5.5).
@@ -70,6 +82,8 @@ pub struct OverheadMeter {
     ticks: u64,
     over_budget_ticks: u64,
     total_profiling_ns: u64,
+    last_baseline: Option<BaselineMeasurement>,
+    baseline_over_budget: u64,
 }
 
 impl OverheadMeter {
@@ -94,7 +108,45 @@ impl OverheadMeter {
             ticks: 0,
             over_budget_ticks: 0,
             total_profiling_ns: 0,
+            last_baseline: None,
+            baseline_over_budget: 0,
         }
+    }
+
+    /// Integre une mesure par mise en pause et rend le verdict correspondant.
+    ///
+    /// Le verdict ne connait que deux valeurs. `OverBudget` quand le cout mesure
+    /// depasse le budget de MSPT ; `WithinBudget` sinon. Jamais `Comfortable` : une
+    /// mesure tous les six mille ticks ne suffit pas a autoriser une remontee de
+    /// profondeur, qui doit rester l'affaire des compteurs, bien plus frequents.
+    ///
+    /// La comparaison porte sur le budget de MSPT et non sur celui de cœur : la mesure
+    /// compare des durees de tick, ce qui est exactement l'echelle du premier.
+    pub fn record_baseline(&mut self, measurement: BaselineMeasurement) -> OverheadVerdict {
+        self.last_baseline = Some(measurement);
+        if measurement.overhead_pct() > self.mspt_budget_pct {
+            self.baseline_over_budget = self.baseline_over_budget.saturating_add(1);
+            return OverheadVerdict::OverBudget;
+        }
+        OverheadVerdict::WithinBudget
+    }
+
+    /// Derniere mesure par mise en pause, si une a abouti (PARTIE 12.4).
+    #[must_use]
+    pub fn last_baseline(&self) -> Option<BaselineMeasurement> {
+        self.last_baseline
+    }
+
+    /// Mesures par mise en pause ayant conclu au depassement du budget.
+    #[must_use]
+    pub fn baseline_over_budget(&self) -> u64 {
+        self.baseline_over_budget
+    }
+
+    /// Budget accorde, en pourcentage du temps de tick.
+    #[must_use]
+    pub fn mspt_budget_pct(&self) -> f32 {
+        self.mspt_budget_pct
     }
 
     /// Integre le cout d'un tick et rend le verdict.
