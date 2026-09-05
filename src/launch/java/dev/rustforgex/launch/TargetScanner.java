@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -22,6 +24,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
 
 /**
  * Énumération des classes que le transformateur doit cibler (ADR-019).
@@ -115,11 +118,54 @@ public final class TargetScanner {
     private static final byte[] MIXIN_MARKER =
             MIXIN_ANNOTATION.getBytes(StandardCharsets.UTF_8);
 
+    /** Tag d'une entrée {@code CONSTANT_Class} dans un fichier de classe. */
+    private static final int CONSTANT_CLASS = 7;
+
+    /**
+     * Préfixes des paquets fournis par la plateforme Java.
+     *
+     * <p>Complètent la liste des paquets des modules du système : si celle-ci ne peut
+     * pas être lue, ces préfixes évitent d'écarter tout ce qui référence {@code String}.
+     */
+    private static final String[] PLATFORM_PREFIXES = {
+        "java/", "javax/", "jdk/", "sun/", "com/sun/", "org/w3c/", "org/xml/",
+        "org/ietf/", "netscape/",
+    };
+
     /** Classes écartées faute de pouvoir exister de ce côté, ou parce que mixin. */
     private static int skippedForSide;
 
+    /** Classes écartées parce qu'elles référencent un type absent de l'installation. */
+    private static int skippedUnresolvable;
+
+    /**
+     * Paquets fournis par les modules du système, sous leur forme pointée.
+     *
+     * <p>Une classe de {@code java.base} ou de {@code jdk.unsupported} est chargeable
+     * sans figurer dans aucune archive de l'installation. Sans cette liste, toute classe
+     * référençant {@code String} serait jugée non résoluble.
+     */
+    private static final Set<String> SYSTEM_PACKAGES = systemPackages();
+
     private TargetScanner() {
         throw new AssertionError("classe utilitaire, non instanciable");
+    }
+
+    /** Lit les paquets des modules du système, ou rend un ensemble vide en cas d'échec. */
+    private static Set<String> systemPackages() {
+        try {
+            Set<String> packages = new HashSet<>(8_192);
+            for (ModuleReference reference : ModuleFinder.ofSystem().findAll()) {
+                packages.addAll(reference.descriptor().packages());
+            }
+            return packages;
+        } catch (RuntimeException | LinkageError e) {
+            // Les préfixes de PLATFORM_PREFIXES prennent alors le relais : moins précis,
+            // mais suffisant pour ne pas écarter tout le code qui parle à la JVM.
+            LOGGER.warn("Paquets des modules du système illisibles : le filtre des types "
+                    + "absents se rabat sur les préfixes connus.");
+            return Set.of();
+        }
     }
 
     /**
@@ -138,11 +184,16 @@ public final class TargetScanner {
         Set<String> targets = new LinkedHashSet<>(16_384);
         Set<String> mixinTargets = new HashSet<>(8_192);
         skippedForSide = 0;
+        skippedUnresolvable = 0;
         long startedAt = System.nanoTime();
+
+        // Première passe : tout ce que cette installation peut charger. Elle ne lit que
+        // les répertoires centraux des archives, jamais leur contenu.
+        Set<String> universe = collectUniverse(gameDirectory);
 
         if (gameDirectory != null) {
             scanModsDirectory(gameDirectory.resolve("mods"), targets, dedicatedServer,
-                    mixinTargets);
+                    mixinTargets, universe);
         }
         scanLegacyClassPath(targets);
 
@@ -167,11 +218,113 @@ public final class TargetScanner {
 
         long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
         LOGGER.info("Cibles d'instrumentation énumérées : {} classes en {} ms"
-                + " ({} écartées, absentes de ce côté ; {} laissées à Mixin sur {} cibles"
-                + " de mixins déclarées).",
+                + " ({} écartées, absentes de ce côté ou portant un mixin ; {} laissées"
+                + " à Mixin sur {} cibles de mixins déclarées ; {} référençant un type"
+                + " absent, sur un univers de {} classes connues).",
                 targets.size(), elapsedMs, skippedForSide, protectedFromMixins,
-                mixinTargets.size());
+                mixinTargets.size(), skippedUnresolvable, universe.size());
         return targets;
+    }
+
+    /**
+     * Énumère tout ce que cette installation est capable de charger.
+     *
+     * <p>Sert à répondre à une seule question : ce type existe-t-il ici ? Une classe qui
+     * en référence un absent ne doit pas être désignée comme cible, car sa réécriture
+     * par {@code ClassTransformer} déclenche un calcul de frames, lequel tente de
+     * charger la hiérarchie et échoue bruyamment.
+     *
+     * <p>Ne lit que les noms d'entrées, pas leur contenu — sauf pour les archives
+     * imbriquées de JarInJar, dont les classes sont bien chargeables à l'exécution et
+     * dont l'oubli ferait écarter beaucoup de code légitime.
+     */
+    private static Set<String> collectUniverse(Path gameDirectory) {
+        Set<String> universe = new HashSet<>(262_144);
+
+        if (gameDirectory != null) {
+            listArchives(gameDirectory.resolve("mods"), universe, true);
+            listArchives(gameDirectory.resolve("libraries"), universe, false);
+        }
+        for (String entry : System.getProperty("legacyClassPath", "")
+                .split(File.pathSeparator)) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            Path path = Path.of(entry);
+            if (Files.isDirectory(path)) {
+                listDirectory(path, universe);
+            } else if (entry.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                listArchive(path, universe, false);
+            }
+        }
+        return universe;
+    }
+
+    /** Ajoute les noms de classes de toutes les archives sous {@code root}. */
+    private static void listArchives(Path root, Set<String> universe, boolean nested) {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                    .forEach(jar -> listArchive(jar, universe, nested));
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Archives illisibles sous {} : leurs classes passeront pour "
+                    + "absentes, et ce qui les référence ne sera pas sondé.", root);
+        }
+    }
+
+    /** Ajoute les noms de classes d'une archive, et de celles qu'elle embarque. */
+    private static void listArchive(Path archive, Set<String> universe, boolean nested) {
+        try (ZipFile zip = new ZipFile(archive.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                String internal = internalName(name);
+                if (internal != null) {
+                    universe.add(internal);
+                } else if (nested && name.startsWith("META-INF/jarjar/")
+                        && name.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                    listNestedArchive(zip, entry, universe);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Archive {} illisible : ses classes passeront pour absentes.", archive);
+        }
+    }
+
+    /** Ajoute les noms de classes d'une archive imbriquée (JarInJar). */
+    private static void listNestedArchive(ZipFile zip, ZipEntry entry, Set<String> universe) {
+        try (ZipInputStream nested = new ZipInputStream(zip.getInputStream(entry))) {
+            ZipEntry inner;
+            while ((inner = nested.getNextEntry()) != null) {
+                String internal = internalName(inner.getName());
+                if (internal != null) {
+                    universe.add(internal);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Archive imbriquée {} illisible : ses classes passeront pour "
+                    + "absentes.", entry.getName());
+        }
+    }
+
+    /** Ajoute les noms de classes d'un répertoire de sortie. */
+    private static void listDirectory(Path root, Set<String> universe) {
+        try (var paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile).forEach(file -> {
+                String relative = root.relativize(file).toString()
+                        .replace(File.separatorChar, '/');
+                String internal = internalName(relative);
+                if (internal != null) {
+                    universe.add(internal);
+                }
+            });
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Répertoire {} illisible : ses classes passeront pour absentes.", root);
+        }
     }
 
     /**
@@ -189,7 +342,7 @@ public final class TargetScanner {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
                     .forEach(jar ->
-                            collectFromArchive(jar, targets, true, false, false, null));
+                            collectFromArchive(jar, targets, true, false, false, null, null));
         } catch (IOException | RuntimeException e) {
             LOGGER.warn("Bibliothèques du jeu illisibles sous {} : les classes du jeu ne "
                     + "seront pas sondées.", root);
@@ -199,7 +352,7 @@ public final class TargetScanner {
     /** Énumère toutes les classes des archives de {@code mods}. */
     private static void scanModsDirectory(
             Path modsDirectory, Set<String> targets, boolean dedicatedServer,
-            Set<String> mixinTargets) {
+            Set<String> mixinTargets, Set<String> universe) {
         if (!Files.isDirectory(modsDirectory)) {
             // Environnement de développement : les mods viennent du classpath, pas d'un
             // dossier. Ce n'est pas une anomalie.
@@ -207,7 +360,8 @@ public final class TargetScanner {
         }
         try (DirectoryStream<Path> jars = Files.newDirectoryStream(modsDirectory, "*.jar")) {
             for (Path jar : jars) {
-                collectFromArchive(jar, targets, false, true, dedicatedServer, mixinTargets);
+                collectFromArchive(jar, targets, false, true, dedicatedServer,
+                        mixinTargets, universe);
             }
         } catch (IOException e) {
             LOGGER.warn("Dossier {} illisible : les mods ne seront pas sondés.",
@@ -229,7 +383,7 @@ public final class TargetScanner {
             if (Files.isDirectory(path)) {
                 collectFromDirectory(path, targets);
             } else if (entry.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-                collectFromArchive(path, targets, true, false, false, null);
+                collectFromArchive(path, targets, true, false, false, null, null);
             }
         }
     }
@@ -243,10 +397,12 @@ public final class TargetScanner {
      * @param dedicatedServer {@code true} si le code client doit être écarté
      * @param mixinTargets ensemble à compléter des classes que les mixins patcheront,
      *     ou {@code null} quand l'archive n'est pas inspectée
+     * @param universe noms de toutes les classes chargeables, ou {@code null} pour ne
+     *     pas vérifier la résolubilité des types référencés
      */
     private static void collectFromArchive(
             Path archive, Set<String> targets, boolean platformOnly, boolean checkSide,
-            boolean dedicatedServer, Set<String> mixinTargets) {
+            boolean dedicatedServer, Set<String> mixinTargets, Set<String> universe) {
         try (ZipFile zip = new ZipFile(archive.toFile())) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
@@ -261,8 +417,9 @@ public final class TargetScanner {
                             MAX_TARGETS);
                     return;
                 }
-                if (checkSide && mustSkip(zip, entry, dedicatedServer, mixinTargets)) {
-                    skippedForSide++;
+                if (checkSide
+                        && mustSkip(zip, entry, dedicatedServer, mixinTargets, universe)) {
+                    // Le compteur est tenu par `mustSkip`, qui seul sait pour quel motif.
                     continue;
                 }
                 targets.add(internal);
@@ -284,27 +441,117 @@ public final class TargetScanner {
      * sondée à tort empêche le serveur de démarrer.
      */
     private static boolean mustSkip(ZipFile zip, ZipEntry entry, boolean dedicatedServer,
-            Set<String> mixinTargets) {
+            Set<String> mixinTargets, Set<String> universe) {
         try (InputStream stream = zip.getInputStream(entry)) {
             byte[] bytes = stream.readAllBytes();
             if (contains(bytes, MIXIN_MARKER)) {
                 if (mixinTargets != null) {
                     collectMixinTargets(bytes, mixinTargets);
                 }
+                skippedForSide++;
                 return true;
             }
-            if (!dedicatedServer) {
-                return false;
+            if (dedicatedServer) {
+                for (byte[] marker : CLIENT_MARKERS) {
+                    if (contains(bytes, marker)) {
+                        skippedForSide++;
+                        return true;
+                    }
+                }
             }
-            for (byte[] marker : CLIENT_MARKERS) {
-                if (contains(bytes, marker)) {
+            if (universe != null && referencesMissingType(bytes, universe)) {
+                skippedUnresolvable++;
+                return true;
+            }
+            return false;
+        } catch (IOException | RuntimeException e) {
+            skippedForSide++;
+            return true;
+        }
+    }
+
+    /**
+     * Indique si une classe référence un type que cette installation ne peut pas charger.
+     *
+     * <p>C'est le cas des intégrations facultatives : un mod livre la classe qui parle à
+     * un autre mod, et ne l'utilise que si celui-ci est là. La classe est chargeable —
+     * personne ne l'instancie — mais la <strong>réécrire</strong> ne l'est pas :
+     * {@code ClassTransformer} recalcule alors les frames, ASM demande le super-type
+     * commun de deux types fusionnés, et le chargement du type absent échoue. ModLauncher
+     * journalise l'échec en {@code FATAL} et poursuit avec un type de repli. Constaté en
+     * production : 180 lignes provoquées par une seule classe de mod.
+     *
+     * <p>Seules les entrées {@code CONSTANT_Class} sont examinées. Elles portent les
+     * types que le vérificateur voit passer sur la pile — {@code new}, {@code checkcast},
+     * propriétaires de champs et de méthodes, super-classe, interfaces, types rattrapés —
+     * c'est-à-dire exactement ceux que le calcul de frames peut avoir à fusionner.
+     *
+     * <p>Une classe illisible est réputée référencer un type absent : c'est le principe
+     * UNKNOWN = CONSERVATIVE.
+     *
+     * <p>Visible dans le paquet pour T-136.
+     */
+    static boolean referencesMissingType(byte[] bytes, Set<String> universe) {
+        try {
+            ClassReader reader = new ClassReader(bytes);
+            char[] buffer = new char[reader.getMaxStringLength()];
+            int items = reader.getItemCount();
+            for (int index = 1; index < items; index++) {
+                int item = reader.getItem(index);
+                // Un `long` ou un `double` occupe deux places, dont la seconde est vide.
+                if (item <= 0 || reader.readByte(item - 1) != CONSTANT_CLASS) {
+                    continue;
+                }
+                String referenced = elementType(reader.readUTF8(item, buffer));
+                if (referenced != null && !isLoadable(referenced, universe)) {
                     return true;
                 }
             }
             return false;
-        } catch (IOException | RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             return true;
         }
+    }
+
+    /**
+     * Nom interne du type désigné, tableaux dépliés.
+     *
+     * <p>Une entrée {@code CONSTANT_Class} porte soit un nom interne — {@code java/
+     * lang/String} — soit un descripteur de tableau — {@code [Ljava/lang/String;} ou
+     * {@code [[I}. Rend {@code null} pour un tableau de primitifs, qui ne désigne aucune
+     * classe.
+     */
+    private static String elementType(String raw) {
+        int depth = 0;
+        while (depth < raw.length() && raw.charAt(depth) == '[') {
+            depth++;
+        }
+        if (depth == 0) {
+            return raw;
+        }
+        if (depth >= raw.length() || raw.charAt(depth) != 'L') {
+            return null;
+        }
+        int end = raw.indexOf(';', depth);
+        return end < 0 ? null : raw.substring(depth + 1, end);
+    }
+
+    /** Indique si un type est chargeable : présent dans une archive, ou fourni par la JVM. */
+    private static boolean isLoadable(String internalName, Set<String> universe) {
+        if (universe.contains(internalName)) {
+            return true;
+        }
+        for (String prefix : PLATFORM_PREFIXES) {
+            if (internalName.startsWith(prefix)) {
+                return true;
+            }
+        }
+        int lastSlash = internalName.lastIndexOf('/');
+        if (lastSlash < 0) {
+            // Le paquet par défaut n'appartient à aucun module du système.
+            return false;
+        }
+        return SYSTEM_PACKAGES.contains(internalName.substring(0, lastSlash).replace('/', '.'));
     }
 
     /**

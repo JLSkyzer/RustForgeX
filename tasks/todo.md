@@ -138,12 +138,15 @@ condition posée pour brancher le transformateur est levée.
 - [x] **Vérifié en jeu** : mesure au tick 6020 d'un serveur de production, 446 750 ns
       par tick, soit **32,3 %** du tick. La campagne C-36, mesurée de l'extérieur,
       donnait **+33,7 %** sur le p95. Les deux instruments convergent
-- [ ] **180 lignes `FATAL` que nous provoquons** : `TransformerClassWriter` échoue à
-      charger la hiérarchie d'une dépendance facultative absente (`squaremap`, utilisée
-      par MTR si présente) pendant le calcul de frames d'une classe que nous avons
-      seulement *désignée*. Zéro occurrence sans le transformateur, 180 avec. Rien n'est
-      cassé — serveur à 20 TPS, MTR fonctionne — mais le journal accuse un autre mod.
-      Voir ADR-019, complément (4). La piste est de réduire l'ensemble des cibles
+- [x] **Les 180 lignes `FATAL` sont supprimées** : une classe référençant un type absent
+      de l'installation n'est plus désignée comme cible (T-136). Vérifié en production :
+      0 `FATAL`, 0 mention de `squaremap`, 0 échec de mod, instrumentation armée.
+      Coût : 2015 classes écartées, 16 566 méthodes sondées au lieu de 17 543, et une
+      seconde d'énumération de plus
+- [ ] Réduire encore : 76 202 classes restent déclarées pour une fraction réellement
+      sondée, chacune décodée et réécrite pour rien. Évaluer l'éligibilité au moment de
+      l'énumération supposerait d'analyser le code de chaque classe au démarrage — à
+      mesurer avant de le décider (ADR-019)
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
