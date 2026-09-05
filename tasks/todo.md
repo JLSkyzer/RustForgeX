@@ -122,9 +122,20 @@ condition posée pour brancher le transformateur est levée.
       (classes mixin elles-mêmes et cibles déclarées par `@Mixin`, lues par ASM, T-135)
 - [x] **Vérifié en production** : 78 207 cibles (852 laissées à Mixin sur 1499
       déclarées), 272 mods chargés, 0 échec, **17 546 méthodes sondées**, 19,998 TPS
-- [ ] Mesurer par C-36 le coût du décodage systématique en `ClassNode` avant de le
-      déclarer acceptable ; les 5,2 s d'énumération au démarrage sont visibles, le coût
-      par classe chargée ne l'est pas
+- [x] **Coût mesuré par C-36**, campagne conforme PARTIE 21.3 (5 × 12 000 ticks × 2
+      configurations, commit `784d8d9`) : MSPT p95 2,523 → 3,372 ms, soit **+33,7 %** ;
+      p50 +40,8 % ; TPS inchangé à 20,000 ; démarrage 110 → 118 s
+- [ ] **Le budget de 2 % (H-07, acceptance C-05) n'est pas tenu** : +33,7 % sur le p95.
+      En absolu 0,85 ms sur 50 ms, donc le jeu ne souffre pas sur cette machine — mais le
+      budget est normatif, et il est dépassé d'un ordre de grandeur
+- [ ] **`OverheadMeter` ne mesure pas la dépense dominante** : il compte le travail du
+      profiler, pas les `RfxProbes.enter`/`exit` injectés dans 17 554 méthodes Java. Un
+      budget aveugle à sa principale dépense ne borne rien
+- [ ] Implémenter l'auto-mesure de la PARTIE 12.4 : pause de 20 ticks toutes les 6000
+      pour établir une ligne de base, seule façon de répondre à R-770 avec un chiffre
+      mesuré plutôt qu'estimé
+- [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
+      séparer le coût de la transformation de celui des sondes
 - [x] Dette d'ADR-018 close **par construction** : une méthode ne peut plus porter un
       mixin et une sonde, puisque les cibles de mixins sont exclues. L'hypothèse
       d'ADR-018 était d'ailleurs fausse — un `@ModifyVariable` l'a réfutée
