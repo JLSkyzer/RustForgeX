@@ -109,10 +109,19 @@ condition posée pour brancher le transformateur est levée.
       construit sa liste 2,5 s avant que notre `ITransformationService` ne soit
       découvert depuis `mods/`. Un `ILaunchPluginService` livré dans `mods/` n'est
       jamais installé sur Forge 47. La garde `PLUGIN_NOT_INSTALLED` l'a détecté
-- [ ] **BLOQUANT** : rouvrir ADR-017 sur la voie de livraison du transformateur. En
-      l'état, l'instrumentation ne sonde rien chez un joueur. Le développement ne
-      fonctionne que parce que `minecraftArtifacts` place le JAR sur le classpath
-      d'amorçage, ce qu'un joueur ne peut pas faire
+- [x] ADR-017 rouvert et tranché : **ADR-019** remplace la voie de livraison —
+      `ITransformationService` + `ITransformer` à cibles énumérées, la seule voie
+      supportée depuis `mods/`, et la seule qui rende le développement identique à la
+      production
+- [ ] **À IMPLÉMENTER** : `RfxTransformationService.transformers()` rend un vrai
+      transformateur ; énumération des cibles depuis `<gameDir>/mods` et
+      `legacyClassPath` ; suppression de `RfxLaunchPlugin` et de
+      `minecraftArtifacts.from(launchJar)`
+- [ ] Mesurer par C-36 le coût du décodage systématique en `ClassNode` avant de le
+      déclarer acceptable
+- [ ] Vérifier qu'une méthode portant un mixin **et** une sonde se comporte
+      identiquement — dette d'ADR-018, désormais prioritaire : l'ordre défavorable
+      devient systématique
 - [x] Ordre relatif des `ILaunchPluginService` — tranché par ADR-018 : non
       garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
 - [x] Suppression de la configuration Mixin morte (zéro mixin déclaré, un avertissement
