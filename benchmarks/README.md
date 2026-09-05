@@ -21,12 +21,11 @@ réponse honnête à « combien ça coûte ? » est « je ne sais pas ».
 | Niveau | Ce qu'il mesure | État |
 |---|---|---|
 | **A — micro** | coût unitaire des opérations natives : hachage, agrégation, tampons, sérialisation | implémenté |
-| **B — macro** | MSPT, TPS, FPS, frametime, allocations, **overhead de RUSTFORGE-X** | à écrire |
+| **B — macro** | MSPT, TPS, ramasse-miettes, **coût de RUSTFORGE-X** | implémenté (serveur) |
 
-**Le niveau A ne répond pas à « quel est l'overhead ? ».** Il mesure des morceaux, pas
-le tout. Seul le niveau B — serveur dédié scripté, monde à graine figée, comparaison des
-configurations B et C de la PARTIE 21.2 — peut y répondre. Ne pas faire dire au premier
-ce que seul le second sait.
+**Le niveau A ne répond pas à « quel est le coût ? ».** Il mesure des morceaux, pas le
+tout. Seul le niveau B — serveur dédié scripté, comparaison de deux configurations —
+peut y répondre. Ne pas faire dire au premier ce que seul le second sait.
 
 ## Lancer le niveau A
 
@@ -38,6 +37,45 @@ cargo run -p rfx-bench --release
 La première commande mesure et écrit les échantillons bruts sous `target/criterion/`.
 La seconde les relit et produit `benchmarks/results/micro-<horodatage>-<commit>.json`
 au schéma de la PARTIE 21.3.
+
+## Lancer le niveau B
+
+```bash
+./benchmarks/run-macro.sh                # campagne normative : > 2 heures
+./benchmarks/run-macro.sh 2 400 200      # vérification du harnais : ~5 minutes
+```
+
+Le script lance le serveur dédié une fois par exécution et par configuration —
+**processus distinct à chaque fois**, ce qu'exige la PARTIE 21.3 point 5 : c'est ce qui
+rend les répétitions indépendantes, JIT et caches compris. Chaque exécution écrit
+`benchmarks/runs/<configuration>-<n>.json`, puis `rfx-bench macro` les agrège.
+
+Deux configurations sont comparées :
+
+| Étiquette | Ce qui tourne |
+|---|---|
+| `a-rfx-off` | serveur seul, `general.enabled=false` |
+| `b-rfx-on` | serveur + RUSTFORGE-X, instrumentation armée |
+
+L'écart entre les deux est le **coût du profilage**. C'est le passage de B à C de la
+PARTIE 21.2, à ceci près qu'il n'y a pas de modpack : la mesure décrit un serveur nu,
+et rien d'autre. Un profil de charge de la PARTIE 22 donnera un chiffre différent.
+
+### Les trois garde-fous du niveau B
+
+- **`methodology_compliant`** est calculé, jamais supposé : cinq exécutions,
+  3 600 ticks d'échauffement, 12 000 ticks mesurés. En dessous, le résultat est marqué
+  non conforme et **ne peut pas être publié**. C'est ce qui empêche une vérification
+  rapide du harnais de se faire passer un jour pour une mesure.
+- **`rejected`** signale une dispersion inter-exécutions supérieure à 10 % sur le
+  MSPT p95 (PARTIE 21.3, point 7). La machine n'était pas au repos : le chiffre décrit
+  l'environnement, pas le logiciel.
+- **`comparison.trustworthy`** ne vaut `true` que si les deux configurations sont
+  conformes et non rejetées. Un écart entre deux campagnes douteuses n'est pas une
+  mesure de coût.
+
+Les ticks contaminés par une collecte mémoire sont **marqués et comptés**
+(`gc_contaminated_ticks`), jamais supprimés : les retirer embellirait la mesure.
 
 ## Lire un résultat
 
@@ -80,6 +118,9 @@ comparaison utile est entre deux commits **sur la même machine, au repos**. La 
 - **Le coût Java de `RfxProbes.enter/exit`**, sur le chemin le plus chaud du jeu. Un
   chronométrage Java naïf mentirait — la JVM élimine le code dont le résultat n'est pas
   utilisé — et JMH est une dépendance à peser séparément. T-131 reste ouvert.
-- **L'overhead réel en jeu**, qui relève du niveau B.
+- **Le coût sur un modpack réel** : le niveau B mesure aujourd'hui un serveur nu, sans
+  aucun mod tiers. Les profils de la PARTIE 22 restent à constituer, et l'acceptation
+  « overhead < 2 % » porte sur eux.
+- **Le client** : FPS, frametime, 1 % low. Le niveau B ne couvre que le serveur dédié.
 - **Le coût du franchissement FFI**, mesuré au démarrage par C-45 et publié dans
   `/rfx status`, mais pas encore versionné ici.

@@ -48,3 +48,7 @@ Desktop.ini
 hs_err_pid*.log
 replay_pid*.log
 .idea/modules.xml
+
+# C-36 : donnees intermediaires d une campagne de macro-benchmark, regenerees a
+# chaque execution. Seuls les resultats agreges de benchmarks/results/ sont versionnes.
+benchmarks/runs/

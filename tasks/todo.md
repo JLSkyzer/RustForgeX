@@ -155,14 +155,24 @@ condition posée pour brancher le transformateur est levée.
 - [x] `benchmarks/README.md` : R-580, et comment relire un résultat
 - [x] CI : les benchmarks sont compilés, jamais exécutés sur une machine partagée
 
-**Niveau B — macro-benchmarks en jeu** (étape suivante, plus lourde)
+**Niveau B — macro-benchmarks en jeu**
 
-- [ ] Monde pré-généré à graine figée, serveur dédié scripté
-- [ ] Méthodologie de la PARTIE 21.3 : 3 min d'échauffement ignorées, 10 min ou
-      12 000 ticks de mesure, 5 exécutions indépendantes
-- [ ] Configurations B et C au minimum — le passage de B à C est le coût pur du
-      profilage, seule réponse à « overhead < 2 % »
-- [ ] Rejet d'exécution si l'écart-type inter-répétitions dépasse 10 %
+- [x] `MacroRecorder` : mesure du temps de tick, armé par propriété système, absent
+      sinon, et indépendant du runtime — il mesure aussi bien RFX éteint qu'allumé
+- [x] Ticks contaminés par une collecte mémoire marqués et comptés, jamais supprimés
+      (PARTIE 21.3, point 8)
+- [x] `benchmarks/run-macro.sh` : une exécution = un processus distinct (point 5)
+- [x] Deux configurations comparées, `a-rfx-off` et `b-rfx-on`
+- [x] Agrégateur `rfx-bench macro` : médiane et IQR **inter-exécutions**, conformité
+      calculée et non supposée, rejet au-delà de 10 % de dispersion (point 7)
+- [x] `comparison.trustworthy` : un écart entre deux campagnes douteuses n'est pas une
+      mesure
+- [ ] **Campagne normative** : 5 exécutions × 12 000 ticks × 2 configurations, plus de
+      deux heures. Non lancée à ce jour
+- [ ] Profils de modpack de la PARTIE 22 — la mesure actuelle décrit un serveur nu,
+      sans aucun mod tiers, et l'acceptation « overhead < 2 % » porte sur un profil
+      chargé
+- [ ] Côté client : FPS, frametime, 1 % low
 
 **Ce que le niveau A ne mesure pas**, et qu'il ne faut pas lui faire dire : le coût
 Java de `RfxProbes.enter/exit` sur le chemin chaud. Un chronométrage Java naïf mentirait

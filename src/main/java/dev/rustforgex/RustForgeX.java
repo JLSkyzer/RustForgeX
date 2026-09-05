@@ -1,6 +1,7 @@
 package dev.rustforgex;
 
 import com.mojang.logging.LogUtils;
+import dev.rustforgex.bench.MacroRecorder;
 import dev.rustforgex.command.RfxCommands;
 import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.TickCycle;
@@ -67,6 +68,10 @@ public class RustForgeX {
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         modBus.addListener(this::onCommonSetup);
         MinecraftForge.EVENT_BUS.register(this);
+        // C-36 niveau B : sans la propriété qui l'arme, cet appel ne fait rien et
+        // n'abonne personne. Il est ici, et non dans le setup, parce qu'un benchmark
+        // doit pouvoir mesurer un serveur où RUSTFORGE-X est désactivé.
+        MacroRecorder.armIfRequested();
     }
 
     /**

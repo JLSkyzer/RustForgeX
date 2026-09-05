@@ -85,6 +85,31 @@ minecraft {
             // Please read: https://stackoverflow.com/questions/2031163/when-to-use-the-different-log-levels
             property 'forge.logging.console.level', 'debug'
 
+            // C-36 niveau B : parametres du macro-benchmark, passes en propriete de
+            // projet. Sans `-PbenchTicks`, rien n'est ajoute et l'enregistreur reste
+            // absent -- une execution ordinaire ne paie donc rien pour lui.
+            if (project.hasProperty('benchTicks')) {
+                property 'rustforgex.bench.ticks', project.property('benchTicks').toString()
+                property 'rustforgex.bench.warmup',
+                        (project.findProperty('benchWarmup') ?: '3600').toString()
+                property 'rustforgex.bench.label',
+                        (project.findProperty('benchLabel') ?: 'unlabelled').toString()
+                property 'rustforgex.bench.run',
+                        (project.findProperty('benchRun') ?: '1').toString()
+                if (project.hasProperty('benchOut')) {
+                    // Chemin absolu : le serveur s'execute dans run/, et un chemin
+                    // relatif ecrirait le resultat sous run/benchmarks/ ou l'agregateur
+                    // ne le cherche pas.
+                    property 'rustforgex.bench.out',
+                            project.file(project.property('benchOut')).absolutePath
+                }
+                // Comparer deux configurations suppose de pouvoir eteindre le runtime :
+                // c'est le passage de C a B de la PARTIE 21.2, donc le cout pur.
+                if (project.hasProperty('benchRfxOff')) {
+                    property 'rustforgex.general.enabled', 'false'
+                }
+            }
+
             mods {
                 "${mod_id}" {
                     source sourceSets.main

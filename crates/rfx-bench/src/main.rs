@@ -23,6 +23,8 @@
 //! et ne peut donc pas répondre à la question « quel est l'overhead de RUSTFORGE-X ».
 //! Cette réponse viendra du niveau B, décrit en PARTIE 21.2.
 
+mod macro_bench;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -120,6 +122,122 @@ struct Estimates {
 }
 
 fn main() {
+    let level = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "micro".to_owned());
+    match level.as_str() {
+        "micro" => micro(),
+        "macro" => macro_level(),
+        other => {
+            eprintln!("niveau inconnu « {other} » — attendu : micro | macro");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Niveau B : agrège les exécutions du serveur en un résultat comparatif.
+fn macro_level() {
+    let root = repository_root();
+    let runs_dir = root.join("benchmarks").join("runs");
+
+    let (result, mut notes) = match macro_bench::aggregate(&runs_dir) {
+        Ok(pair) => pair,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+
+    let (commit, dirty) = git_state(&root);
+    if dirty {
+        notes.push(
+            "arbre de travail modifié : ce résultat ne décrit aucun commit publiable".to_owned(),
+        );
+    }
+    for (label, configuration) in &result.configurations {
+        if !configuration.methodology_compliant {
+            notes.push(format!(
+                "configuration « {label} » non conforme : {}",
+                configuration.compliance_notes.join(" ; ")
+            ));
+        }
+        if configuration.rejected {
+            notes.push(format!(
+                "configuration « {label} » rejetée : dispersion inter-exécutions au-delà                  du seuil (PARTIE 21.3, point 7)"
+            ));
+        }
+    }
+
+    let (hardware, coverage) = rfx_core::hw::probe();
+    let collected_at = unix_time();
+
+    #[derive(Serialize)]
+    struct MacroFile<'a> {
+        schema: u32,
+        rfx_version: String,
+        commit: String,
+        dirty: bool,
+        level: &'static str,
+        collected_at: u64,
+        hardware: Hardware,
+        #[serde(flatten)]
+        result: &'a macro_bench::MacroResult,
+        notes: Vec<String>,
+    }
+
+    let file = MacroFile {
+        schema: RESULT_SCHEMA,
+        rfx_version: env!("CARGO_PKG_VERSION").to_owned(),
+        commit: commit.clone(),
+        dirty,
+        level: "macro",
+        collected_at,
+        hardware: Hardware {
+            physical_cores: hardware.physical_cores,
+            logical_cores: hardware.logical_cores,
+            ram_gb: hardware.mem_total_bytes / (1024 * 1024 * 1024),
+            probed: coverage.cores,
+        },
+        result: &result,
+        notes,
+    };
+
+    let out_dir = root.join("benchmarks").join("results");
+    if let Err(e) = std::fs::create_dir_all(&out_dir) {
+        eprintln!("impossible de créer {} : {e}", out_dir.display());
+        std::process::exit(1);
+    }
+    let out = out_dir.join(format!("macro-{collected_at}-{}.json", short(&commit)));
+
+    let json = match serde_json::to_string_pretty(&file) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("sérialisation impossible : {e}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = std::fs::write(&out, json + "\n") {
+        eprintln!("écriture impossible dans {} : {e}", out.display());
+        std::process::exit(1);
+    }
+
+    println!(
+        "{} configuration(s) agrégée(s) dans {}",
+        file.result.configurations.len(),
+        out.display()
+    );
+    if let Some(comparison) = &file.result.comparison {
+        if !comparison.trustworthy {
+            println!(
+                "ATTENTION : campagne non conforme ou rejetée — ce résultat sert à \
+                 décider, pas à publier"
+            );
+        }
+    }
+}
+
+/// Niveau A : collecte les micro-benchmarks de criterion.
+fn micro() {
     let root = repository_root();
     let criterion_dir = root.join("target").join("criterion");
     if !criterion_dir.is_dir() {
@@ -284,7 +402,7 @@ fn measure(new_dir: &Path) -> Result<Metric, String> {
 }
 
 /// Quantile par interpolation linéaire sur un échantillon déjà trié.
-fn quantile(sorted: &[f64], q: f64) -> f64 {
+pub(crate) fn quantile(sorted: &[f64], q: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
     }
