@@ -6,6 +6,7 @@ members = [
     "crates/rfx-profiler",
     "crates/rfx-core",
     "crates/rfx-ffi",
+    "crates/rfx-bench",
 ]
 
 [workspace.package]
@@ -21,6 +22,7 @@ rfx-model = { path = "crates/rfx-model" }
 rfx-core = { path = "crates/rfx-core" }
 rfx-memory = { path = "crates/rfx-memory" }
 rfx-profiler = { path = "crates/rfx-profiler" }
+rfx-bench = { path = "crates/rfx-bench" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ciborium = { version = "0.2", default-features = false }

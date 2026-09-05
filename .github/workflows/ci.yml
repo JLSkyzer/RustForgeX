@@ -81,6 +81,14 @@ jobs:
       - name: Tests Rust
         run: cargo test --workspace
 
+      # Les benchmarks ne sont pas exécutés en CI : leurs chiffres n'auraient aucun sens
+      # sur une machine partagée, et R-581 refuse une mesure sans dispersion crédible.
+      # Ils sont en revanche compilés, faute de quoi ils pourrissent en silence — un
+      # harnais de mesure qui ne compile plus est un harnais qu'on n'utilisera pas le
+      # jour où on en aura besoin.
+      - name: Compilation des benchmarks (C-36)
+        run: cargo bench --workspace --no-run
+
       # `test` déclenche buildNative : les tests Java s'exécutent donc contre le
       # binaire natif réellement construit sur cette plateforme, y compris le test
       # d'intégration qui traverse la frontière (T-110, T-004, T-360).

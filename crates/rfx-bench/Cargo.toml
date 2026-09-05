@@ -1,0 +1,44 @@
+[package]
+name = "rfx-bench"
+description = "C-36 : harnais de micro-benchmarks et collecte des resultats normatifs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+rfx-memory = { workspace = true }
+rfx-profiler = { workspace = true }
+rfx-core = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# `harness = false` : criterion fournit son propre point d'entree.
+[[bench]]
+name = "workid"
+harness = false
+
+[[bench]]
+name = "profiler"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false
+
+[[bench]]
+name = "codec"
+harness = false

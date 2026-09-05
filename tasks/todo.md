@@ -140,10 +140,34 @@ condition posée pour brancher le transformateur est levée.
 
 ### Étape I — C-36 Benchmark Harness
 
-- [ ] Micro-benchmarks Rust (criterion)
-- [ ] Macro-benchmarks in-game scriptés, résultats versionnés en JSON
-- [ ] Aucun chiffre publié qui ne vienne d'un fichier de résultats généré (R-580)
-- [ ] Aucun benchmark sans intervalle de confiance ni nombre de répétitions (R-581)
+**Niveau A — micro-benchmarks Rust** (autonome, mesure ce qui existe aujourd'hui)
+
+- [x] Crate `crates/rfx-bench` avec criterion, hors de la chaîne de dépendances du
+      runtime (INV-13 ne le concerne pas : rien ne dépend de lui)
+- [x] B-10 : calcul du `WorkId` (hachage d'empreinte)
+- [x] Chemin chaud du profiler : agrégation d'un enregistrement, clôture d'un tick à
+      N unités, histogramme et quantiles
+- [x] C-31 : réservation et libération de budget, vidage d'un tampon de sonde
+- [x] Sérialisation CBOR du statut, aller et retour
+- [x] Collecteur : convertit les estimations de criterion en
+      `benchmarks/results/*.json` au schéma normatif (R-861), médiane et IQR, jamais
+      la moyenne seule, avec matériel (C-45), commit et date
+- [x] `benchmarks/README.md` : R-580, et comment relire un résultat
+- [x] CI : les benchmarks sont compilés, jamais exécutés sur une machine partagée
+
+**Niveau B — macro-benchmarks en jeu** (étape suivante, plus lourde)
+
+- [ ] Monde pré-généré à graine figée, serveur dédié scripté
+- [ ] Méthodologie de la PARTIE 21.3 : 3 min d'échauffement ignorées, 10 min ou
+      12 000 ticks de mesure, 5 exécutions indépendantes
+- [ ] Configurations B et C au minimum — le passage de B à C est le coût pur du
+      profilage, seule réponse à « overhead < 2 % »
+- [ ] Rejet d'exécution si l'écart-type inter-répétitions dépasse 10 %
+
+**Ce que le niveau A ne mesure pas**, et qu'il ne faut pas lui faire dire : le coût
+Java de `RfxProbes.enter/exit` sur le chemin chaud. Un chronométrage Java naïf mentirait
+(élimination de code mort), et JMH est une dépendance à peser séparément. T-131 reste
+donc ouvert.
 
 ### Definition of Done du jalon (CDC PARTIE 29.3)
 
