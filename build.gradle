@@ -108,6 +108,11 @@ minecraft {
                 if (project.hasProperty('benchRfxOff')) {
                     property 'rustforgex.general.enabled', 'false'
                 }
+                // JVM figee (PARTIE 21.3, point 1) : un tas qui varie d'une execution a
+                // l'autre ferait varier la pression sur le ramasse-miettes, et la mesure
+                // decrirait la JVM plutot que le logiciel. La valeur est reprise dans
+                // chaque fichier d'execution.
+                jvmArgs '-Xms4G', '-Xmx6G'
             }
 
             mods {
