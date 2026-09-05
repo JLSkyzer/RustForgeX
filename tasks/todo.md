@@ -58,7 +58,11 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 - [x] Niveaux `COUNTER` / `TIMED` / `DEEP`, pilotés à l'exécution (ADR-016)
 - [x] Refus de sonder : méthodes trop courtes, `<clinit>`, natives, classes du bootstrap (R-311, R-312)
 - [x] Sémantique observable inchangée (R-310), vérifiée en exécutant les classes transformées
-- [ ] Transformateur enregistré en dernier dans la chaîne ModLauncher
+- [x] Position du transformateur dans la chaîne — **tranchée, et défavorablement** :
+      ADR-018 a établi que l'ordre des plugins de lancement n'est pas garantissable, et
+      ADR-019 a rendu la question sans objet — un `ITransformer` passe **toujours avant**
+      Mixin. La PARTIE 5.4 demandait le dernier rang ; il est inatteignable. C'est un
+      écart assumé, pas une tâche en attente
 - [ ] Coûts par niveau mesurés sous leur seuil (T-131) — demande le harnais C-36
 - [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande C-05
 
@@ -128,9 +132,9 @@ condition posée pour brancher le transformateur est levée.
 - [ ] **Le budget de 2 % (H-07, acceptance C-05) n'est pas tenu** : +33,7 % sur le p95.
       En absolu 0,85 ms sur 50 ms, donc le jeu ne souffre pas sur cette machine — mais le
       budget est normatif, et il est dépassé d'un ordre de grandeur
-- [ ] **`OverheadMeter` ne mesure pas la dépense dominante** : il compte le travail du
-      profiler, pas les `RfxProbes.enter`/`exit` injectés dans 17 554 méthodes Java. Un
-      budget aveugle à sa principale dépense ne borne rien
+- [x] **`OverheadMeter` ne mesurait pas la dépense dominante** — corrigé : la ligne de
+      base de la PARTIE 12.4 mesure le tick entier, donc aussi les `RfxProbes.enter` et
+      `exit` injectés. Les deux instruments convergent (32,3 % contre 33,7 %)
 - [x] **Auto-mesure de la PARTIE 12.4 implémentée** : `BaselineSampler`, pause de
       20 ticks toutes les 6000, comparaison de deux médianes adjacentes, verdict
       immédiat (ADR-020). Le statut distingue « pas encore mesuré » de « ne coûte rien »
@@ -187,7 +191,10 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [ ] Désenveloppement automatique si un mod inspecte le listener (FM-14)
 - [ ] T-154 exige un surcoût **mesuré** sous 30 ns : suppose un harnais JMH, même dette
       que T-131
-- [ ] Ne pas employer `net.minecraftforge.unsafe` pour contourner l'encapsulation
+
+> Règle, pas tâche : ne pas employer `net.minecraftforge.unsafe` pour contourner
+> l'encapsulation d'`eventbus`. Si le module est fermé, on écrit l'ADR et on s'en tient
+> à l'API publique.
 
 ### Étape G — C-41 Mod Discovery — T-440..T-442
 
@@ -232,11 +239,17 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       calculée et non supposée, rejet au-delà de 10 % de dispersion (point 7)
 - [x] `comparison.trustworthy` : un écart entre deux campagnes douteuses n'est pas une
       mesure
-- [ ] **Campagne normative** : 5 exécutions × 12 000 ticks × 2 configurations, plus de
-      deux heures. Non lancée à ce jour
-- [ ] Profils de modpack de la PARTIE 22 — la mesure actuelle décrit un serveur nu,
-      sans aucun mod tiers, et l'acceptation « overhead < 2 % » porte sur un profil
-      chargé
+- [x] **Campagne normative exécutée** le 2026-09-05 sur `784d8d9` : 5 exécutions ×
+      12 000 ticks × 2 configurations, conforme et déclarée fiable par l'agrégateur.
+      Résultat dans `benchmarks/results/macro-1788623402-784d8d9.json`
+- [ ] Seconde campagne sur `38eacfa`, après le filtre des types absents et l'auto-mesure
+      de la 12.4, pour mesurer ce que ces deux correctifs changent
+- [ ] Profils de modpack **reproductibles** de la PARTIE 22. La mesure actuelle porte
+      bien sur un profil chargé — 272 mods — mais c'est le modpack personnel de
+      l'utilisateur, non versionnable et non reproductible par un tiers. Il manque aussi
+      le monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé
+      d'une campagne à l'autre et accumule ses régions, ce qui fait dériver les valeurs
+      absolues de MSPT entre deux campagnes
 - [ ] Côté client : FPS, frametime, 1 % low
 
 **Ce que le niveau A ne mesure pas**, et qu'il ne faut pas lui faire dire : le coût
