@@ -159,6 +159,13 @@ condition posée pour brancher le transformateur est levée.
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
+- [ ] **La ligne de base est bruitée d'une mesure à l'autre.** Deux mesures sur le même
+      serveur à cinq minutes d'intervalle : 13,3 % puis 0,0 %. Le zéro n'est pas un coût
+      nul, c'est la borne : la fenêtre en pause a duré plus longtemps que la fenêtre
+      active, la charge ayant bougé entre les deux. Vingt ticks contre vingt ne suffisent
+      pas toujours à faire ressortir quelques dixièmes de milliseconde. À trancher sur
+      les cinq mesures de la campagne, pas sur deux — allonger les fenêtres, ou exiger
+      deux mesures concordantes avant d'agir
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
