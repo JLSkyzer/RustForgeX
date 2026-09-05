@@ -107,11 +107,13 @@ condition posée pour brancher le transformateur est levée.
       sondées, 0 échec, 11 mises à jour de niveaux
 - [ ] Vérifier en production, deux JAR dans `mods/` d'une instance réelle — le chemin
       de découverte y diffère de celui du développement
-- [ ] Ordre relatif des `ILaunchPluginService` : les journaux montrent
-      `[mixin,rustforgex,...]` alors que la PARTIE 5.4 exige « enregistré en DERNIER »
+- [x] Ordre relatif des `ILaunchPluginService` — tranché par ADR-018 : non
+      garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
+- [x] Suppression de la configuration Mixin morte (zéro mixin déclaré, un avertissement
+      à chaque lancement)
+- [ ] Confirmer par un essai réel qu'une méthode portant un mixin **et** une sonde se
+      comporte identiquement dans les deux ordres (hypothèse la plus fragile d'ADR-018)
 - [ ] Exposer l'instrumentation dans `/rfx status` (aujourd'hui seulement au journal)
-- [ ] Ordre relatif des `ILaunchPluginService`, notamment vis-à-vis de Mixin — la
-      PARTIE 5.4 exige « enregistré en DERNIER » (ADR complémentaire si non garanti)
 - [ ] C-40 : deux artefacts à construire, empreindre et vérifier
 - [ ] Retrait d'une sonde sur régression JIT (R-313)
 
