@@ -183,8 +183,20 @@ condition posée pour brancher le transformateur est levée.
       3,186 ms, indistinguable des 3,181 à 3,268 ms des exécutions restées à `DEEP`.
       La dépense n'est pas ce que les sondes font, c'est qu'elles existent. **Le seul
       levier est le nombre de méthodes instrumentées**
-- [ ] Corollaire : reprendre en priorité « réduire l'ensemble des cibles », qui cesse
-      d'être une optimisation de confort pour devenir le seul chemin vers H-07
+- [x] **Seuil de sondage porté de 12 à 64 instructions** (ADR-021). R-311 est un
+      plancher, pas une politique. Paire B/C courte sur le serveur de production :
+      **16 544 → 2 598 méthodes sondées**, et l'écart p95 passe d'environ **+36 % à
+      +2,7 %**. Le chiffre exact n'est pas établi — une seule paire, non conforme
+- [ ] **Campagne conforme sur le nouveau seuil** : il y a enfin quelque chose à
+      certifier. C'est la seule des campagnes restantes qui vaille les 2 h 30
+- [ ] R-311 prévoit une exception — sonder quand même une méthode courte si
+      `calls_per_tick` est très élevé et le niveau `COUNTER`. **Non implémentée** : il
+      faudrait savoir qu'une méthode est très appelée avant de la sonder, donc une
+      seconde passe de transformation
+- [ ] Mesurer ce que l'échantillonnage de pile compense : c'est lui qui doit voir les
+      84 % de méthodes qui n'ont plus de sonde
+- [ ] Rendre le seuil configurable, pour le balayer dans une campagne au lieu de le
+      choisir par raisonnement
 - [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
       d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis

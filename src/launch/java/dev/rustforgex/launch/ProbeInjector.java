@@ -66,7 +66,22 @@ public final class ProbeInjector {
      * @return {@code true} si la méthode a été instrumentée
      */
     public static boolean inject(ClassNode owner, MethodNode method, int probeId) {
-        if (ProbeEligibility.evaluate(owner, method) != ProbeEligibility.Refusal.NONE) {
+        return inject(owner, method, probeId, ProbeEligibility.SPEC_MIN_INSTRUCTIONS);
+    }
+
+    /**
+     * Injecte une sonde dans une méthode, sous un seuil de taille donné.
+     *
+     * @param owner classe propriétaire
+     * @param method méthode à instrumenter
+     * @param probeId identifiant de la sonde
+     * @param minInstructions nombre minimal d'instructions réelles exigé (ADR-021)
+     * @return {@code true} si la méthode a été instrumentée
+     */
+    public static boolean inject(
+            ClassNode owner, MethodNode method, int probeId, int minInstructions) {
+        if (ProbeEligibility.evaluate(owner, method, minInstructions)
+                != ProbeEligibility.Refusal.NONE) {
             return false;
         }
         if (method.instructions == null || method.instructions.size() == 0) {

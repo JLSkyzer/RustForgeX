@@ -18,7 +18,7 @@ import dev.rustforgex.launch.ProbeEligibility;
  * sans valeur de retour.
  *
  * <p>Les corps sont volontairement assez longs pour dépasser le seuil de
- * {@link ProbeEligibility#MIN_INSTRUCTIONS} : une méthode triviale serait refusée au
+ * {@link ProbeEligibility#SPEC_MIN_INSTRUCTIONS} : une méthode triviale serait refusée au
  * sondage, et ne prouverait donc rien de la transformation.
  */
 public class SampleWorkload {

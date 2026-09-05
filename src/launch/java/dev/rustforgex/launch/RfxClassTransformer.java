@@ -167,14 +167,20 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     private static void instrument(ClassNode classNode, ProbeIdSource source) {
         int probed = 0;
         for (MethodNode method : classNode.methods) {
-            if (ProbeEligibility.evaluate(classNode, method) != ProbeEligibility.Refusal.NONE) {
+            // Le seuil appliqué ici est celui d'ADR-021, bien au-dessus du plancher
+            // normatif : une sonde posée sur une méthode courte coûte plus qu'elle
+            // n'apprend, et c'est leur NOMBRE qui fait le surcoût mesuré.
+            if (ProbeEligibility.evaluate(classNode, method,
+                    ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS)
+                    != ProbeEligibility.Refusal.NONE) {
                 continue;
             }
             int probeId = source.probeIdFor(classNode.name, method.name, method.desc);
             if (probeId == ProbeIdSource.NO_PROBE) {
                 continue;
             }
-            if (ProbeInjector.inject(classNode, method, probeId)) {
+            if (ProbeInjector.inject(classNode, method, probeId,
+                    ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS)) {
                 probed++;
             }
         }

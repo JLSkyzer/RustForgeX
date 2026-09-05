@@ -365,6 +365,39 @@ class ProbeInjectorTest {
     }
 
     @Test
+    @DisplayName("ADR-021 : le seuil appliqué écarte des méthodes que le plancher accepte")
+    void theAppliedThresholdRefusesWhatTheSpecFloorAccepts() throws Exception {
+        ClassNode node = readTarget();
+        MethodNode sum = node.methods.stream()
+                .filter(m -> "sum".equals(m.name))
+                .findFirst()
+                .orElseThrow();
+
+        // Le corpus de T-130 exerce la mécanique d'injection : ses méthodes sont
+        // volontairement au-dessus du plancher normatif, et en dessous du seuil que le
+        // transformateur applique réellement.
+        assertEquals(ProbeEligibility.Refusal.NONE,
+                ProbeEligibility.evaluate(node, sum, ProbeEligibility.SPEC_MIN_INSTRUCTIONS));
+        assertEquals(ProbeEligibility.Refusal.TOO_SHORT,
+                ProbeEligibility.evaluate(node, sum, ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS),
+                "une méthode de cette taille ne mérite pas une sonde (ADR-021)");
+    }
+
+    @Test
+    @DisplayName("ADR-021 : le plancher normatif de R-311 ne peut pas être abaissé")
+    void theSpecFloorCannotBeLowered() throws Exception {
+        ClassNode node = readTarget();
+        MethodNode tooShort = node.methods.stream()
+                .filter(m -> "tooShort".equals(m.name))
+                .findFirst()
+                .orElseThrow();
+
+        // Même en demandant zéro, R-311 s'applique : le seuil est ramené à son plancher.
+        assertEquals(ProbeEligibility.Refusal.TOO_SHORT,
+                ProbeEligibility.evaluate(node, tooShort, 0));
+    }
+
+    @Test
     @DisplayName("Les instructions comptées excluent étiquettes, lignes et cadres")
     void onlyRealInstructionsAreCounted() throws Exception {
         ClassNode node = readTarget();
@@ -374,7 +407,7 @@ class ProbeInjectorTest {
                 .orElseThrow();
 
         int real = ProbeEligibility.countRealInstructions(sum);
-        assertTrue(real >= ProbeEligibility.MIN_INSTRUCTIONS,
+        assertTrue(real >= ProbeEligibility.SPEC_MIN_INSTRUCTIONS,
                 "sum doit être éligible, obtenu " + real + " instructions");
         assertNotEquals(sum.instructions.size(), real,
                 "le corps contient des pseudo-instructions qui ne doivent pas compter");

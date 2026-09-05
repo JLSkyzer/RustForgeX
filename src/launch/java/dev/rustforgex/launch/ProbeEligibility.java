@@ -22,12 +22,33 @@ import java.util.List;
 public final class ProbeEligibility {
 
     /**
-     * Nombre minimal d'instructions réelles pour qu'un sondage vaille la peine (R-311).
+     * Plancher normatif : R-311 interdit de sonder en deçà de douze instructions.
      *
-     * <p>En deçà, le coût de la sonde domine celui de la méthode : la mesure décrirait
-     * surtout l'instrument.
+     * <p>C'est un plancher, pas une politique. Le cahier des charges dit ce qu'on ne
+     * DOIT pas sonder ; il n'oblige pas à sonder tout le reste.
      */
-    public static final int MIN_INSTRUCTIONS = 12;
+    public static final int SPEC_MIN_INSTRUCTIONS = 12;
+
+    /**
+     * Seuil réellement appliqué par le transformateur (ADR-021).
+     *
+     * <p>Le plancher de R-311 s'est révélé bien trop bas. Deux faits mesurés le
+     * montrent :
+     *
+     * <ul>
+     *   <li>sur le modpack de référence, 43 % des méthodes passent douze instructions,
+     *       et 9,4 % en passent soixante-quatre ;
+     *   <li>trois campagnes C-36 donnent un surcoût stable d'environ +36 % sur le MSPT
+     *       p95, <strong>que les sondes soient armées ou éteintes</strong> — la dépense
+     *       vient de leur présence, donc de leur nombre.
+     * </ul>
+     *
+     * <p>Le cahier des charges se contredit d'ailleurs lui-même sur ce point : sa table
+     * des risques note qu'un {@code nanoTime} coûte vingt à trente nanosecondes et que
+     * le niveau {@code TIMED} ne doit être posé que sur des méthodes « suffisamment
+     * longues ». Douze instructions — quelques nanosecondes de travail — ne l'est pas.
+     */
+    public static final int DEFAULT_MIN_INSTRUCTIONS = 64;
 
     /**
      * Taille en deçà de laquelle une méthode synchronisée n'est pas sondée (R-312).
@@ -70,6 +91,20 @@ public final class ProbeEligibility {
      * @return {@link Refusal#NONE} si la méthode peut être sondée, sinon le motif
      */
     public static Refusal evaluate(ClassNode owner, MethodNode method) {
+        return evaluate(owner, method, SPEC_MIN_INSTRUCTIONS);
+    }
+
+    /**
+     * Décide si une méthode peut être sondée, sous un seuil de taille donné.
+     *
+     * @param owner classe propriétaire
+     * @param method méthode examinée
+     * @param minInstructions nombre minimal d'instructions réelles exigé ; jamais
+     *     ramené sous {@link #SPEC_MIN_INSTRUCTIONS}, qui est normatif
+     * @return {@link Refusal#NONE} si la méthode peut être sondée, sinon le motif
+     */
+    public static Refusal evaluate(ClassNode owner, MethodNode method, int minInstructions) {
+        int floor = Math.max(minInstructions, SPEC_MIN_INSTRUCTIONS);
         if ((method.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
             return Refusal.NO_BODY;
         }
@@ -94,7 +129,7 @@ public final class ProbeEligibility {
                 && instructions < MIN_SYNCHRONIZED_INSTRUCTIONS) {
             return Refusal.SHORT_SYNCHRONIZED;
         }
-        if (instructions < MIN_INSTRUCTIONS) {
+        if (instructions < floor) {
             return Refusal.TOO_SHORT;
         }
         return Refusal.NONE;
