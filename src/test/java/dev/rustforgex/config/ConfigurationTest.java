@@ -79,6 +79,8 @@ class ConfigurationTest {
         assertEquals(512, c.getLong("memory.max_native_mb"));
         assertTrue(c.getBoolean("telemetry.enabled"));
         assertEquals(3, c.getLong("runtime.panic_threshold"));
+        assertEquals(20_000, c.getLong("profiler.max_workloads"));
+        assertEquals(2, c.getLong("profiler.cpu_budget_pct"));
     }
 
     @Test

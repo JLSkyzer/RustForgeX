@@ -68,6 +68,12 @@ public final class RfxRuntime {
         }
         this.instrumentation =
                 Instrumentation.arm(live ? bridge : null, report.handle(), clientSide);
+
+        // L'échantillonnage n'a de sens que si des sondes existent : c'est le registre
+        // qui sait à quelle méthode répond chaque identifiant (PARTIE 5.5, R-322).
+        if (tickCycle != null && instrumentation.registry() != null) {
+            tickCycle.enableSampling(instrumentation.registry().frameIndex());
+        }
     }
 
     /**
@@ -164,7 +170,8 @@ public final class RfxRuntime {
      * @return les lignes à afficher
      */
     public List<Component> status() {
-        return StatusReport.compose(report, configuration, nativeStatus(), observeOnly);
+        return StatusReport.compose(report, configuration, nativeStatus(), observeOnly,
+                instrumentation == null ? null : instrumentation.view());
     }
 
     /**
@@ -220,6 +227,9 @@ public final class RfxRuntime {
     public synchronized void shutdown() {
         // Désarmer d'abord : le transformateur ne doit plus demander d'identifiant à
         // un runtime qu'on est en train de fermer.
+        if (tickCycle != null) {
+            tickCycle.stopSampling();
+        }
         instrumentation.disarm();
         if (active()) {
             try {

@@ -80,6 +80,12 @@ impl Runtime {
     #[must_use]
     pub fn new(config: RuntimeConfig) -> Self {
         let max_native_mb = config.max_native_mb;
+        // Le profiler etait construit sur ses defauts, ce qui rendait muettes deux
+        // options que l'utilisateur croyait pouvoir regler. Elles sont desormais lues.
+        let profiler_config = ProfilerConfig {
+            max_workloads: config.profiler_max_workloads as usize,
+            cpu_budget_pct: config.profiler_cpu_budget_pct as f32,
+        };
         Self {
             config,
             hardware: HardwareClass::default(),
@@ -91,7 +97,7 @@ impl Runtime {
             budget: MemoryBudget::new(max_native_mb),
             probe_buffers: ProbeBufferPool::new(DEFAULT_BUFFER_BYTES, MAX_PROBED_THREADS),
             probe_records_consumed: 0,
-            profiler: Profiler::new(ProfilerConfig::default()),
+            profiler: Profiler::new(profiler_config),
             last_tick_begin: None,
             last_period_ns: 0,
             profiling_ns_this_tick: 0,
@@ -480,6 +486,26 @@ mod tests {
     fn test_lock() -> MutexGuard<'static, ()> {
         static V: Mutex<()> = Mutex::new(());
         V.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Les deux options de profilage du fichier de configuration doivent atteindre le
+    /// profiler. Elles etaient declarees et lues cote Java, puis perdues : le profiler
+    /// se construisait sur ses defauts. Une option qui ne pilote rien trompe
+    /// l'utilisateur (contrat agent 3.1).
+    #[test]
+    fn les_options_de_profilage_atteignent_le_profiler() {
+        let config = RuntimeConfig {
+            profiler_max_workloads: 4_096,
+            profiler_cpu_budget_pct: 7,
+            ..RuntimeConfig::default()
+        };
+        let runtime = Runtime::new(config);
+
+        assert_eq!(runtime.profiler().config().max_workloads, 4_096);
+        assert!(
+            (runtime.profiler().overhead().cpu_budget_pct() - 7.0).abs() < f32::EPSILON,
+            "le budget doit etre celui de la configuration, pas le defaut"
+        );
     }
 
     /// T-363 : double initialisation refusee (R-520, `E-1004`).

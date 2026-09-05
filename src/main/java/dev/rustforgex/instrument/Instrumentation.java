@@ -105,4 +105,35 @@ public final class Instrumentation {
     public ProbeRegistry registry() {
         return registry;
     }
+
+    /**
+     * Photographie des compteurs, pour l'affichage.
+     *
+     * <p>Les compteurs vivent dans des variables statiques du transformateur, qui n'est
+     * pas joignable depuis un test unitaire. Les figer dans une valeur immuable permet
+     * de vérifier ce que {@code /rfx status} affiche pour <strong>chaque</strong> état,
+     * sans jamais avoir à manipuler cet état statique.
+     *
+     * @return l'état et les compteurs à cet instant
+     */
+    public View view() {
+        return new View(state, classesSeen(), methodsProbed(), transformFailures());
+    }
+
+    /**
+     * État de l'instrumentation à un instant donné.
+     *
+     * @param state état du transformateur
+     * @param classesSeen classes passées par le transformateur
+     * @param methodsProbed méthodes effectivement sondées
+     * @param transformFailures transformations abandonnées (FM-09)
+     */
+    public record View(State state, long classesSeen, long methodsProbed,
+            long transformFailures) {
+
+        /** @return {@code true} si le transformateur est armé */
+        public boolean armed() {
+            return state == State.ARMED;
+        }
+    }
 }

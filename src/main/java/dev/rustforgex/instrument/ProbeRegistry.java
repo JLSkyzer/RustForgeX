@@ -40,6 +40,15 @@ public final class ProbeRegistry implements ProbeIdSource {
     private final ModOwnerResolver owners;
     private final String side;
 
+    /**
+     * Correspondance trame de pile vers sonde, alimentée au fil des attributions.
+     *
+     * <p>C'est ici qu'elle se construit, et nulle part ailleurs : c'est le seul endroit
+     * qui connaisse à la fois le nom de la méthode et l'identifiant qui lui a été
+     * attribué.
+     */
+    private final StackFrameIndex frameIndex = new StackFrameIndex();
+
     private final AtomicLong requested = new AtomicLong();
     private final AtomicLong granted = new AtomicLong();
     private final AtomicLong refused = new AtomicLong();
@@ -76,6 +85,7 @@ public final class ProbeRegistry implements ProbeIdSource {
             int probeId = bridge.workloadRegister(handle, Cbor.encode(descriptor));
             if (probeId >= 0) {
                 granted.incrementAndGet();
+                frameIndex.declare(classInternalName, methodName, probeId);
                 return probeId;
             }
             // -1 : plafond d'unités suivies atteint, la méthode n'est pas sondée.
@@ -91,6 +101,11 @@ public final class ProbeRegistry implements ProbeIdSource {
             failed.incrementAndGet();
             return NO_PROBE;
         }
+    }
+
+    /** @return la correspondance entre trame de pile et identifiant de sonde */
+    public StackFrameIndex frameIndex() {
+        return frameIndex;
     }
 
     /** @return le nombre d'identifiants demandés */

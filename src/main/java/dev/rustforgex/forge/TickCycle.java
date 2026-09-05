@@ -3,6 +3,8 @@ package dev.rustforgex.forge;
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.RfxProbes;
+import dev.rustforgex.instrument.StackFrameIndex;
+import dev.rustforgex.instrument.StackSampler;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -67,6 +69,14 @@ public final class TickCycle {
     private volatile boolean windowOpen;
 
     /**
+     * Correspondance trame vers sonde, ou {@code null} si l'échantillonnage est inactif.
+     */
+    private volatile StackFrameIndex frameIndex;
+
+    /** Échantillonneur, créé au premier tick — le seul moment où le fil est connu. */
+    private volatile StackSampler sampler;
+
+    /**
      * @param bridge pont vers le runtime natif
      * @param handle handle du runtime, déjà initialisé
      * @param side côté d'exécution, parmi {@link #SIDE_CLIENT}, {@link #SIDE_SERVER}
@@ -97,6 +107,7 @@ public final class TickCycle {
      * la fenêtre encadre le travail de tous les autres mods.
      */
     public void onTickPre() {
+        startSamplingIfRequested();
         long current = tick.incrementAndGet();
         if (!ok(bridge.tickBegin(handle, current, side))) {
             return;
@@ -125,6 +136,11 @@ public final class TickCycle {
             return 0;
         }
         ok(bridge.tickPhase(handle, PHASE_DRAIN));
+        if (probeSink != null && sampler != null) {
+            // Les échantillons prélevés par le fil de service partent avec le reste,
+            // depuis ce fil-ci : le puits est attaché par fil (R-700).
+            sampler.drainInto(probeSink);
+        }
         if (probeSink != null) {
             // Les mesures du tick sont complètes : c'est le moment de les remettre au
             // natif, en une seule traversée.
@@ -180,6 +196,41 @@ public final class TickCycle {
      * l'intérêt d'ADR-016 : une écriture dans un tableau, et les sondes déjà posées
      * changent de profondeur au prochain appel.
      */
+    /**
+     * Arme l'échantillonnage de pile.
+     *
+     * <p>Le fil autoritatif n'est pas connu à la construction : il ne l'est qu'au
+     * premier tick. L'échantillonneur est donc créé là, et pas avant.
+     *
+     * @param index correspondance trame vers sonde, jamais {@code null}
+     */
+    public void enableSampling(StackFrameIndex index) {
+        this.frameIndex = index;
+    }
+
+    /** Arrête l'échantillonnage, sans échouer s'il n'a jamais démarré. */
+    public void stopSampling() {
+        StackSampler current = sampler;
+        if (current != null) {
+            current.stop();
+        }
+    }
+
+    /** @return l'échantillonneur, ou {@code null} s'il n'a pas démarré */
+    public StackSampler sampler() {
+        return sampler;
+    }
+
+    /** Crée l'échantillonneur au premier tick, sur le fil qui exécute ce tick. */
+    private void startSamplingIfRequested() {
+        if (sampler != null || frameIndex == null || probeSink == null) {
+            return;
+        }
+        StackSampler created = new StackSampler(frameIndex, Thread.currentThread());
+        sampler = created;
+        created.start();
+    }
+
     private void refreshProbeLevels() {
         byte[] levels = bridge.probeLevels(handle);
         if (levels == null) {

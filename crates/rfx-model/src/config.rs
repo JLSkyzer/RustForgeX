@@ -79,6 +79,27 @@ pub struct RuntimeConfig {
     /// `runtime.panic_threshold` : nombre de panics tolerees pour un sous-systeme
     /// avant sa desactivation (R-523).
     pub panic_threshold: u32,
+    /// `profiler.max_workloads` : plafond d'unites de travail suivies (R-321).
+    ///
+    /// Un defaut est declare pour que l'absence du champ dans un blob plus ancien
+    /// n'empeche pas le decodage : le runtime prend alors la valeur du cahier des
+    /// charges, jamais une valeur indefinie.
+    #[serde(default = "default_max_workloads")]
+    pub profiler_max_workloads: u32,
+    /// `profiler.cpu_budget_pct` : part d'un cœur accordee au profilage, en pourcent
+    /// entier (H-07).
+    #[serde(default = "default_cpu_budget_pct")]
+    pub profiler_cpu_budget_pct: u32,
+}
+
+/// Plafond d'unites de travail par defaut (PARTIE 5.5).
+fn default_max_workloads() -> u32 {
+    20_000
+}
+
+/// Part d'un cœur accordee au profilage par defaut, en pourcent (H-07).
+fn default_cpu_budget_pct() -> u32 {
+    2
 }
 
 impl Default for RuntimeConfig {
@@ -91,6 +112,8 @@ impl Default for RuntimeConfig {
             max_native_mb: 512,
             telemetry_enabled: true,
             panic_threshold: 3,
+            profiler_max_workloads: default_max_workloads(),
+            profiler_cpu_budget_pct: default_cpu_budget_pct(),
         }
     }
 }
@@ -146,6 +169,36 @@ mod tests {
         assert_eq!(RuntimeMode::parse("turbo"), None);
         assert_eq!(RuntimeMode::parse("SAFE"), None);
         assert_eq!(RuntimeMode::parse(""), None);
+    }
+
+    /// Le blob vient de Java, qui est toujours de la meme version que le natif. Mais
+    /// un champ absent ne doit jamais empecher le decodage : le runtime prendrait alors
+    /// une valeur indefinie, ou refuserait de demarrer pour une option de confort.
+    #[test]
+    fn les_options_de_profilage_absentes_prennent_le_defaut_du_cahier_des_charges() {
+        // Un blob CBOR forme comme celui que Java produisait avant ces deux options.
+        #[derive(serde::Serialize)]
+        struct Older {
+            schema: u32,
+            enabled: bool,
+            mode: RuntimeMode,
+            max_native_mb: u32,
+            telemetry_enabled: bool,
+            panic_threshold: u32,
+        }
+        let blob = crate::to_cbor(&Older {
+            schema: crate::MODEL_SCHEMA_VERSION,
+            enabled: true,
+            mode: RuntimeMode::Balanced,
+            max_native_mb: 512,
+            telemetry_enabled: true,
+            panic_threshold: 3,
+        })
+        .expect("encodage");
+        let config: RuntimeConfig = crate::from_cbor(&blob).expect("decodage");
+
+        assert_eq!(config.profiler_max_workloads, 20_000);
+        assert_eq!(config.profiler_cpu_budget_pct, 2);
     }
 
     #[test]

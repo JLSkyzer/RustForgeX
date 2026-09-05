@@ -2,6 +2,7 @@ package dev.rustforgex.command;
 
 import dev.rustforgex.bootstrap.Bootstrap;
 import dev.rustforgex.config.Configuration;
+import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.diag.ErrorCode;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
@@ -225,6 +226,68 @@ class StatusReportTest {
         return profiler;
     }
 
+    /** Une instrumentation armée, avec les compteurs voulus. */
+    private static Instrumentation.View armed(long classes, long methods, long failures) {
+        return new Instrumentation.View(
+                Instrumentation.State.ARMED, classes, methods, failures);
+    }
+
+    @Test
+    @DisplayName("C-04 : l'instrumentation armée annonce classes vues et méthodes sondées")
+    void armedInstrumentationIsReported() {
+        List<Component> lines = StatusReport.compose(
+                readyReport(), Configuration.defaults(), nativeStatus(true, true), false,
+                armed(1_366L, 16_544L, 0L));
+
+        assertTrue(keysOf(lines).contains("rustforgex.status.instrumentation"),
+                keysOf(lines).toString());
+        assertArrayEqualsAsStrings(new Object[] {1_366L, 16_544L},
+                argumentsOf(lines, "rustforgex.status.instrumentation"));
+        assertFalse(keysOf(lines).contains("rustforgex.status.instrumentation_failures"),
+                "aucun échec : la ligne d'anomalie n'a pas lieu d'être");
+    }
+
+    @Test
+    @DisplayName("C-04 : les échecs de transformation ne s'affichent que s'il y en a")
+    void transformFailuresAreOnlyShownWhenTheyHappen() {
+        List<Component> lines = StatusReport.compose(
+                readyReport(), Configuration.defaults(), nativeStatus(true, true), false,
+                armed(1_366L, 16_544L, 3L));
+
+        assertArrayEqualsAsStrings(new Object[] {3L},
+                argumentsOf(lines, "rustforgex.status.instrumentation_failures"));
+    }
+
+    @Test
+    @DisplayName("C-04 : une instrumentation non armée dit son état et rassure")
+    void inactiveInstrumentationSaysWhichStateAndThatTheGameIsFine() {
+        for (Instrumentation.State state : Instrumentation.State.values()) {
+            if (state == Instrumentation.State.ARMED) {
+                continue;
+            }
+            List<String> keys = keysOf(StatusReport.compose(
+                    readyReport(), Configuration.defaults(), nativeStatus(true, true), false,
+                    new Instrumentation.View(state, 0L, 0L, 0L)));
+
+            assertTrue(keys.contains("rustforgex.status.instrumentation_inactive"),
+                    state + " : " + keys);
+            assertFalse(keys.contains("rustforgex.status.instrumentation"),
+                    state + " ne doit pas s'annoncer armée");
+        }
+    }
+
+    @Test
+    @DisplayName("C-04 : sans runtime actif, aucune ligne d'instrumentation")
+    void noInstrumentationLineWhenTheRuntimeIsInactive() {
+        // Le runtime éteint, l'objet n'existe pas. Ce n'est pas une anomalie, et le
+        // rapport ne doit pas inventer une ligne pour le dire.
+        List<String> keys = keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(), nativeStatus(true, true), false));
+
+        assertFalse(keys.stream().anyMatch(k -> k.startsWith(
+                "rustforgex.status.instrumentation")), keys.toString());
+    }
+
     @Test
     @DisplayName("PARTIE 12.4 : le coût mesuré par mise en pause est affiché")
     void measuredBaselineCostIsReported() {
@@ -334,6 +397,12 @@ class StatusReportTest {
                 readyReport(), Configuration.defaults(),
                 nativeStatus(true, true, measuredBaseline(profiler("NORMAL", 3L, 100L, 5L))),
                 false)));
+        used.addAll(keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(), nativeStatus(true, true), false,
+                armed(1L, 2L, 3L))));
+        used.addAll(keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(), nativeStatus(true, true), false,
+                new Instrumentation.View(Instrumentation.State.PLUGIN_MISSING, 0L, 0L, 0L))));
         used.add("rustforgex.status.not_started");
         used.add("rustforgex.state.disabled");
 

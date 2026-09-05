@@ -48,15 +48,23 @@ java -Drustforgex.general.enabled=false -jar ...
 | `memory.max_native_mb` | entier | `512` | `16` .. `16384` | oui | Plafond de mémoire native, en mébioctets. |
 | `telemetry.enabled` | booléen | `true` | `true` / `false` | non | Collecte **locale** des métriques. Aucune donnée ne quitte la machine, jamais. |
 | `runtime.panic_threshold` | entier | `3` | `1` .. `100` | non | Panics tolérées pour un sous-système avant sa désactivation (R-523). |
+| `profiler.max_workloads` | entier | `20000` | `1000` .. `200000` | oui | Unités de travail suivies simultanément. Au-delà, la plus froide est évincée (R-321). Un plafond plus haut affine la mesure et coûte de la mémoire native. |
+| `profiler.cpu_budget_pct` | entier | `2` | `1` .. `50` | oui | Part d'un cœur accordée au profilage, en pourcent (H-07). Au-delà, la profondeur de sondage descend d'un cran, jusqu'à l'arrêt. Le budget de temps de tick en découle dans la même proportion. |
+
+> Le coût réellement mesuré s'affiche dans `/rfx status`, ligne « Coût mesuré » : il
+> vient de la mise en pause périodique de la PARTIE 12.4, et non d'une estimation.
 
 ### Les autres sections de la PARTIE 28.2
 
 La configuration normative du cahier des charges décrit aussi les sections
-`profiler`, `analysis`, `decision`, `scheduler`, `snapshot`, `commit`, `validation`,
+`analysis`, `decision`, `scheduler`, `snapshot`, `commit`, `validation`,
 `shadow`, `cache`, `mirror`, `ir`, `network`, `learning`, `diagnostics`, `ui` et
 `overrides`.
 
-Elles **n'existent pas encore** dans le fichier généré. Elles pilotent des composants
+La section `profiler` n'expose que les deux options ci-dessus : les autres options de
+profilage de la PARTIE 28.2 ne pilotent encore rien.
+
+Ces sections **n'existent pas encore** dans le fichier généré. Elles pilotent des composants
 qui ne sont pas implémentés : les déclarer maintenant donnerait à croire qu'un réglage
 a un effet alors qu'il n'en aurait aucun. Chaque section apparaîtra au jalon qui la
 rend opérante. Si vous ajoutez l'une de ces clés à la main, elle sera conservée et

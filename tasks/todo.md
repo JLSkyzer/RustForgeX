@@ -79,10 +79,14 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
       relais du temps mesuré (R-322)
 - [x] Points d'entrée `rfx_workload_register`, `rfx_probe_levels`, `rfx_profiler_start`
 - [x] `/rfx status` expose niveau, unités suivies, coût mesuré et anomalies
-- [ ] Le producteur d'échantillons de pile (thread à 100 Hz) reste à écrire côté Java :
-      l'agrégation les accepte déjà, personne n'en produit encore
-- [ ] `profiler.max_workloads` et `profiler.cpu_budget_pct` dans `rustforgex.toml` —
-      le code lit aujourd'hui les valeurs par défaut du cahier des charges
+- [x] **Producteur d'échantillons de pile écrit** : `StackSampler` à 100 Hz sur le fil
+      autoritatif, `StackFrameIndex` pour la correspondance trame → sonde. Il ne prélève
+      pas pendant une pause de mesure (PARTIE 12.4) et dépose ses identifiants dans une
+      file à producteur/consommateur uniques que le fil du tick draine — `ProbeSink` est
+      attaché par fil, écrire depuis le fil d'échantillonnage aurait perdu les mesures
+- [x] `profiler.max_workloads` et `profiler.cpu_budget_pct` déclarées, documentées et
+      **effectivement lues** : elles traversent la frontière et construisent le
+      `ProfilerConfig`, qui se bâtissait jusqu'ici sur ses défauts
 
 ### Étape E bis — brancher les sondes (reste de C-04)
 
@@ -158,7 +162,10 @@ condition posée pour brancher le transformateur est levée.
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
-      séparer le coût de la transformation de celui des sondes
+      séparer le coût de la transformation de celui des sondes. Écrite après la
+      campagne : `run-macro-prod.sh` est lu au fil de l'eau par bash pendant l'exécution,
+      l'éditer en cours de campagne la corromprait. Demande aussi que l'agrégateur
+      compare chaque configuration à la référence, et non les deux premières
 - [x] Dette d'ADR-018 close **par construction** : une méthode ne peut plus porter un
       mixin et une sonde, puisque les cibles de mixins sont exclues. L'hypothèse
       d'ADR-018 était d'ailleurs fausse — un `@ModifyVariable` l'a réfutée
@@ -168,8 +175,13 @@ condition posée pour brancher le transformateur est levée.
       garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
 - [x] Suppression de la configuration Mixin morte (zéro mixin déclaré, un avertissement
       à chaque lancement)
-- [ ] Exposer l'instrumentation dans `/rfx status` (aujourd'hui seulement au journal)
-- [ ] C-40 : deux artefacts à construire, empreindre et vérifier
+- [x] Instrumentation exposée dans `/rfx status` : état, classes vues, méthodes
+      sondées, et les échecs de transformation quand il y en a
+- [x] C-40 : `artifactVerify` contrôle désormais **les deux** artefacts — entrées
+      autorisées, absence de classe de test, entrées obligatoires du JAR de lancement,
+      empreintes des natifs — et écrit `SHA256SUMS` (PARTIE 25.2)
+- [ ] Reste de C-40 : version du manifeste égale au tag, plage de taille attendue,
+      licences des dépendances dans NOTICE (PARTIE 25.4)
 
 ### Étape F — C-06 Event Observer — T-150..T-154
 

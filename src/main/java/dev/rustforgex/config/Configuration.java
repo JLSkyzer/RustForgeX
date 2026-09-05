@@ -71,7 +71,13 @@ public final class Configuration {
             OptionConfig.booleanOption("telemetry", "enabled", true,
                     "Collecte locale des métriques. Aucune donnée ne quitte la machine", true),
             OptionConfig.integerOption("runtime", "panic_threshold", 3, 1, 100,
-                    "Panics tolérées pour un sous-système avant sa désactivation", true));
+                    "Panics tolérées pour un sous-système avant sa désactivation", true),
+            OptionConfig.integerOption("profiler", "max_workloads", 20_000, 1_000, 200_000,
+                    "Unités de travail suivies simultanément ; au-delà, la plus froide "
+                            + "est évincée", false),
+            OptionConfig.integerOption("profiler", "cpu_budget_pct", 2, 1, 50,
+                    "Part d'un cœur accordée au profilage, en pourcent ; au-delà, la "
+                            + "profondeur de sondage descend", false));
 
     private final Map<String, Object> values;
     private final List<String> warnings;
@@ -371,6 +377,8 @@ public final class Configuration {
         table.put("max_native_mb", getLong("memory.max_native_mb"));
         table.put("telemetry_enabled", getBoolean("telemetry.enabled"));
         table.put("panic_threshold", getLong("runtime.panic_threshold"));
+        table.put("profiler_max_workloads", getLong("profiler.max_workloads"));
+        table.put("profiler_cpu_budget_pct", getLong("profiler.cpu_budget_pct"));
         return Cbor.encode(table);
     }
 

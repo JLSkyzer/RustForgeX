@@ -2,6 +2,7 @@ package dev.rustforgex.command;
 
 import dev.rustforgex.bootstrap.Bootstrap;
 import dev.rustforgex.config.Configuration;
+import dev.rustforgex.instrument.Instrumentation;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
@@ -48,6 +49,29 @@ public final class StatusReport {
             Configuration configuration,
             Map<String, Object> nativeStatus,
             boolean observeOnly) {
+        return compose(report, configuration, nativeStatus, observeOnly, null);
+    }
+
+    /**
+     * Compose le rapport, en y ajoutant l'état de l'instrumentation (C-04).
+     *
+     * <p>{@code instrumentation} vaut {@code null} quand le runtime n'est pas actif :
+     * il n'y a alors personne pour armer le transformateur, et l'objet n'existe pas.
+     * Ce n'est pas une anomalie, et le rapport ne doit pas l'afficher comme telle.
+     *
+     * @param report rapport de démarrage
+     * @param configuration configuration effective
+     * @param nativeStatus statut natif décodé, ou {@code null}
+     * @param observeOnly {@code true} en mode observation seule
+     * @param instrumentation état de l'instrumentation, ou {@code null}
+     * @return les lignes à afficher
+     */
+    public static List<Component> compose(
+            Bootstrap.Report report,
+            Configuration configuration,
+            Map<String, Object> nativeStatus,
+            boolean observeOnly,
+            Instrumentation.View instrumentation) {
 
         List<Component> lines = new ArrayList<>();
         lines.add(Component.translatable(KEY_PREFIX + "title"));
@@ -92,6 +116,8 @@ public final class StatusReport {
             }
         }
 
+        appendInstrumentation(lines, instrumentation);
+
         Map<String, Object> probes = mapValue(nativeStatus, "probes");
         if (probes != null) {
             lines.add(Component.translatable(KEY_PREFIX + "probes",
@@ -116,6 +142,39 @@ public final class StatusReport {
             }
         }
         return lines;
+    }
+
+    /**
+     * Ajoute les lignes décrivant l'instrumentation du bytecode (C-04).
+     *
+     * <p>Un transformateur qui ne pose aucune sonde et un transformateur absent
+     * produisent le même silence dans le reste du rapport : le profiler suit zéro unité
+     * de travail dans les deux cas. Cette ligne est ce qui les distingue, et c'est la
+     * raison d'être de {@link Instrumentation.State}.
+     *
+     * <p>Quand l'instrumentation n'est pas armée, le message dit ce qui manque
+     * <strong>et</strong> que le jeu n'est pas affecté.
+     */
+    private static void appendInstrumentation(
+            List<Component> lines, Instrumentation.View instrumentation) {
+        if (instrumentation == null) {
+            return;
+        }
+        if (!instrumentation.armed()) {
+            lines.add(Component.translatable(KEY_PREFIX + "instrumentation_inactive",
+                    instrumentation.state().name()));
+            return;
+        }
+        lines.add(Component.translatable(KEY_PREFIX + "instrumentation",
+                instrumentation.classesSeen(), instrumentation.methodsProbed()));
+
+        // Un échec de transformation n'est pas le fonctionnement normal : il ne
+        // s'affiche que lorsqu'il se produit (FM-09).
+        long failures = instrumentation.transformFailures();
+        if (failures > 0) {
+            lines.add(Component.translatable(
+                    KEY_PREFIX + "instrumentation_failures", failures));
+        }
     }
 
     /**

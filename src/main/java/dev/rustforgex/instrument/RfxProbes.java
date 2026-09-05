@@ -40,6 +40,15 @@ public final class RfxProbes {
      */
     private static volatile byte[] levels = new byte[0];
 
+    /**
+     * `true` si au moins une sonde est armée dans la table courante.
+     *
+     * <p>Recalculé à chaque changement de table plutôt qu'à chaque lecture :
+     * l'échantillonneur pose la question cent fois par seconde, la table change
+     * quelques fois par minute.
+     */
+    private static volatile boolean anyArmed;
+
     /** Enregistrements écartés faute de sonde connue, comptés sans allouer. */
     private static final java.util.concurrent.atomic.AtomicLong UNKNOWN_PROBES =
             new java.util.concurrent.atomic.AtomicLong();
@@ -55,10 +64,36 @@ public final class RfxProbes {
      * @param newLevels niveau de chaque sonde, indexé par identifiant
      */
     public static void install(ProbeSink newSink, byte[] newLevels) {
-        levels = newLevels.clone();
+        byte[] table = newLevels.clone();
+        refreshAnyArmed(table);
+        levels = table;
         // Le puits en dernier : tant qu'il est nul, les sondes ne font rien, et la
         // table est déjà en place quand elles commencent à s'exécuter.
         sink = newSink;
+    }
+
+    /**
+     * Indique si au moins une sonde est armée.
+     *
+     * <p>Une table entièrement éteinte signifie soit un profiler à l'arrêt, soit une
+     * pause de mesure de la PARTIE 12.4. Dans les deux cas, l'échantillonnage doit
+     * cesser : prélever pendant la pause attribuerait au jeu un coût qui est le nôtre.
+     *
+     * @return {@code true} si au moins un niveau est non nul
+     */
+    public static boolean anyProbeArmed() {
+        return anyArmed;
+    }
+
+    /** Recalcule le drapeau après un changement de table. */
+    private static void refreshAnyArmed(byte[] table) {
+        for (byte level : table) {
+            if (level != 0) {
+                anyArmed = true;
+                return;
+            }
+        }
+        anyArmed = false;
     }
 
     /**
@@ -67,12 +102,15 @@ public final class RfxProbes {
      * @param newLevels niveau de chaque sonde, indexé par identifiant
      */
     public static void setLevels(byte[] newLevels) {
-        levels = newLevels.clone();
+        byte[] table = newLevels.clone();
+        refreshAnyArmed(table);
+        levels = table;
     }
 
     /** Désinstalle le puits : les sondes redeviennent inertes. */
     public static void uninstall() {
         sink = null;
+        anyArmed = false;
         levels = new byte[0];
     }
 

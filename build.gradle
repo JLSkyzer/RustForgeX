@@ -425,61 +425,121 @@ tasks.register('nativeManifest') {
 // leur empreinte.
 tasks.register('artifactVerify') {
     group = 'rustforgex'
-    description = 'Verifie le contenu du JAR : natifs, empreintes, absence d\'asset tiers'
-    dependsOn 'jar'
+    description = 'Verifie les deux artefacts : contenu, empreintes, absence de classe de test'
+    dependsOn 'jar', 'launchJar'
     doLast {
-        var archive = tasks.named('jar', Jar).get().archiveFile.get().asFile
-        if (!archive.exists()) {
-            throw new GradleException("JAR introuvable : ${archive}")
-        }
-
-        // Prefixes autorises, derives du contenu attendu de l'artefact final (3.7).
-        var autorises = [
-                'META-INF/', 'dev/rustforgex/', 'natives/',
-                'assets/rustforgex/', 'data/rustforgex/',
-                'pack.mcmeta'
+        // PARTIE 25.4. Les DEUX artefacts sont verifies : depuis ADR-019 le mod ne
+        // fonctionne pas sans le JAR de lancement, et un artefact non verifie reste un
+        // artefact non verifie, meme s'il est petit.
+        var descripteurs = [
+                [
+                        tache     : 'jar',
+                        natifs    : true,
+                        // Prefixes autorises, derives du contenu attendu (PARTIE 3.7).
+                        autorises : ['META-INF/', 'dev/rustforgex/', 'natives/',
+                                     'assets/rustforgex/', 'data/rustforgex/', 'pack.mcmeta'],
+                        // Le mod ne doit pas embarquer le transformateur : ce sont deux
+                        // artefacts distincts, et les confondre ferait charger la classe
+                        // deux fois dans deux couches (ADR-017, ADR-019).
+                        interdits : ['dev/rustforgex/launch/'],
+                        requis    : []
+                ],
+                [
+                        tache     : 'launchJar',
+                        natifs    : false,
+                        autorises : ['META-INF/', 'dev/rustforgex/launch/', 'module-info.class'],
+                        interdits : [],
+                        // Sans descripteur de module, le service reste invisible dans la
+                        // couche d'amorcage : le mod demarrerait sans jamais sonder.
+                        requis    : ['module-info.class',
+                                     'dev/rustforgex/launch/RfxTransformationService.class']
+                ]
         ]
 
-        var intrus = []
-        var natifs = [:]
-        var empreintes = [:]
+        var sommes = [:]
 
-        new java.util.zip.ZipFile(archive).withCloseable { zip ->
-            zip.entries().each { entree ->
-                if (entree.directory) {
-                    return
-                }
-                var nom = entree.name
-                if (!autorises.any { nom == it || nom.startsWith(it) }) {
-                    intrus << nom
-                }
-                if (nom.startsWith('natives/') && nom.endsWith('.sha256')) {
-                    empreintes[nom - '.sha256'] = zip.getInputStream(entree).text.trim()
-                } else if (nom.startsWith('natives/') && !nom.endsWith('.json')) {
-                    var digest = java.security.MessageDigest.getInstance('SHA-256')
-                    natifs[nom] = digest.digest(zip.getInputStream(entree).bytes).encodeHex().toString()
+        descripteurs.each { descripteur ->
+            var archive = tasks.named(descripteur.tache, Jar).get().archiveFile.get().asFile
+            if (!archive.exists()) {
+                throw new GradleException("Artefact introuvable : ${archive}")
+            }
+
+            var intrus = []
+            var tests = []
+            var presents = [] as Set
+            var natifs = [:]
+            var empreintes = [:]
+
+            new java.util.zip.ZipFile(archive).withCloseable { zip ->
+                zip.entries().each { entree ->
+                    if (entree.directory) {
+                        return
+                    }
+                    var nom = entree.name
+                    presents << nom
+
+                    if (!descripteur.autorises.any { nom == it || nom.startsWith(it) }) {
+                        intrus << nom
+                    }
+                    if (descripteur.interdits.any { nom.startsWith(it) }) {
+                        intrus << nom
+                    }
+                    // « Aucune classe de test embarquee » (PARTIE 25.4).
+                    if (nom.endsWith('Test.class') || nom.contains('/test/')) {
+                        tests << nom
+                    }
+
+                    if (nom.startsWith('natives/') && nom.endsWith('.sha256')) {
+                        empreintes[nom - '.sha256'] = zip.getInputStream(entree).text.trim()
+                    } else if (nom.startsWith('natives/') && !nom.endsWith('.json')) {
+                        var digest = java.security.MessageDigest.getInstance('SHA-256')
+                        natifs[nom] = digest.digest(zip.getInputStream(entree).bytes).encodeHex().toString()
+                    }
                 }
             }
-        }
 
-        if (!intrus.isEmpty()) {
-            throw new GradleException(
-                    "Le JAR contient des entrees non prevues par la PARTIE 3.7 :\n  " + intrus.join('\n  '))
-        }
-
-        natifs.each { chemin, reel ->
-            var attendu = empreintes[chemin]
-            if (attendu == null) {
-                throw new GradleException("Natif sans empreinte dans le JAR : ${chemin}")
+            if (!intrus.isEmpty()) {
+                throw new GradleException("${archive.name} contient des entrees non prevues " +
+                        "par la PARTIE 3.7 :\n  " + intrus.join('\n  '))
             }
-            if (attendu != reel) {
-                throw new GradleException(
-                        "Empreinte incorrecte pour ${chemin} : attendu ${attendu}, obtenu ${reel}")
+            if (!tests.isEmpty()) {
+                throw new GradleException("${archive.name} embarque des classes de test " +
+                        "(PARTIE 25.4) :\n  " + tests.join('\n  '))
             }
+            descripteur.requis.each { attendu ->
+                if (!presents.contains(attendu)) {
+                    throw new GradleException("${archive.name} : entree obligatoire absente, " +
+                            "${attendu}")
+                }
+            }
+            if (descripteur.natifs && natifs.isEmpty() && !empreintes.isEmpty()) {
+                throw new GradleException("${archive.name} : des empreintes sans natif")
+            }
+
+            natifs.each { chemin, reel ->
+                var attendu = empreintes[chemin]
+                if (attendu == null) {
+                    throw new GradleException("Natif sans empreinte dans ${archive.name} : ${chemin}")
+                }
+                if (attendu != reel) {
+                    throw new GradleException(
+                            "Empreinte incorrecte pour ${chemin} : attendu ${attendu}, obtenu ${reel}")
+                }
+            }
+
+            var digest = java.security.MessageDigest.getInstance('SHA-256')
+            sommes[archive.name] = digest.digest(archive.bytes).encodeHex().toString()
+
+            logger.lifecycle("RUSTFORGE-X : ${archive.name} verifie (${archive.length()} octets, " +
+                    "${presents.size()} entrees, ${natifs.size()} natif(s) empreint(s)).")
         }
 
-        logger.lifecycle("RUSTFORGE-X : artefact verifie (${archive.name}, ${archive.length()} octets, " +
-                "${natifs.size()} natif(s) empaquete(s) et verifie(s)).")
+        // PARTIE 25.2 : une release publie SHA256SUMS. Le produire a chaque
+        // verification evite qu'il soit oublie, ou calcule a la main le jour du tag.
+        var fichier = layout.buildDirectory.file('libs/SHA256SUMS').get().asFile
+        fichier.text = sommes.sort { it.key }
+                .collect { nom, somme -> "${somme}  ${nom}" }.join('\n') + '\n'
+        logger.lifecycle("RUSTFORGE-X : empreintes des artefacts ecrites dans ${fichier}.")
     }
 }
 
