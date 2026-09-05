@@ -105,8 +105,14 @@ condition posée pour brancher le transformateur est levée.
       fichier lu par BootstrapLauncher
 - [x] **Vérifié en jeu** : 1800 ticks à 20 TPS, 1366 classes vues, 3679 méthodes
       sondées, 0 échec, 11 mises à jour de niveaux
-- [ ] Vérifier en production, deux JAR dans `mods/` d'une instance réelle — le chemin
-      de découverte y diffère de celui du développement
+- [x] Vérifié en production — et **ADR-017 ne fonctionne pas** : `LaunchPluginHandler`
+      construit sa liste 2,5 s avant que notre `ITransformationService` ne soit
+      découvert depuis `mods/`. Un `ILaunchPluginService` livré dans `mods/` n'est
+      jamais installé sur Forge 47. La garde `PLUGIN_NOT_INSTALLED` l'a détecté
+- [ ] **BLOQUANT** : rouvrir ADR-017 sur la voie de livraison du transformateur. En
+      l'état, l'instrumentation ne sonde rien chez un joueur. Le développement ne
+      fonctionne que parce que `minecraftArtifacts` place le JAR sur le classpath
+      d'amorçage, ce qu'un joueur ne peut pas faire
 - [x] Ordre relatif des `ILaunchPluginService` — tranché par ADR-018 : non
       garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
 - [x] Suppression de la configuration Mixin morte (zéro mixin déclaré, un avertissement
