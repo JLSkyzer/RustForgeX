@@ -169,10 +169,25 @@ condition posée pour brancher le transformateur est levée.
 
 ### Étape F — C-06 Event Observer — T-150..T-154
 
-- [ ] Énumération des listeners au `LOAD_COMPLETE`, proxy préservant ordre et priorité
-- [ ] L'ordre observable ne change jamais (R-330)
-- [ ] Annulation et `Event.Result` respectés (R-331, R-332)
+Fiche de conception : `docs/design/C-06-event-observer.md`, écrite depuis l'API réelle
+d'`eventbus 6.2.33` et non depuis une supposition.
+
+- [ ] **D'abord** : `net.minecraftforge.eventbus` est-il ouvert à notre module ? Une
+      ligne au `LOAD_COMPLETE`. La réponse décide de l'étendue des étapes 2 et 3
+- [ ] Étape 1 — observer sans rien modifier : auditeurs sur `Event.class` en `HIGHEST` et
+      `LOWEST`, API publique seule, aucun risque R-330. Donne les types postés, la durée
+      de dispatch, l'annulation et le résultat finaux, la trace d'ordre
+- [ ] Mesurer le coût de cet auditeur par la ligne de base de la PARTIE 12.4 avant
+      d'aller plus loin : il s'exécute des milliers de fois par tick
+- [ ] Étape 2 — reconstituer ordre, priorité et `owner` par lecture réflexive
+      (`EventBus.busID`, `ListenerList.getListeners`) ; aucune écriture
+- [ ] Étape 3 — envelopper, et seulement si l'attribution de l'annulation à un handler
+      précis se révèle nécessaire. Traiter une priorité entière d'un coup : `register`
+      ajoute en queue, donc un remplacement un par un violerait R-330
 - [ ] Désenveloppement automatique si un mod inspecte le listener (FM-14)
+- [ ] T-154 exige un surcoût **mesuré** sous 30 ns : suppose un harnais JMH, même dette
+      que T-131
+- [ ] Ne pas employer `net.minecraftforge.unsafe` pour contourner l'encapsulation
 
 ### Étape G — C-41 Mod Discovery — T-440..T-442
 

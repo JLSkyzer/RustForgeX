@@ -50,6 +50,7 @@ RustForgeX/
 │   ├── AGENT.md                  ce fichier
 │   ├── spec/                     copie versionnée du CDC (source de vérité)
 │   ├── decisions/                ADR (voir section 9)
+│   ├── design/                   fiches de conception, avant implémentation
 │   └── diagrams/
 ├── src/main/java/dev/rustforgex/ code Java (voir la table ci-dessous)
 ├── src/main/resources/           mods.toml, pack.mcmeta, mixins, natives/ (générés)
