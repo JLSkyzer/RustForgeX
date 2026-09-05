@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "rfx_version": "0.1.0",
+  "commit": "a67477df9aa9cda66fb5c427f34886a0f82e55bf",
+  "dirty": false,
+  "level": "micro",
+  "collected_at": 1788572736,
+  "hardware": {
+    "physical_cores": 8,
+    "logical_cores": 16,
+    "ram_gb": 31,
+    "probed": true
+  },
+  "metrics": {
+    "budget/reserve_refused": {
+      "median": 6.128456353266625,
+      "iqr": 1.3029139227685542,
+      "ci_lower": 5.915344352969926,
+      "ci_upper": 6.559444253767001,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "budget/reserve_release": {
+      "median": 11.603236388962085,
+      "iqr": 1.6372452925575978,
+      "ci_lower": 11.105692406476422,
+      "ci_upper": 12.000406057616578,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "compute": {
+      "median": 30.6308939433982,
+      "iqr": 1.5190027210314767,
+      "ci_lower": 30.489516448764896,
+      "ci_upper": 30.894766460326395,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "decode": {
+      "median": 7128.145574716158,
+      "iqr": 937.2459164280917,
+      "ci_lower": 7021.443254354646,
+      "ci_upper": 7245.890185763604,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "encode": {
+      "median": 2283.692133263562,
+      "iqr": 201.89126277393825,
+      "ci_lower": 2254.8155555555554,
+      "ci_upper": 2328.3646723646725,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "end_tick/10000_workloads": {
+      "median": 1102275.0,
+      "iqr": 204100.0,
+      "ci_lower": 1056025.0,
+      "ci_upper": 1131875.0,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "end_tick/1000_workloads": {
+      "median": 62617.38505747126,
+      "iqr": 12288.709953644553,
+      "ci_lower": 61187.5,
+      "ci_upper": 64857.336785938474,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "end_tick/100_workloads": {
+      "median": 2494.0730664593857,
+      "iqr": 399.70493041320515,
+      "ci_lower": 2439.7156196943974,
+      "ci_upper": 2582.807845479889,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "histogram/p95": {
+      "median": 5.469837870395645,
+      "iqr": 0.327823162283428,
+      "ci_lower": 5.4238104443724735,
+      "ci_upper": 5.527569681099496,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "histogram/record": {
+      "median": 1.6478694014585917,
+      "iqr": 0.17805145640267428,
+      "ci_lower": 1.6300486601697073,
+      "ci_upper": 1.675997958942217,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "ingest/enter": {
+      "median": 2.2812151255578716,
+      "iqr": 0.20607050097860036,
+      "ci_lower": 2.261160952374279,
+      "ci_upper": 2.3278564184236217,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "ingest/exit": {
+      "median": 4.908762165364946,
+      "iqr": 0.2468767201232609,
+      "ci_lower": 4.895693144536712,
+      "ci_upper": 4.933700300028646,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "ingest/sample": {
+      "median": 2.6202106044391296,
+      "iqr": 0.1900549459699521,
+      "ci_lower": 2.579960253500838,
+      "ci_upper": 2.6570829346412195,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "ingest/unknown": {
+      "median": 1.4843995240754202,
+      "iqr": 0.11039039939293316,
+      "ci_lower": 1.467747629420316,
+      "ci_upper": 1.5000322565982729,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "probe_buffer/flush_2048_records": {
+      "median": 35872.96703296703,
+      "iqr": 4689.232714052952,
+      "ci_lower": 35318.79885866167,
+      "ci_upper": 36494.00260756193,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "probe_buffer/flush_64_records": {
+      "median": 1232.6834204756283,
+      "iqr": 194.8155631161494,
+      "ci_lower": 1192.5805552976135,
+      "ci_upper": 1279.9357208448118,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "probe_record/decode": {
+      "median": 1.857847547171723,
+      "iqr": 0.07065334597665207,
+      "ci_lower": 1.8508116251702609,
+      "ci_upper": 1.8719221078260824,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    },
+    "probe_record/encode": {
+      "median": 6.663288862132429,
+      "iqr": 0.31362778916360057,
+      "ci_lower": 6.611376349051475,
+      "ci_upper": 6.730725076916013,
+      "confidence_level": 0.95,
+      "samples": 100,
+      "unit": "ns"
+    }
+  },
+  "notes": [
+    "niveau micro : ne mesure pas l'overhead en jeu, qui relève du niveau B (PARTIE 21.2)"
+  ]
+}
