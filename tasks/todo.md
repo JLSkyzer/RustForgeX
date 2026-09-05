@@ -64,7 +64,8 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
       Mixin. La PARTIE 5.4 demandait le dernier rang ; il est inatteignable. C'est un
       écart assumé, pas une tâche en attente
 - [ ] Coûts par niveau mesurés sous leur seuil (T-131) — demande le harnais C-36
-- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande C-05
+- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande un
+      détecteur de désoptimisation, qui n'existe pas
 
 ### Étape E — C-05 Profiler — T-140..T-144
 
@@ -169,7 +170,6 @@ condition posée pour brancher le transformateur est levée.
       à chaque lancement)
 - [ ] Exposer l'instrumentation dans `/rfx status` (aujourd'hui seulement au journal)
 - [ ] C-40 : deux artefacts à construire, empreindre et vérifier
-- [ ] Retrait d'une sonde sur régression JIT (R-313)
 
 ### Étape F — C-06 Event Observer — T-150..T-154
 
