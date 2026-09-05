@@ -350,6 +350,15 @@ impl Profiler {
             }
             OverheadVerdict::Comfortable => {
                 self.comfortable_streak = self.comfortable_streak.saturating_add(1);
+                // Tant qu'aucune ligne de base n'a abouti, la seule preuve disponible
+                // vient des compteurs — et ils ne voient pas les appels injectes dans
+                // le bytecode. Monter en profondeur sur cette foi, c'est monter sur une
+                // preuve qu'on sait incomplete : constate en production, ou le profiler
+                // atteignait DEEP en vingt-cinq secondes alors que son cout reel etait
+                // de 32 %. C'est le meme argument que celui de `start`, prolonge.
+                if self.overhead.last_baseline().is_none() {
+                    return;
+                }
                 if self.comfortable_streak >= COMFORTABLE_TICKS_BEFORE_RAISE {
                     self.comfortable_streak = 0;
                     let raised = self.level.raise();
@@ -609,7 +618,13 @@ mod tests {
     /// T-141 : sous une charge couteuse, la profondeur suit la chaleur.
     #[test]
     fn depth_follows_heat_once_the_profiler_is_at_normal() {
-        let mut profiler = started();
+        let mut profiler = with_short_baseline();
+        // La profondeur ne remonte pas tant qu'une ligne de base n'a pas confirme
+        // qu'il y a de la place (PARTIE 12.4) : on en fait aboutir une, sous budget.
+        run_until_paused(&mut profiler, 10_000_000);
+        run_until_measured(&mut profiler, 9_990_000);
+        assert_eq!(profiler.level(), ProfilerLevel::Light, "aucune reduction");
+
         let cold = profiler.register(WorkId(1)).expect("froide");
         let hot = profiler.register(WorkId(2)).expect("chaude");
 
@@ -996,6 +1011,46 @@ mod tests {
 
         assert_eq!(profiler.level(), level_before);
         assert_eq!(profiler.overhead().baseline_over_budget(), 0);
+    }
+
+    /// Les compteurs ne voient pas les appels injectes dans le bytecode. Monter en
+    /// profondeur sur leur seule foi, c'est monter sur une preuve qu'on sait
+    /// incomplete — en production, le profiler atteignait `DEEP` en vingt-cinq secondes
+    /// alors que son cout reel etait de 32 %.
+    #[test]
+    fn t140_la_profondeur_ne_remonte_pas_avant_la_premiere_ligne_de_base() {
+        let mut profiler = started();
+        assert_eq!(profiler.level(), ProfilerLevel::Light);
+
+        // Mille ticks bon marche : dix fois de quoi declencher une remontee.
+        for _ in 0..(COMFORTABLE_TICKS_BEFORE_RAISE * 10) {
+            profiler.end_tick(cheap_tick());
+        }
+
+        assert_eq!(
+            profiler.level(),
+            ProfilerLevel::Light,
+            "les compteurs seuls n'autorisent pas a monter"
+        );
+        assert_eq!(profiler.status().baseline_measurements, 0);
+    }
+
+    #[test]
+    fn t140_la_profondeur_remonte_une_fois_la_ligne_de_base_mesuree() {
+        let mut profiler = with_short_baseline();
+        run_until_paused(&mut profiler, 10_000_000);
+        run_until_measured(&mut profiler, 9_990_000);
+        assert_eq!(profiler.level(), ProfilerLevel::Light);
+
+        for _ in 0..(COMFORTABLE_TICKS_BEFORE_RAISE + 5) {
+            profiler.end_tick(cheap_tick());
+        }
+
+        assert_eq!(
+            profiler.level(),
+            ProfilerLevel::Normal,
+            "une mesure sous le budget autorise a monter"
+        );
     }
 
     /// R-770 : tant qu'aucune pause n'a abouti, le statut ne pretend pas connaitre le

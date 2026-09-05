@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * C-36, niveau B : enregistrement d'une exécution de macro-benchmark.
@@ -267,8 +268,67 @@ public final class MacroRecorder {
         state.append("    \"instrumentation\": \"")
                 .append(runtime.instrumentation().state()).append("\",\n");
         state.append("    \"methods_probed\": ")
-                .append(runtime.instrumentation().methodsProbed()).append("\n");
+                .append(runtime.instrumentation().methodsProbed());
+        appendProfilerLevel(state, runtime);
+        appendBaseline(state, runtime);
+        state.append("\n");
         return state.toString();
+    }
+
+    /**
+     * Ajoute ce que le profiler dit de son propre coût (PARTIE 12.4).
+     *
+     * <p>La campagne mesure le coût de l'extérieur, en comparant deux configurations ;
+     * le profiler le mesure de l'intérieur, en s'éteignant vingt ticks. Les deux
+     * doivent converger, et s'ils divergent, l'un des deux ment. Les consigner ensemble
+     * est la seule façon de s'en apercevoir.
+     *
+     * <p>Rien n'est écrit si aucune pause n'a abouti : une exécution plus courte que la
+     * période de mesure n'a pas de ligne de base, et écrire un zéro le laisserait croire.
+     */
+    private static void appendBaseline(StringBuilder state, RfxRuntime runtime) {
+        Map<String, Object> profiler = runtime.profilerCounters();
+        if (profiler == null) {
+            return;
+        }
+        long measurements = longValue(profiler, "baseline_measurements");
+        if (measurements == 0) {
+            return;
+        }
+        state.append(",\n    \"baseline\": {\n");
+        state.append("      \"measurements\": ").append(measurements).append(",\n");
+        state.append("      \"overhead_ns\": ")
+                .append(longValue(profiler, "baseline_overhead_ns")).append(",\n");
+        state.append("      \"overhead_pct\": ")
+                .append(format(longValue(profiler, "baseline_overhead_pct_x100") / 100.0))
+                .append(",\n");
+        state.append("      \"tick\": ")
+                .append(longValue(profiler, "baseline_tick")).append("\n");
+        state.append("    }");
+    }
+
+    /**
+     * Ajoute la profondeur de sondage en vigueur à la fin de la mesure.
+     *
+     * <p>Sans elle, deux exécutions au même coût seraient indiscernables alors que
+     * l'une sonde tout et l'autre plus rien : c'est l'auto-mesure qui fait descendre
+     * cette profondeur, et son effet doit se lire dans le résultat.
+     */
+    private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {
+        Map<String, Object> profiler = runtime.profilerCounters();
+        if (profiler == null) {
+            return;
+        }
+        Object level = profiler.get("level");
+        if (level instanceof String text) {
+            state.append(",\n    \"profiler_level\": \"").append(escape(text)).append('"');
+        }
+    }
+
+    /** Lit un entier des compteurs natifs, ou zéro s'il est absent ou d'un autre type. */
+    private static long longValue(Map<String, Object> counters, String key) {
+        Object value = counters.get(key);
+        return value instanceof Number number ? number.longValue() : 0L;
     }
 
     /** Centile d'un tableau trié, exprimé en millisecondes. */

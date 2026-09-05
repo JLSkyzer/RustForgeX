@@ -135,8 +135,18 @@ condition posée pour brancher le transformateur est levée.
       20 ticks toutes les 6000, comparaison de deux médianes adjacentes, verdict
       immédiat (ADR-020). Le statut distingue « pas encore mesuré » de « ne coûte rien »
       (R-770). 8 tests T-140 côté Rust, 2 côté Java
-- [ ] Vérifier en jeu que la ligne de base mesure bien le coût constaté par C-36 : les
-      deux instruments doivent converger, et s'ils divergent l'un des deux ment
+- [x] **Vérifié en jeu** : mesure au tick 6020 d'un serveur de production, 446 750 ns
+      par tick, soit **32,3 %** du tick. La campagne C-36, mesurée de l'extérieur,
+      donnait **+33,7 %** sur le p95. Les deux instruments convergent
+- [ ] **180 lignes `FATAL` que nous provoquons** : `TransformerClassWriter` échoue à
+      charger la hiérarchie d'une dépendance facultative absente (`squaremap`, utilisée
+      par MTR si présente) pendant le calcul de frames d'une classe que nous avons
+      seulement *désignée*. Zéro occurrence sans le transformateur, 180 avec. Rien n'est
+      cassé — serveur à 20 TPS, MTR fonctionne — mais le journal accuse un autre mod.
+      Voir ADR-019, complément (4). La piste est de réduire l'ensemble des cibles
+- [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
+      deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
+      aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
 - [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour

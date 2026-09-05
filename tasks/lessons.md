@@ -252,3 +252,18 @@ entre mods). Oublier la seconde forme laisserait passer précisément les cas in
 **Règle** : quand deux outils réécrivent le même bytecode et que l'ordre est imposé,
 celui qui passe en premier n'a pas à « faire attention » — il doit s'interdire le
 terrain de l'autre. Le coût mesuré ici est de 1 % des cibles.
+
+### 2026-09-05 | 180 lignes FATAL passées sous 96 tests verts | Comparer les journaux des deux configurations, pas seulement leurs résultats
+
+La campagne C-36 a produit dix journaux de serveur. Je n'ai lu que les fichiers de
+résultat. Un essai ultérieur a révélé 180 lignes `FATAL` de `TransformerClassWriter`
+— absentes de la configuration sans RUSTFORGE-X, donc causées par nous.
+
+Le diagnostic a tenu en une commande : compter la même signature dans les deux journaux.
+`b-mods-seuls` : 0. `c-rfx-actif` : 180. La comparaison était disponible depuis le début,
+et gratuite.
+
+**Règle** : quand une campagne produit deux configurations, la comparaison ne s'arrête
+pas aux métriques. Passer un `grep -c` des motifs d'erreur sur les journaux des deux
+côtés fait apparaître les régressions qu'aucune assertion ne pense à demander — c'est
+exactement ce que la PARTIE 7 du CLAUDE.md appelle relire les journaux.

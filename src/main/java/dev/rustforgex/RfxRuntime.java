@@ -167,6 +167,25 @@ public final class RfxRuntime {
         return StatusReport.compose(report, configuration, nativeStatus(), observeOnly);
     }
 
+    /**
+     * Compteurs du profiler (C-05), ou {@code null} s'ils sont indisponibles.
+     *
+     * <p>Un appel natif, comme {@link #status()}. Destiné au harnais de benchmark
+     * (C-36), qui doit pouvoir consigner ce que le profiler dit de son propre coût :
+     * c'est la seule façon de confronter la mesure interne — la pause de la
+     * PARTIE 12.4 — à la mesure externe que la campagne produit.
+     *
+     * @return les compteurs, ou {@code null}
+     */
+    public Map<String, Object> profilerCounters() {
+        Map<String, Object> status = nativeStatus();
+        if (status == null) {
+            return null;
+        }
+        Object profiler = status.get("profiler");
+        return profiler instanceof Map<?, ?> ? cast(profiler) : null;
+    }
+
     /** Lit et décode le statut natif, ou renvoie {@code null} si indisponible. */
     private Map<String, Object> nativeStatus() {
         if (!active()) {
