@@ -408,3 +408,29 @@ fonction sur le même patron, et en la voyant échouer une fois sur deux.
 deux. Si l'état est partagé, cette supposition est fausse — reprendre la taille que le
 refus rapporte, avec un nombre d'essais borné. Et un défaut trouvé dans du code neuf
 doit être cherché dans l'ancien qui partage le même patron.
+
+### 2026-09-06 | Trois hypothèses, une seule mesurée | Instrumenter au premier échec, pas au troisième
+
+`/rfx top` échouait une fois sur deux. J'ai avancé trois causes :
+
+1. une convention non suivie (`f64` là où le décodeur ne lit pas les réels) — juste,
+   mais ce n'était pas *ce* défaut ;
+2. une course dans le protocole « interroger la taille puis copier » — fausse pour ce
+   symptôme, quoique le défaut fût réel et ait été corrigé au passage ;
+3. un `u64` au-delà de 2^63 — la bonne, trouvée en une minute par un journal.
+
+Le motif aurait dû me mettre sur la voie plus tôt : l'échec **alternait avec une période
+de deux**, et une course ne produit pas de période. J'ai raisonné deux fois de plus
+qu'il n'aurait fallu, pour deux lancements de serveur de douze minutes chacun.
+
+Pire : le garde-fou CBOR écrit le jour même pour empêcher ce genre de défaut **a laissé
+passer celui-ci**. Il vérifiait la forme — types majeurs, longueurs — jamais le domaine
+des valeurs. Et son exemple de test employait un identifiant qui tenait dans un `long`.
+
+**Règles** :
+- un symptôme régulier (période, seuil, alternance) désigne une cause déterministe ;
+  cesser d'envisager des courses ;
+- au premier échec inexpliqué, ajouter le journal qui distingue les causes possibles,
+  avant d'émettre la deuxième hypothèse ;
+- un garde-fou doit être mis en échec par un test dédié. Sans quoi il ne prouve rien, et
+  il rassure — ce qui est pire.

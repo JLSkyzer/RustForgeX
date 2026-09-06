@@ -288,7 +288,7 @@ impl WorkloadStore {
                 .into_iter()
                 .map(|(index, e)| TopEntry {
                     probe_id: u32::try_from(index).unwrap_or(u32::MAX),
-                    work_id: e.work_id.0,
+                    work_id_hex: format!("{:016x}", e.work_id.0),
                     cost_ns_per_tick: e.cost_ns_per_tick(),
                     source: e.cost_source(),
                     calls_per_tick_x100: (e.dynamics.calls_per_tick.value() * 100.0).max(0.0)

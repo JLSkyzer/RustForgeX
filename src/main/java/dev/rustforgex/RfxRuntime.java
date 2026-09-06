@@ -1,6 +1,7 @@
 package dev.rustforgex;
 
 import dev.rustforgex.bootstrap.Bootstrap;
+import com.mojang.logging.LogUtils;
 import dev.rustforgex.bridge.CborReader;
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.command.StatusReport;
@@ -43,6 +44,8 @@ import java.util.Map;
  * démarrer est pire que pas de mod du tout.
  */
 public final class RfxRuntime {
+
+    private static final org.slf4j.Logger LOGGER = LogUtils.getLogger();
 
     private static volatile RfxRuntime instance;
 
@@ -283,14 +286,27 @@ public final class RfxRuntime {
         }
         byte[] blob = bridge.profilerTop(report.handle(), Math.max(limit, 0));
         if (blob == null || blob.length == 0) {
+            // Distinguer les causes d'un classement absent : sans cela, « indisponible »
+            // recouvre le natif muet et le blob illisible, qui n'ont ni la même cause ni
+            // le même correctif. Une invocation sur deux échouait sans qu'on sache par
+            // où, et deux hypothèses successives se sont révélées fausses.
+            LOGGER.debug("Classement indisponible : le natif n'a rien rendu ({}).",
+                    blob == null ? "null" : "0 octet");
             return null;
         }
         try {
             Object decoded = CborReader.decode(blob);
-            return decoded instanceof Map<?, ?> ? cast(decoded) : null;
+            if (decoded instanceof Map<?, ?> table) {
+                return cast(table);
+            }
+            LOGGER.debug("Classement indisponible : {} octets décodés en {}, pas en table.",
+                    blob.length, decoded == null ? "null" : decoded.getClass().getSimpleName());
+            return null;
         } catch (CborReader.InvalidCbor | RuntimeException e) {
             // Un classement illisible n'est pas une panne du jeu : la commande dira
             // qu'il est indisponible, et le tick continue.
+            LOGGER.debug("Classement indisponible : {} octets illisibles ({}).",
+                    blob.length, e.toString());
             return null;
         }
     }

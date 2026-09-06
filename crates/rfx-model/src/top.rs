@@ -52,8 +52,14 @@ impl CostSource {
 pub struct TopEntry {
     /// Identifiant de sonde ; Java y retrouve `classe#methode`.
     pub probe_id: u32,
-    /// Identifiant stable de l'unite (DM-01), pour correler entre deux relances.
-    pub work_id: u64,
+    /// Identifiant stable de l'unite (DM-01), en hexadecimal sur seize caracteres.
+    ///
+    /// Texte, et non entier. Un `WorkId` est un hachage : une valeur sur deux depasse
+    /// `2^63`, et le lecteur CBOR de Java refuse tout entier non signe qui ne tient pas
+    /// dans un `long` — a juste titre, puisqu'il n'a pas de type non signe. Un
+    /// identifiant ne sert de toute facon a aucun calcul, et la fiche normative de la
+    /// PARTIE 5.33 l'affiche deja en hexadecimal.
+    pub work_id_hex: String,
     /// Cout attribue par tick, en nanosecondes.
     ///
     /// C'est le critere de tri. Sa provenance est dite par [`Self::source`] : un
@@ -155,7 +161,11 @@ mod tests {
         };
 
         match major {
-            0 | 1 => {}
+            0 => assert!(
+                argument <= i64::MAX as u64,
+                "entier non signe {argument} au-dela de 2^63 : Java n'a pas de type non                  signe et refusera tout le blob. Le transmettre en texte, comme                  `work_id_hex`."
+            ),
+            1 => {}
             2 | 3 => {
                 let len = usize::try_from(argument).expect("longueur");
                 *cursor += len;
@@ -200,7 +210,7 @@ mod tests {
             measured: 12,
             entries: vec![TopEntry {
                 probe_id: 42,
-                work_id: 0x1827_A44C,
+                work_id_hex: "9e3779b97f4a7c15".to_owned(),
                 cost_ns_per_tick: 51_800,
                 source: CostSource::Probe,
                 calls_per_tick_x100: 41_200,
@@ -216,6 +226,21 @@ mod tests {
         };
 
         let blob = crate::to_cbor(&top).expect("serialisation");
+        assert_java_readable(&blob);
+    }
+
+    /// Le garde-fou doit attraper le defaut qu'il pretend prevenir.
+    ///
+    /// Sa premiere version ne verifiait que la FORME du CBOR — types majeurs, longueurs
+    /// — et laissait passer un `u64` au-dela de `2^63`. Le classement portait un
+    /// `work_id: u64`, donc un hachage : une invocation de `/rfx top` sur deux rendait
+    /// un blob que Java refusait en entier. Un garde-fou qu'on ne met pas en echec ne
+    /// prouve rien.
+    #[test]
+    #[should_panic(expected = "au-dela de 2^63")]
+    fn the_guard_catches_an_unsigned_integer_java_cannot_read() {
+        // 0x1b suivi de huit octets : entier non signe sur soixante-quatre bits.
+        let blob = [0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
         assert_java_readable(&blob);
     }
 

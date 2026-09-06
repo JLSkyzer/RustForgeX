@@ -23,7 +23,7 @@ class TopReportTest {
     private static Map<String, Object> entry(int probeId, long cost, String source) {
         Map<String, Object> e = new LinkedHashMap<>();
         e.put("probe_id", (long) probeId);
-        e.put("work_id", 1_000L + probeId);
+        e.put("work_id_hex", String.format("%016x", 1_000L + probeId));
         e.put("cost_ns_per_tick", cost);
         e.put("source", source);
         // Point fixe, comme sur la frontiere : le decodeur CBOR de Java ne lit pas
