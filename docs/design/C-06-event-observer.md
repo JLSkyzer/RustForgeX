@@ -69,6 +69,16 @@ qu'on ne la redécouvre pas.
 
 La réponse commande le plan : si c'est `false`, tout ce qui dépend de la réflexion sur
 les internes tombe, et il reste l'étape 1 ci-dessous, qui n'en a pas besoin.
+
+> **Réponse, relevée sur le serveur de production le 2026-09-06 :**
+>
+> ```text
+> Module net.minecraftforge.eventbus : paquet interne ouvert à rustforgex — true.
+> ```
+>
+> Les étapes 2 et 3 sont donc techniquement possibles. Cela ne les rend pas souhaitables
+> pour autant : lire des champs privés d'une bibliothèque tierce reste une dépendance à
+> son implémentation, que rien n'oblige à rester stable.
 Forge fournit `net.minecraftforge.unsafe` pour contourner ce genre d'encapsulation :
 **ne pas l'employer.** Contourner l'encapsulation d'une bibliothèque tierce pour
 observer ses internes n'est pas une dépendance qu'un mod d'optimisation doit prendre.
@@ -98,7 +108,15 @@ enveloppe, les deux autres si.
 
 ## 2. Plan en trois étapes, de la moins risquée à la plus
 
-### Étape 1 — Observer sans rien modifier (aucun risque R-330)
+### Étape 1 — Observer sans rien modifier (aucun risque R-330) — **faite**
+
+*Vérifiée sur le serveur de production le 2026-09-06 : 38 000 événements distribués sur
+12 types, 576 chronométrés, 0 chronométrage abandonné. Coût non distinguable du bruit sur
+une paire courte — p50 +4,6 %, p95 +0,7 %, p99 −1,1 %, contre +5,8 / +2,7 / +3,1 sans
+l'observateur.*
+
+*Douze types seulement : c'est la limite d'un serveur au repos, pas celle de
+l'instrument. Un serveur joué en poste des centaines.*
 
 Aucune enveloppe, aucune écriture dans les listes. On construit le modèle
 `HandlerInstance` de la PARTIE 5.6 à partir de ce qui se lit.
