@@ -198,6 +198,10 @@ tasks.register('launchJar', Jar) {
     }
 }
 
+// Sources engendrees du mod synthetique : un fichier a part, pour ne pas alourdir
+// celui-ci (PARTIE 22, voir gradle/synth-sources.gradle).
+apply from: "$rootDir/gradle/synth-sources.gradle"
+
 // Artefact du mod synthetique. Il n'est PAS distribue : il se depose a la main dans
 // `mods` pour une campagne, et n'est jamais joint a une release.
 tasks.register('synthJar', Jar) {

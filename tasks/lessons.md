@@ -305,3 +305,31 @@ manifestement pas.
 **Règle** : devant un « DOIT être refusé si X », se demander si l'on en a déduit « DOIT
 être accepté si non-X ». Et confronter les seuils chiffrés d'une spécification à ses
 propres affirmations sur les coûts : ils doivent être cohérents entre eux.
+
+### 2026-09-06 | Un mod synthétique qui n'ajoutait que deux méthodes sondées | Reproduire la largeur, pas seulement la charge
+
+Le premier mod synthétique tickait fort — 64 unités, 40 gestionnaires, 2 fils — et
+ajoutait **deux** méthodes sondées, là où un pack de 272 mods en apporte 2 649. Il
+produisait du travail, pas de la surface instrumentée, alors que les campagnes venaient
+d'établir que le coût vient du **nombre** de méthodes portant une sonde (ADR-021).
+
+La table de la PARTIE 22 dit « 150 mods synthétiques » : c'est une demande de largeur —
+des centaines de classes — pas un mod tické fort. Il a fallu un générateur de sources.
+
+**Règle** : quand on reproduit une charge, se demander de quelle *dimension* elle est
+faite. Un modpack, ce n'est pas une grosse boucle, c'est beaucoup de code différent.
+
+### 2026-09-06 | Les classes chargées avant l'armement ne sont jamais sondées | Une classe ne se charge qu'une fois
+
+Les 120 unités engendrées se chargeaient à la construction du mod, 23 secondes avant que
+le transformateur s'arme. Elles passaient devant lui sans identifiant de sonde à
+distribuer, ressortaient inchangées — et ne pouvaient plus jamais être sondées.
+
+La conséquence dépasse le mod synthétique : **toutes les classes chargées pendant la
+construction et l'enregistrement des mods échappent à l'instrumentation.** Les 2 649
+méthodes mesurées ne sont pas « celles du modpack », ce sont « celles chargées après le
+setup commun ».
+
+**Règle** : pour tout mécanisme qui s'arme en cours de démarrage, se demander ce qui est
+déjà passé avant, et si cela repassera. Pour le chargement de classes, la réponse est
+non.

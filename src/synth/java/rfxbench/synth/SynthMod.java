@@ -3,7 +3,9 @@ package rfxbench.synth;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.event.server.ServerAboutToStartEvent;
 import net.minecraftforge.fml.common.Mod;
+import rfxbench.synth.generated.SynthRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +50,15 @@ public final class SynthMod {
 
     private final SynthConfig config = SynthConfig.fromSystem();
     private final List<SynthWorkload> workloads = new ArrayList<>();
+
+    /**
+     * Unités engendrées, instanciées donc chargées.
+     *
+     * <p>Les instancier est ce qui les fait charger par la JVM, donc passer par le
+     * transformateur, donc sonder. Une classe jamais chargée n'apporte aucune surface
+     * instrumentée — c'est tout l'objet de ce réglage.
+     */
+    private final List<SynthUnit> units = new ArrayList<>();
     private final List<Thread> threads = new ArrayList<>();
 
     /** Consommé pour que le calcul ne soit pas éliminé par le compilateur. */
@@ -65,6 +76,8 @@ public final class SynthMod {
         for (int i = 0; i < config.workloads(); i++) {
             workloads.add(new SynthWorkload(i));
         }
+        // Les unités engendrées ne sont PAS chargées ici : voir loadUnits(). Les charger
+        // à la construction du mod les rendrait invisibles à l'instrumentation.
         registerHandlers();
         startThreads();
     }
@@ -82,6 +95,8 @@ public final class SynthMod {
         Consumer<TickEvent.ServerTickEvent> worker = this::runWorkloads;
         MinecraftForge.EVENT_BUS.addListener(
                 EventPriority.NORMAL, false, TickEvent.ServerTickEvent.class, worker);
+        MinecraftForge.EVENT_BUS.addListener(
+                EventPriority.NORMAL, false, ServerAboutToStartEvent.class, this::loadUnits);
 
         for (int i = 0; i < config.handlers(); i++) {
             EventPriority priority = priorities[i % priorities.length];
@@ -89,6 +104,31 @@ public final class SynthMod {
             MinecraftForge.EVENT_BUS.addListener(priority, false,
                     TickEvent.ServerTickEvent.class, event -> observe(index, event));
         }
+    }
+
+    /**
+     * Charge les unités engendrées, au démarrage du serveur et pas avant.
+     *
+     * <p>C'est un point de conception, pas un détail d'ordonnancement. Le transformateur
+     * de RUSTFORGE-X s'arme pendant le setup commun ; une classe chargée avant — donc
+     * pendant la construction des mods — passe devant lui alors qu'il n'a pas encore
+     * d'identifiants de sonde à distribuer, et ressort <strong>inchangée</strong>. Elle
+     * ne sera jamais sondée, puisqu'une classe ne se charge qu'une fois.
+     *
+     * <p>Constaté en mesurant : les 120 unités chargées à la construction n'ajoutaient
+     * <em>aucune</em> méthode sondée. C'est aussi ce qui rend cette charge représentative
+     * — les classes d'un vrai mod se chargent progressivement pendant la partie, bien
+     * après l'armement.
+     */
+    private void loadUnits(ServerAboutToStartEvent event) {
+        if (config.units() == 0 || !units.isEmpty()) {
+            return;
+        }
+        units.addAll(SynthRegistry.create(config.units()));
+        LOGGER.info("Unités engendrées chargées : {} sur {} disponibles, {} méthodes "
+                        + "sondables au total. Chargées au démarrage du serveur, donc "
+                        + "après l'armement d'un transformateur éventuel.",
+                units.size(), SynthRegistry.AVAILABLE, SynthRegistry.PROBEABLE_METHODS);
     }
 
     /** Gestionnaire de figuration : il coûte le passage, et rien de plus. */
@@ -107,6 +147,12 @@ public final class SynthMod {
         for (SynthWorkload workload : workloads) {
             value += workload.tick(config.iterations(), config.allocationBytes(),
                     config.nondeterministic());
+        }
+        // Les unités engendrées sont bon marché : ce qu'on veut d'elles est la surface
+        // instrumentée, pas le temps de calcul. Un appel chacune par tick suffit à ce
+        // qu'elles ne soient pas du code mort que le JIT ignorerait.
+        for (SynthUnit unit : units) {
+            value += unit.run(value);
         }
         sink = value;
     }
@@ -148,6 +194,11 @@ public final class SynthMod {
     /** @return le nombre d'unités de travail créées */
     public int workloadCount() {
         return workloads.size();
+    }
+
+    /** @return le nombre d'unités engendrées chargées */
+    public int unitCount() {
+        return units.size();
     }
 
     /** @return le nombre de fils démarrés */

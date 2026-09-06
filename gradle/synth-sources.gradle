@@ -1,0 +1,156 @@
+// ---------------------------------------------------------------------------
+// Generateur de sources du mod synthetique (PARTIE 22).
+//
+// Ce qu'un modpack impose a RUSTFORGE-X n'est pas d'abord du travail, c'est de la
+// LARGEUR : 272 mods produisent 2 649 methodes sondees reparties sur des centaines de
+// classes. Le mod synthetique ecrit a la main n'en apportait que deux, et ne chargeait
+// donc pas l'instrumentation -- alors que les campagnes ont etabli que le cout vient
+// du nombre de methodes portant une sonde (ADR-021).
+//
+// Ce fichier est separe de build.gradle a dessein : le fichier de build principal a
+// deja ete casse trois fois par des editions automatiques, et une tache generatrice n'a
+// pas besoin d'y vivre.
+// ---------------------------------------------------------------------------
+
+// Nombre de classes engendrees et de methodes par classe. Reglables sans rebatir le
+// generateur : -PrfxSynthClasses=200 -PrfxSynthMethods=30
+//
+// Le prefixe n'est pas cosmetique : le sourceSet `synth` fait creer par Gradle une tache
+// nommee `synthClasses`, et `findProperty` la trouverait avant toute propriete de projet.
+var synthClasses = (project.findProperty('rfxSynthClasses') ?: '120') as Integer
+var synthMethods = (project.findProperty('rfxSynthMethods') ?: '20') as Integer
+
+// Chaque methode enchaine ce nombre d'etapes arithmetiques. Une etape pese environ sept
+// instructions bytecode ; douze etapes depassent donc largement le seuil de soixante-
+// quatre instructions d'ADR-021, sans quoi la methode ne serait jamais sondee et le
+// generateur ne servirait a rien.
+var synthSteps = 12
+
+var generatedDir = layout.buildDirectory.dir('generated/synth/java')
+
+tasks.register('generateSynthSources') {
+    group = 'rustforgex'
+    description = 'Engendre les unites de travail synthetiques du mod de charge'
+
+    // Les entrees declarees permettent a Gradle de sauter la tache quand rien ne change.
+    inputs.property('classes', synthClasses)
+    inputs.property('methods', synthMethods)
+    inputs.property('steps', synthSteps)
+    outputs.dir(generatedDir)
+
+    doLast {
+        var root = generatedDir.get().asFile
+        var packageDir = new File(root, 'rfxbench/synth/generated')
+        // Repartir d'un dossier propre : une classe engendree par un reglage precedent
+        // resterait sinon dans le JAR, et fausserait le compte de methodes sondees.
+        project.delete(root)
+        packageDir.mkdirs()
+
+        // Constantes de melange, differentes d'une etape a l'autre pour que le JIT ne
+        // reconnaisse pas un motif reductible.
+        var mixers = [
+                '0x9E3779B97F4A7C15L', '0xBF58476D1CE4E5B9L', '0x94D049BB133111EBL',
+                '0xFF51AFD7ED558CCDL', '0xC4CEB9FE1A85EC53L', '0x2545F4914F6CDD1DL'
+        ]
+
+        var names = []
+        for (int c = 0; c < synthClasses; c++) {
+            var name = String.format('SynthUnit%04d', c)
+            names << name
+
+            var body = new StringBuilder(8192)
+            body << "package rfxbench.synth.generated;\n\n"
+            body << "import rfxbench.synth.SynthUnit;\n\n"
+            body << "/**\n"
+            body << " * Unite de travail synthetique engendree (PARTIE 22).\n"
+            body << " *\n"
+            body << " * <p>NE PAS MODIFIER : ce fichier est reecrit par la tache\n"
+            body << " * {@code generateSynthSources} a chaque build.\n"
+            body << " */\n"
+            body << "public final class ${name} implements SynthUnit {\n\n"
+            body << "    @Override\n"
+            body << "    public int unitId() {\n"
+            body << "        return ${c};\n"
+            body << "    }\n\n"
+            body << "    @Override\n"
+            body << "    public long run(long seed) {\n"
+            body << "        return step0(seed);\n"
+            body << "    }\n"
+
+            for (int m = 0; m < synthMethods; m++) {
+                body << "\n"
+                body << "    /** Etape ${m} : assez longue pour etre sondee (ADR-021). */\n"
+                body << "    public long step${m}(long seed) {\n"
+                body << "        long v = seed + ${c}L + ${m}L;\n"
+                for (int s = 0; s < synthSteps; s++) {
+                    var mixer = mixers[(c + m + s) % mixers.size()]
+                    var shift = 17 + ((c + m + s) % 15)
+                    body << "        v ^= v >>> ${shift};\n"
+                    body << "        v *= ${mixer};\n"
+                    body << "        v += ${s + 1}L;\n"
+                }
+                body << "        return v;\n"
+                body << "    }\n"
+            }
+            body << "}\n"
+
+            new File(packageDir, "${name}.java").setText(body.toString(), 'UTF-8')
+        }
+
+        // Le registre instancie toutes les classes engendrees. C'est ce qui les fait
+        // CHARGER, donc sonder : une classe jamais chargee n'est jamais instrumentee, et
+        // n'apporterait aucune surface.
+        var registry = new StringBuilder(16384)
+        registry << "package rfxbench.synth.generated;\n\n"
+        registry << "import rfxbench.synth.SynthUnit;\n\n"
+        registry << "import java.util.ArrayList;\n"
+        registry << "import java.util.List;\n\n"
+        registry << "/**\n"
+        registry << " * Registre des unites engendrees (PARTIE 22).\n"
+        registry << " *\n"
+        registry << " * <p>NE PAS MODIFIER : reecrit par {@code generateSynthSources}.\n"
+        registry << " */\n"
+        registry << "public final class SynthRegistry {\n\n"
+        registry << "    /** Nombre d'unites disponibles dans ce lot. */\n"
+        registry << "    public static final int AVAILABLE = ${synthClasses};\n\n"
+        registry << "    /** Methodes sondables engendrees, registre non compris. */\n"
+        registry << "    public static final int PROBEABLE_METHODS = ${synthClasses * synthMethods};\n\n"
+        registry << "    private SynthRegistry() {\n"
+        registry << "        throw new AssertionError(\"classe utilitaire, non instanciable\");\n"
+        registry << "    }\n\n"
+        registry << "    /**\n"
+        registry << "     * Instancie les {@code count} premieres unites.\n"
+        registry << "     *\n"
+        registry << "     * @param count nombre d'unites voulues, borne a {@link #AVAILABLE}\n"
+        registry << "     * @return les unites, jamais {@code null}\n"
+        registry << "     */\n"
+        registry << "    public static List<SynthUnit> create(int count) {\n"
+        registry << "        int wanted = Math.max(0, Math.min(count, AVAILABLE));\n"
+        registry << "        List<SynthUnit> units = new ArrayList<>(wanted);\n"
+        registry << "        for (int i = 0; i < wanted; i++) {\n"
+        registry << "            units.add(byIndex(i));\n"
+        registry << "        }\n"
+        registry << "        return units;\n"
+        registry << "    }\n\n"
+        registry << "    private static SynthUnit byIndex(int index) {\n"
+        registry << "        switch (index) {\n"
+        for (int c = 0; c < synthClasses; c++) {
+            registry << "            case ${c}: return new ${names[c]}();\n"
+        }
+        registry << "            default: return new ${names[0]}();\n"
+        registry << "        }\n"
+        registry << "    }\n"
+        registry << "}\n"
+
+        new File(packageDir, 'SynthRegistry.java').setText(registry.toString(), 'UTF-8')
+
+        logger.lifecycle("RUSTFORGE-X : ${synthClasses} unites synthetiques engendrees, " +
+                "${synthClasses * synthMethods} methodes sondables.")
+    }
+}
+
+sourceSets.synth.java.srcDir(generatedDir)
+
+tasks.named('compileSynthJava').configure {
+    dependsOn 'generateSynthSources'
+}

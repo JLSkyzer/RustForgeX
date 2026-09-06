@@ -357,6 +357,19 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       PARTIE 22 veut des charges, pas des mods tiers, et R-871 interdit un profil conçu
       autour d'un mod nommé. Reste utile en complément manuel, documenté dans
       `BENCHMARKS.md`, si l'utilisateur construit une base lui-même
+- [x] **Générateur de sources écrit et vérifié** : `generateSynthSources` engendre
+      120 classes × 20 méthodes = **2 400 méthodes sondables**, réglables par
+      `-PrfxSynthClasses` / `-PrfxSynthMethods`. Vérifié en jeu : `methods_probed`
+      2 648 → **5 050**, soit +2 402. La surface instrumentée est doublée par rapport au
+      modpack seul
+- [ ] **Défaut de C-04 mis au jour par le générateur : les classes chargées pendant la
+      construction des mods ne sont jamais sondées.** Une classe ne se charge qu'une
+      fois, et le transformateur s'arme au setup commun, 23 s plus tard. Les 2 649
+      méthodes sondées ne sont donc pas « celles du modpack » mais « celles chargées
+      après le setup commun » — limite jamais formulée jusqu'ici
+- [ ] Examiner si le runtime natif peut démarrer dès le **constructeur** du mod plutôt
+      qu'au setup commun : le transformateur attraperait bien plus de classes. Demande
+      que la configuration et le natif se chargent plus tôt — à examiner, pas à décréter
 - [ ] Calibrer les profils sur la table de la PARTIE 22 : `vanilla` 200 entités /
       400 chunks, `light` 10 mods / 500 / 600, `medium` 60 / 2 000 / 1 200, `heavy`
       150 / 8 000 / 2 500. Le profil actuel est en dessous du plus petit

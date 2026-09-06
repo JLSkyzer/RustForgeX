@@ -28,6 +28,16 @@ public final class SynthConfig {
     /** Nombre de gestionnaires d'événements enregistrés, priorités mêlées. */
     public static final String HANDLERS = PREFIX + "handlers";
 
+    /**
+     * Unités engendrées à instancier, donc à charger, donc à instrumenter.
+     *
+     * <p>C'est le réglage qui produit de la <strong>largeur</strong> : chaque unité
+     * chargée apporte une vingtaine de méthodes assez longues pour être sondées. Sans
+     * lui, le mod synthétique fait du travail sans charger l'instrumentation, ce qui
+     * était le défaut de sa première version.
+     */
+    public static final String UNITS = PREFIX + "units";
+
     /** Fils de travail propres au mod synthétique (R-870). */
     public static final String THREADS = PREFIX + "threads";
 
@@ -35,15 +45,17 @@ public final class SynthConfig {
     public static final String NONDETERMINISTIC = PREFIX + "nondeterministic";
 
     private final int workloads;
+    private final int units;
     private final int iterations;
     private final int allocationBytes;
     private final int handlers;
     private final int threads;
     private final boolean nondeterministic;
 
-    private SynthConfig(int workloads, int iterations, int allocationBytes,
+    private SynthConfig(int workloads, int units, int iterations, int allocationBytes,
             int handlers, int threads, boolean nondeterministic) {
         this.workloads = workloads;
+        this.units = units;
         this.iterations = iterations;
         this.allocationBytes = allocationBytes;
         this.handlers = handlers;
@@ -60,6 +72,7 @@ public final class SynthConfig {
     public static SynthConfig from(java.util.function.UnaryOperator<String> properties) {
         return new SynthConfig(
                 positive(properties, WORKLOADS),
+                positive(properties, UNITS),
                 positive(properties, ITERATIONS),
                 positive(properties, ALLOCATION),
                 positive(properties, HANDLERS),
@@ -81,7 +94,12 @@ public final class SynthConfig {
      * @return {@code true} si au moins un réglage demande du travail
      */
     public boolean idle() {
-        return workloads == 0 && handlers == 0 && threads == 0;
+        return workloads == 0 && units == 0 && handlers == 0 && threads == 0;
+    }
+
+    /** @return le nombre d'unités engendrées à charger */
+    public int units() {
+        return units;
     }
 
     /** @return le nombre d'unités de travail tickées */
@@ -117,9 +135,10 @@ public final class SynthConfig {
     @Override
     public String toString() {
         return String.format(Locale.ROOT,
-                "workloads=%d iterations=%d allocation=%do handlers=%d threads=%d "
-                        + "nondeterministic=%b",
-                workloads, iterations, allocationBytes, handlers, threads, nondeterministic);
+                "workloads=%d units=%d iterations=%d allocation=%do handlers=%d "
+                        + "threads=%d nondeterministic=%b",
+                workloads, units, iterations, allocationBytes, handlers, threads,
+                nondeterministic);
     }
 
     /**
