@@ -317,12 +317,22 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       commit dont le code n'a jamais été mesuré
 - [ ] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
       n'ait plus à le déduire de `HEAD`
-- [ ] Profils de modpack **reproductibles** de la PARTIE 22. La mesure actuelle porte
-      bien sur un profil chargé — 272 mods — mais c'est le modpack personnel de
-      l'utilisateur, non versionnable et non reproductible par un tiers. Il manque aussi
-      le monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé
-      d'une campagne à l'autre et accumule ses régions, ce qui fait dériver les valeurs
-      absolues de MSPT entre deux campagnes
+- [ ] **Profils de charge de la PARTIE 22 — la lacune la plus importante de la mesure.**
+      Formulation à corriger : « profil chargé » voulait dire 272 mods *chargés*, pas
+      serveur *sous charge*. Les quatre campagnes ont mesuré un serveur **au repos** :
+      aucun joueur, presque aucune entité, aucun chargement de région, aucune IA. Le tick
+      y dure 1,6 à 2,5 ms quand un serveur joué en dure 20 à 45. Deux conséquences de
+      sens opposé : le pourcentage relatif y est **surestimé** (dénominateur minuscule),
+      et le coût absolu **sous-estimé** (bien moins de méthodes sondées sont réellement
+      atteintes). Ce n'est donc ni pessimiste ni optimiste, c'est un autre régime
+- [ ] Charge scriptée et reproductible, pilotée par la console du serveur (`nogui` lit
+      son entrée standard) : `kill @e[type=!player]` puis `forceload`, `summon` d'un
+      nombre fixe d'entités, `randomTickSpeed`. Idempotent, sinon la charge s'accumule
+      d'une exécution à l'autre et la reproductibilité est perdue
+- [ ] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
+      accumule ses régions, ce qui fait dériver les valeurs absolues entre campagnes
+- [ ] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non
+      reproductible par un tiers
 - [ ] Côté client : FPS, frametime, 1 % low
 
 **Ce que le niveau A ne mesure pas**, et qu'il ne faut pas lui faire dire : le coût
