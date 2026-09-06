@@ -226,11 +226,18 @@ fn macro_level() {
         file.result.configurations.len(),
         out.display()
     );
-    if let Some(comparison) = &file.result.comparison {
+    if file.result.comparisons.is_empty() {
+        println!(
+            "ATTENTION : aucune comparaison produite — il faut au moins une référence \
+             et une variante"
+        );
+    }
+    for comparison in &file.result.comparisons {
         if !comparison.trustworthy {
             println!(
-                "ATTENTION : campagne non conforme ou rejetée — ce résultat sert à \
-                 décider, pas à publier"
+                "ATTENTION : {} contre {} — campagne non conforme ou rejetée ; ce \
+                 résultat sert à décider, pas à publier",
+                comparison.candidate, comparison.baseline
             );
         }
     }

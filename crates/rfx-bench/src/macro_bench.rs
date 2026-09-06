@@ -144,7 +144,7 @@ pub struct MacroResult {
     /// Configurations mesurées, par étiquette.
     pub configurations: BTreeMap<String, Configuration>,
     /// Comparaison, présente seulement si exactement deux configurations existent.
-    pub comparison: Option<Comparison>,
+    pub comparisons: Vec<Comparison>,
 }
 
 /// Lit toutes les exécutions d'un répertoire et les agrège.
@@ -186,12 +186,12 @@ pub fn aggregate(runs_dir: &Path) -> Result<(MacroResult, Vec<String>), String> 
         .map(|(label, runs)| (label, summarize(&runs)))
         .collect();
 
-    let comparison = compare(&configurations);
+    let comparisons = compare(&configurations);
 
     Ok((
         MacroResult {
             configurations,
-            comparison,
+            comparisons,
         },
         notes,
     ))
@@ -318,35 +318,39 @@ fn aggregate_values(values: &[f64]) -> Aggregate {
 ///
 /// La référence est celle dont l'étiquette vient en premier dans l'ordre
 /// alphabétique, ce qui rend la comparaison reproductible sans avoir à la déclarer.
-fn compare(configurations: &BTreeMap<String, Configuration>) -> Option<Comparison> {
-    if configurations.len() != 2 {
-        return None;
-    }
+/// **Toutes** les autres configurations lui sont comparées : une campagne à trois
+/// configurations — la référence et deux variantes du même système — est un cas
+/// normal, et n'en comparer que deux en abandonnerait une sans le dire.
+fn compare(configurations: &BTreeMap<String, Configuration>) -> Vec<Comparison> {
     let mut iter = configurations.iter();
-    let (baseline_label, baseline) = iter.next()?;
-    let (candidate_label, candidate) = iter.next()?;
+    let Some((baseline_label, baseline)) = iter.next() else {
+        return Vec::new();
+    };
 
-    let mut delta_pct = BTreeMap::new();
-    for (name, base) in &baseline.metrics {
-        if let Some(cand) = candidate.metrics.get(name) {
-            if base.median != 0.0 {
-                delta_pct.insert(
-                    name.clone(),
-                    (cand.median - base.median) / base.median * 100.0,
-                );
+    iter.map(|(candidate_label, candidate)| {
+        let mut delta_pct = BTreeMap::new();
+        for (name, base) in &baseline.metrics {
+            if let Some(cand) = candidate.metrics.get(name) {
+                if base.median != 0.0 {
+                    delta_pct.insert(
+                        name.clone(),
+                        (cand.median - base.median) / base.median * 100.0,
+                    );
+                }
             }
         }
-    }
 
-    Some(Comparison {
-        baseline: baseline_label.clone(),
-        candidate: candidate_label.clone(),
-        delta_pct,
-        trustworthy: baseline.methodology_compliant
-            && candidate.methodology_compliant
-            && !baseline.rejected
-            && !candidate.rejected,
+        Comparison {
+            baseline: baseline_label.clone(),
+            candidate: candidate_label.clone(),
+            delta_pct,
+            trustworthy: baseline.methodology_compliant
+                && candidate.methodology_compliant
+                && !baseline.rejected
+                && !candidate.rejected,
+        }
     })
+    .collect()
 }
 
 #[cfg(test)]
@@ -472,18 +476,43 @@ mod tests {
             summarize(&(1..=5).map(|n| run("b-on", n, 11.0)).collect::<Vec<_>>()),
         );
 
-        let comparison = compare(&configurations).expect("deux configurations");
-        assert_eq!(comparison.baseline, "a-off");
-        assert_eq!(comparison.candidate, "b-on");
-        assert!((comparison.delta_pct["mspt_p95"] - 10.0).abs() < 0.001);
-        assert!(comparison.trustworthy);
+        let comparisons = compare(&configurations);
+        assert_eq!(comparisons.len(), 1);
+        assert_eq!(comparisons[0].baseline, "a-off");
+        assert_eq!(comparisons[0].candidate, "b-on");
+        assert!((comparisons[0].delta_pct["mspt_p95"] - 10.0).abs() < 0.001);
+        assert!(comparisons[0].trustworthy);
+    }
+
+    /// Comparer les deux moments d'armement à la même référence demande trois
+    /// configurations dans la même campagne, appariées exécution par exécution
+    /// (ADR-022). L'ancienne comparaison n'en traitait que deux et rendait `None`
+    /// au-delà : la troisième aurait été mesurée pendant des heures, puis
+    /// silencieusement abandonnée.
+    #[test]
+    fn every_variant_is_compared_to_the_baseline() {
+        let mut configurations = BTreeMap::new();
+        for (label, p95) in [("a-off", 10.0), ("b-tard", 11.0), ("c-tot", 12.0)] {
+            configurations.insert(
+                label.to_owned(),
+                summarize(&(1..=5).map(|n| run(label, n, p95)).collect::<Vec<_>>()),
+            );
+        }
+
+        let comparisons = compare(&configurations);
+
+        assert_eq!(comparisons.len(), 2, "aucune variante ne doit être perdue");
+        assert!(comparisons.iter().all(|c| c.baseline == "a-off"));
+        assert_eq!(comparisons[0].candidate, "b-tard");
+        assert_eq!(comparisons[1].candidate, "c-tot");
+        assert!((comparisons[1].delta_pct["mspt_p95"] - 20.0).abs() < 0.001);
     }
 
     #[test]
     fn no_comparison_is_produced_from_a_single_configuration() {
         let mut configurations = BTreeMap::new();
         configurations.insert("seule".to_owned(), summarize(&[run("seule", 1, 10.0)]));
-        assert!(compare(&configurations).is_none());
+        assert!(compare(&configurations).is_empty());
     }
 
     #[test]
@@ -497,9 +526,9 @@ mod tests {
             summarize(&(1..=5).map(|n| run("b-on", n, 11.0)).collect::<Vec<_>>()),
         );
 
-        let comparison = compare(&configurations).expect("deux configurations");
+        let comparisons = compare(&configurations);
         assert!(
-            !comparison.trustworthy,
+            !comparisons[0].trustworthy,
             "une campagne courte ne prouve rien"
         );
     }

@@ -10,12 +10,20 @@
 #
 #   ./benchmarks/run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauffement] [charge] [armement_anticipe]
 #
-# L'armement anticipe vaut « false » (defaut : le runtime demarre au setup commun) ou
-# « true » (il demarre a la construction du mod). Mesure sur le serveur de banc, 288
-# mods : le second fait passer la surface sondee de 2 635 a 13 615 methodes, parce que
-# 27 837 classes se chargent pendant la construction des autres mods et ne repassent
-# jamais. Ce que cette couverture coute au tick est justement ce que cette campagne
-# mesure ; c'est pourquoi le defaut reste l'ordonnancement deja certifie.
+# L'armement anticipe vaut :
+#
+#   false  (defaut) le runtime demarre au setup commun         -> B + C tardif
+#   true            il demarre a la construction du mod        -> B + C anticipe
+#   both            les deux, dans la meme campagne            -> B + C tardif + C anticipe
+#
+# Mesure sur le serveur de banc, 288 mods : l'anticipe fait passer la surface sondee de
+# 2 635 a 13 615 methodes, parce que 27 837 classes se chargent pendant la construction
+# des autres mods et ne repassent jamais (ADR-022).
+#
+# « both » est la seule facon de comparer les deux ordonnancements proprement : ils
+# partagent alors la MEME reference, mesuree dans la meme exécution, sur la meme
+# machine au meme moment. Deux campagnes lancees separement ne se comparent pas :
+# c'est l'erreur qui a failli etre commise.
 #
 # La charge vaut « none » (serveur au repos), « chunks » ou « mobs ». Un serveur au
 # repos ne mesure qu'a moitie : son tick dure 1,6 a 2,5 ms la ou un serveur joue en dure
@@ -32,6 +40,18 @@ TICKS="${3:-12000}"
 WARMUP="${4:-3600}"
 LOAD="${5:-none}"
 EARLY_ARM="${6:-false}"
+
+# Validé avant toute destruction : un paramètre erroné ne doit pas coûter les
+# résultats de la campagne précédente.
+case "$EARLY_ARM" in
+    false) CONFIGS="off late";     ARMING="au setup commun (defaut certifie)" ;;
+    true)  CONFIGS="off early";    ARMING="anticipe, a la construction du mod" ;;
+    both)  CONFIGS="off late early"; ARMING="les deux, apparies dans chaque exécution" ;;
+    *)     echo "armement_anticipe inconnu « $EARLY_ARM » — attendu : false | true | both"
+           exit 1 ;;
+esac
+# shellcheck disable=SC2086
+CONFIG_COUNT=$(set -- $CONFIGS; echo $#)
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNS_DIR="$PROJECT/benchmarks/runs"
@@ -75,28 +95,43 @@ mkdir -p "$RUNS_DIR"
 
 echo "Serveur   : $SERVER (Forge $FORGE_VERSION)"
 echo "Mods      : $(ls "$SERVER/mods"/*.jar 2>/dev/null | wc -l)"
-echo "Campagne  : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés) × 2 configurations"
+
+echo "Campagne  : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés) × $CONFIG_COUNT configurations"
 echo "            B = modpack seul · C = modpack + RUSTFORGE-X (PARTIE 21.2)"
 echo "Charge    : $LOAD (PARTIE 22)"
-echo "Armement  : $(if [ "$EARLY_ARM" = "true" ]; then echo "anticipe, a la construction du mod"; else echo "au setup commun (defaut certifie)"; fi)"
+echo "Armement  : $ARMING"
 echo
 
 for run in $(seq 1 "$RUNS"); do
-    for config in off on; do
-        if [ "$config" = "off" ]; then
-            # PARTIE 21.2, configuration B : le modpack sans RUSTFORGE-X. Le JAR du mod
-            # reste en place — il porte l'enregistreur, présent des deux côtés, donc
-            # sans effet sur la différence — mais le transformateur s'en va.
-            label="b-mods-seuls"
-            rfx="-Drustforgex.general.enabled=false"
-            mkdir -p "$HOLD_DIR"
-            mv "$SERVER/mods/$LAUNCH_JAR_NAME" "$HOLD_DIR/$LAUNCH_JAR_NAME"
-        else
-            # PARTIE 21.2, configuration C : le même modpack, RUSTFORGE-X observant.
-            label="c-rfx-actif"
-            rfx="-Drustforgex.general.enabled=true"
-            restore_launch_jar
-        fi
+    for config in $CONFIGS; do
+        early="false"
+        case "$config" in
+            off)
+                # PARTIE 21.2, configuration B : le modpack sans RUSTFORGE-X. Le JAR du
+                # mod reste en place — il porte l'enregistreur, présent dans toutes les
+                # configurations, donc sans effet sur la différence — mais le
+                # transformateur s'en va.
+                label="b-mods-seuls"
+                rfx="-Drustforgex.general.enabled=false"
+                mkdir -p "$HOLD_DIR"
+                mv "$SERVER/mods/$LAUNCH_JAR_NAME" "$HOLD_DIR/$LAUNCH_JAR_NAME"
+                ;;
+            late)
+                # Configuration C : RUSTFORGE-X observant, armé au setup commun.
+                label="c-rfx-actif"
+                rfx="-Drustforgex.general.enabled=true"
+                restore_launch_jar
+                ;;
+            early)
+                # Configuration C bis : le même, armé à la construction du mod. Le nom
+                # trie après « c-rfx-actif », donc l'agrégateur garde « b-mods-seuls »
+                # pour référence et compare les deux variantes à elle.
+                label="c-rfx-arme-tot"
+                rfx="-Drustforgex.general.enabled=true"
+                early="true"
+                restore_launch_jar
+                ;;
+        esac
 
         echo "── exécution $run/$RUNS, configuration $label"
         (
@@ -108,7 +143,7 @@ for run in $(seq 1 "$RUNS"); do
                 -Drustforgex.bench.label="$label" \
                 -Drustforgex.bench.run="$run" \
                 -Drustforgex.bench.load="$LOAD" \
-                -Drustforgex.instrumentation.early_arm="$EARLY_ARM" \
+                -Drustforgex.instrumentation.early_arm="$early" \
                 -Drustforgex.bench.out="$RUNS_DIR/$label-$run.json" \
                 $rfx \
                 "@user_jvm_args.txt" "@$ARGS_FILE" nogui
