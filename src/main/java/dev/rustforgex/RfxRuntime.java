@@ -5,6 +5,7 @@ import dev.rustforgex.bridge.CborReader;
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.command.StatusReport;
 import dev.rustforgex.config.Configuration;
+import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
 import dev.rustforgex.forge.TickCycle;
@@ -40,6 +41,7 @@ public final class RfxRuntime {
     private final TickCycle tickCycle;
     private final ProbeSink probeSink;
     private final Instrumentation instrumentation;
+    private final EventObserver eventObserver;
 
     private RfxRuntime(
             Configuration configuration,
@@ -73,6 +75,13 @@ public final class RfxRuntime {
         // qui sait à quelle méthode répond chaque identifiant (PARTIE 5.5, R-322).
         if (tickCycle != null && instrumentation.registry() != null) {
             tickCycle.enableSampling(instrumentation.registry().frameIndex());
+        }
+
+        // C-06, étape 1 : observer le bus sans y toucher. Aucun auditeur tiers n'est
+        // enveloppé, donc aucun risque pour R-330 ; le coût, lui, reste à mesurer.
+        this.eventObserver = live ? EventObserver.onForgeBus() : null;
+        if (eventObserver != null) {
+            eventObserver.start();
         }
     }
 
@@ -136,6 +145,15 @@ public final class RfxRuntime {
      */
     public TickCycle tickCycle() {
         return tickCycle;
+    }
+
+    /**
+     * Observateur du bus d'événements (C-06, étape 1).
+     *
+     * @return l'observateur, ou {@code null} si le runtime natif n'est pas actif
+     */
+    public EventObserver eventObserver() {
+        return eventObserver;
     }
 
     /**
@@ -229,6 +247,9 @@ public final class RfxRuntime {
         // un runtime qu'on est en train de fermer.
         if (tickCycle != null) {
             tickCycle.stopSampling();
+        }
+        if (eventObserver != null) {
+            eventObserver.stop();
         }
         instrumentation.disarm();
         if (active()) {

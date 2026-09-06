@@ -236,9 +236,15 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 
 - [ ] **D'abord** : `net.minecraftforge.eventbus` est-il ouvert à notre module ? Une
       ligne au `LOAD_COMPLETE`. La réponse décide de l'étendue des étapes 2 et 3
-- [ ] Étape 1 — observer sans rien modifier : auditeurs sur `Event.class` en `HIGHEST` et
-      `LOWEST`, API publique seule, aucun risque R-330. Donne les types postés, la durée
-      de dispatch, l'annulation et le résultat finaux, la trace d'ordre
+- [x] **Étape 1 écrite** : `EventDispatchTable` (logique pure, 11 tests, sans Forge) et
+      `EventObserver` (glu : deux auditeurs sur `Event.class`, `HIGHEST` et `LOWEST`,
+      `receiveCanceled` des deux côtés). Aucun auditeur tiers touché — R-330 tenu par
+      construction. Comptage systématique, chronométrage d'un événement sur 64
+- [ ] Mesurer le coût de l'observateur : paire courte comparable au +2,7 % relevé sans
+      lui. S'il fait bouger le chiffre, il est trop cher
+- [ ] La trace d'ordre que l'acceptance de la PARTIE 5.6 demande n'est pas écrite :
+      personne ne la consommerait encore, et une trace que rien ne lit est la
+      configuration morte qu'ADR-018 proscrit
 - [ ] Mesurer le coût de cet auditeur par la ligne de base de la PARTIE 12.4 avant
       d'aller plus loin : il s'exécute des milliers de fois par tick
 - [ ] Étape 2 — reconstituer ordre, priorité et `owner` par lecture réflexive

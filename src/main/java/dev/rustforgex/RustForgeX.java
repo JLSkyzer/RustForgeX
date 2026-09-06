@@ -3,6 +3,8 @@ package dev.rustforgex;
 import com.mojang.logging.LogUtils;
 import dev.rustforgex.bench.MacroRecorder;
 import dev.rustforgex.command.RfxCommands;
+import dev.rustforgex.forge.EventDispatchTable;
+import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
@@ -136,6 +138,24 @@ public class RustForgeX {
                 ticks, cycle.rejectedCalls(),
                 instrumentation.classesSeen(), instrumentation.methodsProbed(),
                 instrumentation.transformFailures(), cycle.levelUpdates());
+        logEvents(runtime);
+    }
+
+    /**
+     * Trace de l'observation du bus d'événements (C-06, étape 1).
+     *
+     * <p>Un observateur qui compte zéro événement et un observateur absent produisent le
+     * même silence : cette ligne les distingue, comme celle de l'instrumentation.
+     */
+    private static void logEvents(RfxRuntime runtime) {
+        EventObserver observer = runtime.eventObserver();
+        if (observer == null || !observer.observing()) {
+            return;
+        }
+        EventDispatchTable table = observer.table();
+        LOGGER.debug("Événements : {} distribués sur {} types, {} chronométrés, "
+                        + "{} chronométrages abandonnés.",
+                table.dispatched(), table.knownTypes(), table.timed(), table.abandoned());
     }
 
     /**

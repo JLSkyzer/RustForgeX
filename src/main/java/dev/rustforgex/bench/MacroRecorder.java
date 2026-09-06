@@ -1,6 +1,8 @@
 package dev.rustforgex.bench;
 
 import dev.rustforgex.RfxRuntime;
+import dev.rustforgex.forge.EventDispatchTable;
+import dev.rustforgex.forge.EventObserver;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -270,6 +272,7 @@ public final class MacroRecorder {
         state.append("    \"methods_probed\": ")
                 .append(runtime.instrumentation().methodsProbed());
         appendProfilerLevel(state, runtime);
+        appendEvents(state, runtime);
         appendBaseline(state, runtime);
         state.append("\n");
         return state.toString();
@@ -325,6 +328,26 @@ public final class MacroRecorder {
         if (level instanceof String text) {
             state.append(",\n    \"profiler_level\": \"").append(escape(text)).append('"');
         }
+    }
+
+    /**
+     * Ajoute ce que l'observateur du bus a vu passer (C-06, étape 1).
+     *
+     * <p>Sans ces compteurs, on ne saurait pas distinguer un observateur qui n'a rien vu
+     * d'un observateur absent — et le coût de l'observation resterait invérifiable.
+     */
+    private static void appendEvents(StringBuilder state, RfxRuntime runtime) {
+        EventObserver observer = runtime.eventObserver();
+        if (observer == null || !observer.observing()) {
+            return;
+        }
+        EventDispatchTable table = observer.table();
+        state.append(",\n    \"events\": {\n");
+        state.append("      \"dispatched\": ").append(table.dispatched()).append(",\n");
+        state.append("      \"types\": ").append(table.knownTypes()).append(",\n");
+        state.append("      \"timed\": ").append(table.timed()).append(",\n");
+        state.append("      \"abandoned\": ").append(table.abandoned()).append("\n");
+        state.append("    }");
     }
 
     /** Lit un entier des compteurs natifs, ou zéro s'il est absent ou d'un autre type. */
