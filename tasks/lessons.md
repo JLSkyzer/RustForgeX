@@ -462,3 +462,17 @@ sondes qui ne mesuraient rien.
   signature de cette panne est `probes_armed: 0` avec `methods_probed` élevé ;
 - un cache qui n'est vidé que par un accusé de réception doit refuser de retenir une
   valeur vide, sinon un appelant qui n'a rien reçu le bloque pour toujours.
+
+### 2026-09-07 | Case cochée sur une exécution, décochée par la suivante | Une observation n'est pas un résultat
+
+J'ai coché « les zéros de la ligne de base sont expliqués » après **une** exécution qui
+donnait 3,01 %. La suivante, même configuration, a donné 0,0 % et un profileur monté à
+`DEEP` au lieu d'être éteint. Les sondes mortes étaient une cause, pas la cause.
+
+Le pire est que je venais d'écrire, deux heures plus tôt, qu'une paire isolée ne prouve
+rien — et j'ai conclu sur un point unique parce que le chiffre allait dans le sens que
+j'espérais.
+
+**Règle** : avant de cocher une case sur une observation, se demander combien
+d'exécutions la soutiennent. Une seule ne ferme rien, surtout quand elle confirme ce
+qu'on souhaitait. Écrire « observé une fois » plutôt que « expliqué ».

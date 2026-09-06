@@ -159,22 +159,35 @@ condition posée pour brancher le transformateur est levée.
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
-- [x] **Les zéros de la ligne de base sont expliqués, et ce n'était pas la méthode.**
-      Elle mesurait 0 parce qu'il n'y avait rien à mesurer : aucune sonde n'était armée
-      (voir « les sondes étaient armées dans le journal, jamais dans le code »). Dès que
-      les sondes ont fonctionné, la première exécution a produit **3,01 %** pour
-      l'armement tardif et **2,43 %** pour l'anticipé — des valeurs plausibles, non
-      nulles, et au-dessus du budget de 1,5 % du MSPT
-- [x] **Le gouverneur s'engage.** Au tick 9 600, la ligne de base à 3,01 % dépasse le
-      budget : le profileur descend jusqu'à `OFF` et désarme les 2 541 sondes. C'est le
-      comportement prévu — protéger le jeu plutôt que mesurer à tout prix
+- [ ] **CASE ROUVERTE — les zéros de la ligne de base ne sont PAS expliqués.** Cochée
+      le 2026-09-07 sur la foi d'**une seule exécution**, décochée deux heures plus tard
+      par la suivante. Les sondes mortes étaient *une* cause, pas *la* cause :
+
+      | exécution | ligne de base | niveau final |
+      |---|---|---|
+      | `c-rfx-actif` nº1 | 3,01 % | `OFF` |
+      | `c-rfx-actif` nº2 | **0,0 %** | **`DEEP`** |
+
+      Deux exécutions de la même configuration, deux régimes opposés. La méthode de
+      pause reste instable — c'était déjà le diagnostic d'ADR-020, quatrième volet, et
+      il tient toujours. Vingt ticks en pause contre vingt ticks actifs ne suffisent pas
+      à extraire un signal d'une charge qui varie de plusieurs millisecondes
+- [ ] **Ne pas publier de médiane sur cette campagne sans dire ce qu'elle mélange.**
+      Certaines exécutions finiront à `OFF`, d'autres à `DEEP` : la médiane agrégerait
+      deux régimes de fonctionnement différents, et le chiffre n'aurait pas de sens
+      physique
+- [x] **Le gouverneur s'engage quand la ligne de base voit juste.** Au tick 9 600, une
+      mesure à 3,01 % dépasse le budget : le profileur descend jusqu'à `OFF` et désarme
+      les 2 541 sondes. Le mécanisme fonctionne ; ce qui l'alimente, non — voir la case
+      rouverte ci-dessus
 - [ ] **Conséquence à assumer : une campagne mesure désormais un mélange.** Les 12 000
       ticks couvrent une période sondée puis une période éteinte. Le p50 qui en sort
       n'est donc pas « le coût de l'instrumentation » mais celui du produit tel qu'il se
       comporte. Les deux chiffres sont utiles, ils ne répondent pas à la même question —
       à séparer explicitement dans le prochain ADR
 - [ ] **L'armement anticipé mesure un coût PLUS FAIBLE que le tardif** (2,43 % contre
-      3,01 %) alors qu'il sonde cinq fois plus de méthodes. Explication possible : il
+      3,01 %) alors qu'il sonde cinq fois plus de méthodes. À relativiser : la mesure
+      qui les sépare est celle dont l'instabilité vient d'être constatée. Explication possible : il
       atteint le budget plus tôt, donc le gouverneur l'éteint plus tôt, donc la fenêtre
       de pause tombe sur un système déjà moins actif — ce serait un artefact de mesure,
       pas une propriété. **Une seule exécution** ; à confirmer sur les cinq
