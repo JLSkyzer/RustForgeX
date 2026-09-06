@@ -348,9 +348,18 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [ ] Lecture des budgets sous charge : « 2 % d'un cœur » → 0,275/50 ms = **0,55 %**,
       tenu avec un facteur quatre de marge. Budget MSPT de 1,5 % → +2,7 %, toujours
       dépassé mais d'un facteur 1,8 au lieu de 4. **Une seule paire**, pas une campagne
-- [ ] La charge reste vanilla : régions, ticks de blocs, 200 vaches. Aucune machinerie de
-      mod, alors que c'est le premier poste de MSPT d'un pack de 272 mods et la raison
-      d'être du projet. Le monde pré-généré avec usine construite reste la vraie réponse
+- [x] **Mod synthétique de charge écrit** (PARTIE 22, R-870, R-871) :
+      `rustforgex-bench-synth`, artefact séparé dans son propre paquet `rfxbench.synth`
+      — indispensable, `TargetScanner` refusant `dev/rustforgex/`. Paramétrable en
+      unités de travail, coût CPU, allocations, gestionnaires d'événements, fils propres
+      et non-déterminisme. Inerte sans propriétés. Chargé par Forge parmi les 272 mods
+- [ ] Le monde pré-généré avec une usine réelle n'est **pas** la bonne réponse : la
+      PARTIE 22 veut des charges, pas des mods tiers, et R-871 interdit un profil conçu
+      autour d'un mod nommé. Reste utile en complément manuel, documenté dans
+      `BENCHMARKS.md`, si l'utilisateur construit une base lui-même
+- [ ] Calibrer les profils sur la table de la PARTIE 22 : `vanilla` 200 entités /
+      400 chunks, `light` 10 mods / 500 / 600, `medium` 60 / 2 000 / 1 200, `heavy`
+      150 / 8 000 / 2 500. Le profil actuel est en dessous du plus petit
 - [ ] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
       accumule ses régions, ce qui fait dériver les valeurs absolues entre campagnes
 - [ ] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non

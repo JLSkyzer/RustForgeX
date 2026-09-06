@@ -1,0 +1,25 @@
+# Mod synthetique de charge (PARTIE 22). Il n'est PAS distribue avec RUSTFORGE-X :
+# il n'existe que pour les campagnes de mesure, et se depose a la main dans `mods`.
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "Voir LICENSE du depot RUSTFORGE-X"
+
+[[mods]]
+modId = "rfxbenchsynth"
+version = "1.0"
+displayName = "RFX Bench Synthetic Load"
+description = "Charge synthetique parametrable pour les benchmarks de RUSTFORGE-X. Ne fait rien sans les proprietes rfxbench.synth.* : ni abonnement, ni fil, ni calcul. N'imite aucun mod existant et ne touche jamais a l'etat du monde (R-871)."
+
+[[dependencies.rfxbenchsynth]]
+    modId = "forge"
+    mandatory = true
+    versionRange = "[47,)"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.rfxbenchsynth]]
+    modId = "minecraft"
+    mandatory = true
+    versionRange = "[1.20.1,1.21)"
+    ordering = "NONE"
+    side = "BOTH"

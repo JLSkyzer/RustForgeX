@@ -160,6 +160,10 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 // -- ASM et ModLauncher, jamais Minecraft -- et son propre artefact.
 sourceSets {
     launch
+    // Mod synthetique de charge (PARTIE 22). Son propre paquet, son propre artefact :
+    // TargetScanner refuse d'instrumenter dev/rustforgex/, donc une charge placee dans
+    // le JAR du mod ne serait jamais sondee et ne mesurerait rien.
+    synth
 }
 
 // Le plugin de lancement est un module nomme : voir src/launch/java/module-info.java.
@@ -190,6 +194,25 @@ tasks.register('launchJar', Jar) {
                 // fichier de mod, donc comme module de la couche du jeu -- alors qu'il
                 // est deja charge par ailleurs. La resolution echouerait sur
                 // « reads more than one module named rustforgex.launch ».
+        ])
+    }
+}
+
+// Artefact du mod synthetique. Il n'est PAS distribue : il se depose a la main dans
+// `mods` pour une campagne, et n'est jamais joint a une release.
+tasks.register('synthJar', Jar) {
+    from sourceSets.synth.output
+    archiveBaseName = "${mod_id}-bench-synth"
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    manifest {
+        attributes([
+                'Specification-Title'   : 'rfxbench-synth',
+                'Specification-Vendor'  : mod_authors,
+                'Specification-Version' : '1',
+                'Implementation-Title'  : 'rfxbench-synth',
+                'Implementation-Version': project.version,
+                'Implementation-Vendor' : mod_authors
         ])
     }
 }
@@ -265,8 +288,15 @@ dependencies {
     compileOnly sourceSets.launch.output
 
 
+    // Le mod synthetique est un vrai mod Forge : il compile contre le meme classpath
+    // que le mod principal, mais n'est jamais embarque dans son JAR.
+    synthCompileOnly files(sourceSets.main.compileClasspath)
+
     // Les tests d'instrumentation portent sur le code du plugin de lancement.
     testImplementation sourceSets.launch.output
+    // La charge synthetique se verifie sans Minecraft : SynthConfig et SynthWorkload
+    // n'en dependent pas.
+    testImplementation sourceSets.synth.output
     testImplementation 'org.ow2.asm:asm:9.2'
     testImplementation 'org.ow2.asm:asm-tree:9.2'
 
