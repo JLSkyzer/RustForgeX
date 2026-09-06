@@ -175,6 +175,18 @@ impl Runtime {
         if self.pending_levels.is_none() {
             self.pending_levels = self.profiler.take_levels();
         }
+        // Une table vide n'a rien a transmettre, et la GARDER en attente serait fatal :
+        // la table n'est reprise que lorsque l'attente est vide, et un appelant qui
+        // recoit une taille nulle n'a aucune raison d'accuser reception. Le cache
+        // resterait donc `Some(vide)` a jamais, et plus aucune table ne serait prise.
+        //
+        // C'est arrive : interroger la taille avant qu'une seule unite ne soit
+        // enregistree suffisait a eteindre le sondage pour toute la partie, sans le
+        // moindre signe — le mod annoncait 2 647 methodes sondees et zero sonde armee.
+        if self.pending_levels.as_ref().is_some_and(Vec::is_empty) {
+            self.pending_levels = None;
+            return None;
+        }
         self.pending_levels.as_deref()
     }
 
@@ -609,6 +621,41 @@ mod tests {
         rt.emergency_halt();
         rt.degrade();
         assert_eq!(rt.state(), RuntimeState::Halted);
+    }
+
+    /// Une table vide ne doit jamais rester en attente.
+    ///
+    /// Defaut reel, et silencieux : l'attente n'est rechargee que lorsqu'elle est
+    /// vide, et un appelant qui recoit une taille nulle n'accuse pas reception. Une
+    /// seule interrogation faite avant qu'une unite ne soit enregistree suffisait donc
+    /// a bloquer la livraison des niveaux pour toute la partie. Le mod annoncait
+    /// 2 647 methodes sondees, zero sonde armee, et ne mesurait plus que par
+    /// echantillonnage de piles — sans le moindre message.
+    #[test]
+    fn an_empty_level_table_never_stays_pending() {
+        let _guard = test_lock();
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+
+        // Aucune unite enregistree : la table existe mais elle est vide.
+        assert!(
+            rt.pending_probe_levels().is_none(),
+            "une table vide n'a rien a transmettre"
+        );
+
+        // Une unite apparait : la table suivante doit pouvoir etre prise.
+        rt.register_workload(rfx_model::WorkId(1));
+        rt.tick_begin(1, Side::Server, Instant::now());
+        rt.tick_end(Instant::now());
+
+        let levels = rt
+            .pending_probe_levels()
+            .expect("la table doit etre livrable");
+        assert_eq!(levels.len(), 1, "une unite enregistree, un niveau");
+        assert_ne!(
+            levels[0], 0,
+            "sous le plafond LIGHT une unite froide doit etre armee en COUNTER,              faute de quoi le sondage ne mesure rien"
+        );
     }
 
     #[test]

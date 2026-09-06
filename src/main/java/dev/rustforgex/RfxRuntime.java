@@ -19,6 +19,7 @@ import dev.rustforgex.telemetry.Telemetry;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.ProbeRegistry;
+import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.instrument.ProbeSink;
 import net.minecraft.network.chat.Component;
 
@@ -104,6 +105,22 @@ public final class RfxRuntime {
         }
         this.instrumentation =
                 Instrumentation.arm(live ? bridge : null, report.handle(), clientSide);
+
+        // Sans cet appel, le bytecode injecté s'exécute et sort à sa première ligne :
+        // `RfxProbes.enter` teste le puits avant tout, et un puits nul rend chaque
+        // sonde inerte. La table des niveaux, elle, était bien transmise à chaque
+        // tick — d'où un système qui semblait armé, publiait 2 647 méthodes sondées,
+        // et ne mesurait que par échantillonnage de piles.
+        //
+        // Après l'armement, et pas avant : c'est lui qui distribue les identifiants
+        // dont la table des niveaux est indexée.
+        if (probeSink != null && instrumentation.armed()) {
+            // Table vide : à cet instant aucune classe n'a encore été transformée, donc
+            // aucune unité de travail n'existe. Aller la chercher ici ne rapporterait
+            // rien et consommerait la table en attente. C'est `TickCycle`, à chaque fin
+            // de tick, qui la livre — et il le fait dès le premier.
+            RfxProbes.install(probeSink, new byte[0]);
+        }
 
         // L'échantillonnage n'a de sens que si des sondes existent : c'est le registre
         // qui sait à quelle méthode répond chaque identifiant (PARTIE 5.5, R-322).
@@ -421,6 +438,10 @@ public final class RfxRuntime {
     public synchronized void shutdown() {
         // Désarmer d'abord : le transformateur ne doit plus demander d'identifiant à
         // un runtime qu'on est en train de fermer.
+        // Le puits en premier : une sonde qui écrirait dans un tampon appartenant à un
+        // runtime en cours de fermeture toucherait de la mémoire native libérée. Le
+        // bytecode injecté, lui, reste en place pour la durée de la partie.
+        RfxProbes.uninstall();
         if (tickCycle != null) {
             tickCycle.stopSampling();
         }

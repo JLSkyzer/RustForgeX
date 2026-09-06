@@ -1,6 +1,7 @@
 package dev.rustforgex.bench;
 
 import dev.rustforgex.RfxRuntime;
+import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
 import net.minecraft.server.MinecraftServer;
@@ -311,6 +312,7 @@ public final class MacroRecorder {
                 .append(runtime.instrumentation().state()).append("\",\n");
         state.append("    \"methods_probed\": ")
                 .append(runtime.instrumentation().methodsProbed());
+        appendProbeActivity(state);
         appendProfilerLevel(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
@@ -359,6 +361,25 @@ public final class MacroRecorder {
      * l'une sonde tout et l'autre plus rien : c'est l'auto-mesure qui fait descendre
      * cette profondeur, et son effet doit se lire dans le résultat.
      */
+    /**
+     * Consigne ce que les sondes font réellement, et pas seulement combien il y en a.
+     *
+     * <p>Sans ces trois nombres, une campagne ne distingue pas un système qui sonde
+     * d'un système dont les sondes sont éteintes. C'est arrivé : cinq campagnes ont
+     * mesuré un runtime annonçant « 2 647 méthodes sondées » alors que la table des
+     * niveaux était vide et le puits absent. Le coût mesuré était celui de sondes qui
+     * sortaient à leur première ligne, et rien ne le disait.
+     *
+     * <p>{@code probes_armed} à zéro alors que {@code methods_probed} est élevé est le
+     * signe exact de cette panne, et il est désormais dans chaque fichier de campagne.
+     */
+    private static void appendProbeActivity(StringBuilder state) {
+        state.append(",\n    \"probes_in_table\": ").append(RfxProbes.probeCount());
+        state.append(",\n    \"probes_armed\": ").append(RfxProbes.armedCount());
+        state.append(",\n    \"probe_sink_installed\": ").append(RfxProbes.active());
+        state.append(",\n    \"probe_records_failed\": ").append(RfxProbes.failedRecords());
+    }
+
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {
         Map<String, Object> profiler = runtime.profilerCounters();
         if (profiler == null) {

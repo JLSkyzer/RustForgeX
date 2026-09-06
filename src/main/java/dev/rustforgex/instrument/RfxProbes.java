@@ -85,6 +85,26 @@ public final class RfxProbes {
         return anyArmed;
     }
 
+    /**
+     * Nombre de sondes effectivement armées.
+     *
+     * <p>Distinct de {@link #probeCount()}, qui compte les entrées de la table :
+     * annoncer « 2 649 méthodes sondées » alors que la table est pleine de zéros
+     * décrit un système qui n'observe rien. C'est arrivé.
+     *
+     * @return le nombre de niveaux non nuls
+     */
+    public static int armedCount() {
+        byte[] table = levels;
+        int armed = 0;
+        for (byte level : table) {
+            if (level != 0) {
+                armed++;
+            }
+        }
+        return armed;
+    }
+
     /** Recalcule le drapeau après un changement de table. */
     private static void refreshAnyArmed(byte[] table) {
         for (byte level : table) {

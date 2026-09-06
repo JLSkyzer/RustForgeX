@@ -434,3 +434,31 @@ des valeurs. Et son exemple de test employait un identifiant qui tenait dans un 
   avant d'émettre la deuxième hypothèse ;
 - un garde-fou doit être mis en échec par un test dédié. Sans quoi il ne prouve rien, et
   il rassure — ce qui est pire.
+
+### 2026-09-06 | Cinq campagnes ont mesuré un système dont les sondes étaient éteintes | Mesurer ce que le système FAIT, pas ce qu'il déclare
+
+`/rfx top` ne rapportait qu'une unité mesurée sur 2 541, toujours par échantillonnage.
+Cause : **deux défauts empilés**, tous deux silencieux.
+
+1. `RfxProbes.install(sink, levels)` n'était appelé **que par les tests**. En production
+   `sink` restait nul, et `enter()` sortait à sa première ligne. Le bytecode injecté
+   s'exécutait pour rien.
+2. `pending_probe_levels()` ne recharge la table que si l'attente est vide. Une
+   interrogation faite avant qu'une unité n'existe y laissait `Some(vide)`, que
+   personne n'accuse jamais — et plus aucune table n'était livrée de toute la partie.
+
+Pendant tout ce temps le mod annonçait « 2 647 méthodes sondées ». C'était vrai : elles
+étaient *transformées*. Aucune n'était *armée*. Deux choses très différentes que le
+journal et le fichier de campagne confondaient sous un seul nombre.
+
+Conséquence : le surcoût de +6,5 % certifié par la campagne de ce soir est celui de
+sondes qui ne mesuraient rien.
+
+**Règles** :
+- un compteur de ce qui est *installé* ne dit rien de ce qui *fonctionne* ; publier les
+  deux, côte à côte, et faire en sorte que leur écart saute aux yeux ;
+- un fichier de campagne doit porter de quoi invalider la campagne elle-même. Il porte
+  désormais `probes_armed`, `probe_sink_installed` et `probe_records_failed` : la
+  signature de cette panne est `probes_armed: 0` avec `methods_probed` élevé ;
+- un cache qui n'est vidé que par un accusé de réception doit refuser de retenir une
+  valeur vide, sinon un appelant qui n'a rien reçu le bloque pour toujours.

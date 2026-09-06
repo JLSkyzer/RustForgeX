@@ -11,6 +11,7 @@ import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.ProbeRegistry;
+import dev.rustforgex.instrument.RfxProbes;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -258,10 +259,13 @@ public class RustForgeX {
         LOGGER.debug(
                 "Cycle de tick : {} ticks observés, {} appels refusés. Instrumentation : "
                         + "{} classes vues, {} méthodes sondées, {} échecs, "
-                        + "{} mises à jour de niveaux.",
+                        + "{} mises à jour de niveaux. Sondes : {} dans la table, "
+                        + "{} armées, puits {}.",
                 ticks, cycle.rejectedCalls(),
                 instrumentation.classesSeen(), instrumentation.methodsProbed(),
-                instrumentation.transformFailures(), cycle.levelUpdates());
+                instrumentation.transformFailures(), cycle.levelUpdates(),
+                RfxProbes.probeCount(), RfxProbes.armedCount(),
+                RfxProbes.active() ? "installé" : "absent");
         logEvents(runtime);
     }
 
