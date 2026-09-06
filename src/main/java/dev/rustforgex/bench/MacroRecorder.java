@@ -3,6 +3,7 @@ package dev.rustforgex.bench;
 import dev.rustforgex.RfxRuntime;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -89,8 +90,12 @@ public final class MacroRecorder {
     /** Ticks pendant lesquels le compteur de ramasse-miettes a bougé (PARTIE 21.3.8). */
     private final boolean[] collected;
 
+    /** Tick auquel le profil de charge est appliqué, bien avant la fenêtre de mesure. */
+    private static final int LOAD_AT_TICK = 20;
+
     private int seen;
     private int recorded;
+    private boolean loadApplied;
     private long tickStartNs;
     private long windowStartNs;
     private long gcCountAtStart;
@@ -152,6 +157,14 @@ public final class MacroRecorder {
         tickStartNs = 0;
         seen++;
 
+        // La charge est posée tôt dans l'échauffement : elle provoque un pic — des
+        // centaines de commandes, des entités créées — qui n'a rien à faire dans la
+        // fenêtre mesurée, et le serveur a ensuite tout l'échauffement pour se stabiliser.
+        if (!loadApplied && seen == LOAD_AT_TICK) {
+            loadApplied = true;
+            applyLoadProfile();
+        }
+
         if (seen <= warmupTicks) {
             if (seen == warmupTicks) {
                 // L'échauffement s'achève : c'est ici, et pas avant, que commencent la
@@ -177,6 +190,30 @@ public final class MacroRecorder {
         if (recorded >= durations.length) {
             finished = true;
             finish();
+        }
+    }
+
+    /**
+     * Applique le profil de charge demandé, s'il y en a un.
+     *
+     * <p>Ne lève jamais : un profil qui échoue laisse un serveur au repos, ce que le
+     * fichier d'exécution dira, plutôt qu'un benchmark interrompu.
+     */
+    private static void applyLoadProfile() {
+        String profile = LoadProfile.requested();
+        if (LoadProfile.NONE.equals(profile)) {
+            return;
+        }
+        try {
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) {
+                LOGGER.warn("Profil de charge « {} » ignoré : aucun serveur courant.", profile);
+                return;
+            }
+            LoadProfile.apply(server, profile);
+        } catch (RuntimeException | LinkageError e) {
+            LOGGER.warn("Profil de charge « {} » non appliqué. La mesure décrira un "
+                    + "serveur au repos.", profile, e);
         }
     }
 
@@ -221,6 +258,9 @@ public final class MacroRecorder {
         json.append("  \"schema\": ").append(SCHEMA).append(",\n");
         json.append("  \"label\": \"").append(escape(label)).append("\",\n");
         json.append("  \"run\": ").append(run).append(",\n");
+        // Sans lui, on ne saurait pas si un résultat décrit un serveur au repos ou un
+        // serveur sous charge — deux régimes que rien ne permet de comparer.
+        json.append("  \"load\": \"").append(escape(LoadProfile.requested())).append("\",\n");
         json.append("  \"warmup_ticks\": ").append(warmupTicks).append(",\n");
         json.append("  \"measured_ticks\": ").append(recorded).append(",\n");
         json.append("  \"window_seconds\": ").append(format(windowSeconds)).append(",\n");

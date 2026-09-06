@@ -8,7 +8,11 @@
 # s'appliquent réellement : leurs refmaps ne se résolvent pas contre les mappings de
 # développement, et un modpack qui refuse de démarrer sous ForgeGradle démarre ici.
 #
-#   ./benchmarks/run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauffement]
+#   ./benchmarks/run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauffement] [charge]
+#
+# La charge vaut « none » (serveur au repos), « chunks » ou « mobs ». Un serveur au
+# repos ne mesure qu'a moitie : son tick dure 1,6 a 2,5 ms la ou un serveur joue en dure
+# vingt a quarante, ce qui surestime le pourcentage relatif et sous-estime le cout absolu.
 #
 # La racine doit contenir un serveur Forge installé, ses mods, et les deux JAR de
 # RUSTFORGE-X. Le script ne l'installe pas et n'y ajoute rien.
@@ -19,6 +23,7 @@ SERVER="${1:?usage: run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauf
 RUNS="${2:-5}"
 TICKS="${3:-12000}"
 WARMUP="${4:-3600}"
+LOAD="${5:-none}"
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNS_DIR="$PROJECT/benchmarks/runs"
@@ -64,6 +69,7 @@ echo "Serveur   : $SERVER (Forge $FORGE_VERSION)"
 echo "Mods      : $(ls "$SERVER/mods"/*.jar 2>/dev/null | wc -l)"
 echo "Campagne  : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés) × 2 configurations"
 echo "            B = modpack seul · C = modpack + RUSTFORGE-X (PARTIE 21.2)"
+echo "Charge    : $LOAD (PARTIE 22)"
 echo
 
 for run in $(seq 1 "$RUNS"); do
@@ -91,7 +97,7 @@ for run in $(seq 1 "$RUNS"); do
                 -Drustforgex.bench.ticks="$TICKS" \
                 -Drustforgex.bench.warmup="$WARMUP" \
                 -Drustforgex.bench.label="$label" \
-                -Drustforgex.bench.run="$run" \
+                -Drustforgex.bench.run="$run"                 -Drustforgex.bench.load="$LOAD" \
                 -Drustforgex.bench.out="$RUNS_DIR/$label-$run.json" \
                 $rfx \
                 "@user_jvm_args.txt" "@$ARGS_FILE" nogui

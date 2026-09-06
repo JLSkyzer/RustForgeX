@@ -334,10 +334,15 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       sens opposé : le pourcentage relatif y est **surestimé** (dénominateur minuscule),
       et le coût absolu **sous-estimé** (bien moins de méthodes sondées sont réellement
       atteintes). Ce n'est donc ni pessimiste ni optimiste, c'est un autre régime
-- [ ] Charge scriptée et reproductible, pilotée par la console du serveur (`nogui` lit
-      son entrée standard) : `kill @e[type=!player]` puis `forceload`, `summon` d'un
-      nombre fixe d'entités, `randomTickSpeed`. Idempotent, sinon la charge s'accumule
-      d'une exécution à l'autre et la reproductibilité est perdue
+- [x] **Charge scriptée écrite et vérifiée en jeu** : `LoadProfile`, trois profils
+      (`none`, `chunks`, `mobs`), idempotent, appliqué au tick 20 depuis le fil
+      autoritatif. 210 commandes, **0 refusée**. Effet mesuré sur le serveur de
+      production : MSPT p50 1,910 → **9,316 ms**, p95 3,143 → **15,637 ms**, types
+      d'événements 12 → 24, TPS toujours à 20,000. **Le serveur au repos cachait un
+      facteur cinq**
+- [ ] Refaire une paire B/C **sous charge** : nos 0,16 ms pesaient +6,6 % d'un tick de
+      2,4 ms ; sur un tick de 15,6 ms elles pèseraient environ +1 %. Le budget MSPT de
+      H-07 serait peut-être tenu sous charge réelle — à mesurer, pas à supposer
 - [ ] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
       accumule ses régions, ce qui fait dériver les valeurs absolues entre campagnes
 - [ ] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non
