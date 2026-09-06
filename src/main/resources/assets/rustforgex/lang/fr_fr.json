@@ -40,5 +40,9 @@
   "rustforgex.state.ready": "READY — runtime natif actif, aucune transformation à ce jalon",
   "rustforgex.state.degraded": "DEGRADED — Java pur, le jeu n'est pas affecté",
   "rustforgex.state.disabled": "DISABLED — désactivé, aucun appel natif",
-  "rustforgex.state.observe_only": "OBSERVE_ONLY — version de Forge hors plage supportée"
+  "rustforgex.state.observe_only": "OBSERVE_ONLY — version de Forge hors plage supportée",
+  "rustforgex.mods.none": "§7Aucun inventaire de mods : la découverte n'a pas eu lieu.",
+  "rustforgex.mods.summary": "§6Mods§r : %s inventoriés en %s ms — %s modules, %s paquets connus",
+  "rustforgex.mods.entry": "  §7%s§r %s §8(%s)",
+  "rustforgex.mods.truncated": "  §8... et %s de plus"
 }

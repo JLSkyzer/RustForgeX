@@ -5,7 +5,9 @@ import dev.rustforgex.bench.MacroRecorder;
 import dev.rustforgex.command.RfxCommands;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
+import dev.rustforgex.forge.ForgeModSource;
 import dev.rustforgex.forge.HookGuard;
+import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
 import net.minecraftforge.common.MinecraftForge;
@@ -17,6 +19,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLLoadCompleteEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 import net.minecraftforge.fml.loading.FMLPaths;
@@ -61,6 +64,7 @@ public class RustForgeX {
     private final long classesMissedAtConstruct;
 
     private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
+    private final HookGuard discoveryGuard = new HookGuard("loadComplete", LOGGER::warn);
     private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
     private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
     private final HookGuard tickPreGuard = new HookGuard("serverTickPre", LOGGER::warn);
@@ -92,6 +96,7 @@ public class RustForgeX {
         } else {
             modBus.addListener(this::onCommonSetup);
         }
+        modBus.addListener(this::onLoadComplete);
     }
 
     /**
@@ -150,6 +155,37 @@ public class RustForgeX {
     private void logArmingSchedule() {
         LOGGER.debug("Armement anticipé demandé : le runtime démarre à la construction "
                 + "du mod. {} classes étaient déjà passées.", classesMissedAtConstruct);
+    }
+
+    /**
+     * Dresse l'inventaire des mods une fois que Forge a fini de les charger (C-41).
+     *
+     * <p>{@code FMLLoadCompleteEvent} est le moment que la PARTIE 5.39 désigne : c'est
+     * le premier où la liste des mods est complète. Plus tôt, l'inventaire serait
+     * partiel ; plus tard, des classes auraient déjà été sondées sans propriétaire.
+     *
+     * @param event événement de fin de chargement
+     */
+    private void onLoadComplete(final FMLLoadCompleteEvent event) {
+        discoveryGuard.run(this::discoverMods);
+    }
+
+    /** Inventorie les mods et journalise ce qui a été trouvé. */
+    private void discoverMods() {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime == null) {
+            // Le runtime n'a pas démarré : rien à quoi rattacher un inventaire.
+            return;
+        }
+        ModDiscovery discovery = runtime.discoverMods(new ForgeModSource());
+
+        // R-621 borne la découverte à 500 ms pour 250 mods. La dire à chaque démarrage
+        // est le seul moyen de savoir si elle tient sur une vraie installation, plutôt
+        // que sur les 250 mods synthétiques de T-442.
+        LOGGER.info("RUSTFORGE-X : {} mods inventoriés en {} ms ({} modules, {} paquets "
+                        + "connus). Aucune classe n'a été chargée pour cela.",
+                discovery.modCount(), discovery.durationMs(),
+                discovery.knownModules(), discovery.knownPackages());
     }
 
     /** Séquence de démarrage : configuration, vérification de Forge, C-02. */

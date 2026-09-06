@@ -271,9 +271,19 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 
 ### Étape G — C-41 Mod Discovery — T-440..T-442
 
-- [ ] Inventaire des conteneurs de mods, `owner_mod_hash`, table chargeur → modid
-- [ ] Indexation paresseuse : aucune classe chargée qui ne le serait pas (R-620)
-- [ ] Moins de 500 ms pour 250 mods (R-621)
+- [x] Inventaire des conteneurs de mods, `owner_mod_hash`, attribution par module
+      (ADR-023 : la table par chargeur est dégénérée sous ModLauncher, tous les mods
+      partageant un chargeur ; 288 modules distincts pour 290 mods)
+- [x] Indexation paresseuse : aucune classe chargée qui ne le serait pas (R-620).
+      La découverte ne lit aucune archive — l'empreinte est calculée à la demande
+- [x] Moins de 500 ms pour 250 mods (R-621) : **15 ms pour 290 mods** en production,
+      et T-442 le vérifie sur 250 mods synthétiques
+- [ ] Enregistrer les threads créés par les mods (étape 5 de la PARTIE 5.39, RISK-05) :
+      demande un hook sur la création de thread, ou l'échantillonnage des piles
+- [ ] `rfx.discovery.unknown_owner_ratio` : suppose de croiser l'inventaire avec les
+      classes réellement sondées, donc de brancher C-41 sur `ProbeRegistry`
+- [ ] Acceptance PARTIE 5.39 : moins de 5 % des classes chaudes en `owner = unknown`.
+      Non mesurable tant que le ratio ci-dessus n'existe pas
 
 ### Étape H — C-34 Telemetry, C-35 Diagnostics, C-38 complet
 

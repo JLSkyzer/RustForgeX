@@ -8,6 +8,8 @@ import dev.rustforgex.config.Configuration;
 import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
+import dev.rustforgex.forge.ModDiscovery;
+import dev.rustforgex.forge.ModSource;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.ProbeSink;
@@ -41,6 +43,14 @@ public final class RfxRuntime {
     private final TickCycle tickCycle;
     private final ProbeSink probeSink;
     private final Instrumentation instrumentation;
+
+    /**
+     * Inventaire des mods, ou {@code null} tant que la découverte n'a pas eu lieu.
+     *
+     * <p>{@code volatile} : dressé sur le fil de chargement, lu depuis le fil serveur
+     * quand une commande le demande.
+     */
+    private volatile ModDiscovery modDiscovery;
     private final EventObserver eventObserver;
 
     private RfxRuntime(
@@ -180,6 +190,30 @@ public final class RfxRuntime {
      */
     public EventObserver eventObserver() {
         return eventObserver;
+    }
+
+    /**
+     * Dresse l'inventaire des mods (C-41), une fois pour la durée de la partie.
+     *
+     * <p>Appelé à {@code FMLLoadCompleteEvent} : plus tôt, la liste de Forge est
+     * incomplète ; plus tard, des classes auraient déjà été sondées sans propriétaire.
+     *
+     * @param source d'où viennent les mods, injectable pour les tests
+     * @return l'inventaire dressé, jamais {@code null}
+     */
+    public synchronized ModDiscovery discoverMods(ModSource source) {
+        ModDiscovery found = ModDiscovery.from(source);
+        this.modDiscovery = found;
+        return found;
+    }
+
+    /**
+     * Inventaire des mods (C-41).
+     *
+     * @return l'inventaire, ou {@code null} si la découverte n'a pas encore eu lieu
+     */
+    public ModDiscovery modDiscovery() {
+        return modDiscovery;
     }
 
     /**

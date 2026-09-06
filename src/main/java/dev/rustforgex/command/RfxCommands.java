@@ -41,7 +41,23 @@ public final class RfxCommands {
                                 .executes(context -> {
                                     showStatus(context.getSource());
                                     return 1;
+                                }))
+                        .then(Commands.literal("mods")
+                                .executes(context -> {
+                                    showMods(context.getSource());
+                                    return 1;
                                 })));
+    }
+
+    /** Envoie l'inventaire des mods (C-41) à l'émetteur de la commande. */
+    private static void showMods(CommandSourceStack source) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        List<Component> lines = ModsReport.lines(
+                runtime == null ? null : runtime.modDiscovery());
+
+        for (Component line : lines) {
+            source.sendSuccess(() -> line, false);
+        }
     }
 
     /** Envoie le rapport de statut à l'émetteur de la commande. */

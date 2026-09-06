@@ -40,5 +40,9 @@
   "rustforgex.state.ready": "READY — native runtime active, no transformation at this milestone",
   "rustforgex.state.degraded": "DEGRADED — pure Java, the game is unaffected",
   "rustforgex.state.disabled": "DISABLED — disabled, no native call",
-  "rustforgex.state.observe_only": "OBSERVE_ONLY — Forge version outside the supported range"
+  "rustforgex.state.observe_only": "OBSERVE_ONLY — Forge version outside the supported range",
+  "rustforgex.mods.none": "§7No mod inventory: discovery has not run.",
+  "rustforgex.mods.summary": "§6Mods§r: %s inventoried in %s ms — %s modules, %s known packages",
+  "rustforgex.mods.entry": "  §7%s§r %s §8(%s)",
+  "rustforgex.mods.truncated": "  §8... and %s more"
 }
