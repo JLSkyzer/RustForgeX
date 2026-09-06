@@ -3,39 +3,68 @@
 //! Composant : C-05. Cahier des charges : PARTIE 5.5.
 //!
 //! Le test s'installe comme allocateur global et compte les allocations. Il vit dans
-//! son propre binaire de test, et ce binaire ne contient qu'un seul test : un
-//! allocateur global est global au processus, et deux tests executes en parallele
-//! compteraient chacun les allocations de l'autre.
+//! son propre binaire de test : un allocateur global l'est pour tout le processus, et
+//! l'installer depuis un binaire partage avec d'autres tests fausserait les leurs.
 //!
 //! Relire le code ne suffirait pas a prouver l'absence d'allocation : une allocation
 //! peut se cacher dans n'importe quelle methode appelee indirectement. Seule la mesure
 //! le prouve.
+//!
+//! # Pourquoi le comptage est par fil
+//!
+//! Un allocateur global l'est pour tout le PROCESSUS. Compter dans des statiques
+//! globales revient donc a compter aussi ce qu'allouent les autres fils — a commencer
+//! par le harnais de test lui-meme, qui capture la sortie sur le fil principal pendant
+//! que le test s'execute sur un fil dedie.
+//!
+//! Ce n'est pas theorique : sous Linux, ce test a rendu tantot 0 tantot 4 allocations
+//! sur du code Rust rigoureusement identique, d'un commit a l'autre. Il ne mesurait
+//! pas le chemin chaud, il mesurait le processus.
+//!
+//! R-320 porte sur ce que fait LE CHEMIN CHAUD, pas sur ce que fait la machine autour.
+//! Le comptage est donc par fil. Les cellules sont initialisees en `const` : une
+//! variable de fil ainsi declaree n'a ni destructeur ni initialisation paresseuse, et
+//! ne peut donc pas allouer depuis l'allocateur qui l'interroge.
 
 // `GlobalAlloc` est un trait `unsafe` : l'implementer exige d'y deroger. La derogation
 // s'arrete a ce fichier de test, qui ne fait que compter avant de deleguer.
 #![allow(unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::cell::Cell;
 
 use rfx_memory::probe_buffer::{ProbeRecord, RecordKind};
 use rfx_model::WorkId;
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
-/// Allocateur qui compte les allocations pendant qu'il est arme.
+/// Allocateur qui compte, pour le fil courant seulement, tant qu'il est arme.
 struct CountingAllocator;
 
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-static ARMED: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    static ARMED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Enregistre une allocation du fil courant, si le comptage y est arme.
+///
+/// `try_with` plutot que `with` : pendant la destruction d'un fil, une variable de fil
+/// peut ne plus etre accessible. Un allocateur qui paniquerait la rendrait le processus
+/// inutilisable, alors qu'il n'y a rien a compter a ce moment-la.
+fn note_allocation() {
+    let armed = ARMED.try_with(Cell::get).unwrap_or(false);
+    if armed {
+        ALLOCATIONS
+            .try_with(|count| count.set(count.get().saturating_add(1)))
+            .ok();
+    }
+}
 
 // SAFETY : toutes les operations sont deleguees telles quelles a l'allocateur
-// systeme, avec le meme `Layout` et le meme pointeur. Le comptage n'ajoute qu'un
-// increment atomique et ne modifie ni le pointeur rendu ni la memoire pointee.
+// systeme, avec le meme `Layout` et le meme pointeur. Le comptage ne touche que des
+// cellules du fil courant et ne modifie ni le pointeur rendu ni la memoire pointee.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ARMED.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        note_allocation();
         System.alloc(layout)
     }
 
@@ -44,9 +73,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if ARMED.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        note_allocation();
         System.realloc(ptr, layout, new_size)
     }
 }
@@ -54,13 +81,13 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-/// Execute `body` en comptant les allocations qu'il declenche.
+/// Execute `body` en comptant les allocations qu'il declenche sur ce fil.
 fn count_allocations<F: FnOnce()>(body: F) -> usize {
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    ARMED.store(true, Ordering::Relaxed);
+    ALLOCATIONS.with(|count| count.set(0));
+    ARMED.with(|armed| armed.set(true));
     body();
-    ARMED.store(false, Ordering::Relaxed);
-    ALLOCATIONS.load(Ordering::Relaxed)
+    ARMED.with(|armed| armed.set(false));
+    ALLOCATIONS.with(Cell::get)
 }
 
 fn record(probe_id: u32, kind: RecordKind, value: u64) -> ProbeRecord {
@@ -72,6 +99,22 @@ fn record(probe_id: u32, kind: RecordKind, value: u64) -> ProbeRecord {
         value,
         kind: kind.to_byte(),
     }
+}
+
+/// Le compteur voit ce qu'il est cense voir.
+///
+/// Sans cette verification, une erreur dans le comptage par fil rendrait le test
+/// principal vide : il constaterait zero allocation parce qu'il n'en compte aucune,
+/// et non parce que le chemin chaud n'alloue rien. Un test qui ne peut plus echouer
+/// est pire qu'un test absent, puisqu'il rassure.
+#[test]
+fn the_counter_actually_counts() {
+    let seen = count_allocations(|| {
+        let noise: Vec<u8> = Vec::with_capacity(4_096);
+        std::hint::black_box(&noise);
+    });
+
+    assert!(seen > 0, "le compteur n'a vu aucune allocation deliberee");
 }
 
 #[test]

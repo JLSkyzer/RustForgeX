@@ -353,3 +353,25 @@ anticipé du cas non armé. Le compteur ne comptait que ce qui allait bien.
 **Règle** : un compteur placé dans le chemin nominal ne dit rien du chemin qui échoue.
 Quand on veut savoir ce qu'on rate, compter les ratés — pas les réussites. Et avant de
 conclure qu'une limite est structurelle, mesurer où elle mord réellement.
+
+### 2026-09-06 | La CI n'avait jamais reussi, et je n'avais jamais regarde | Vert en local ne veut rien dire
+
+Zero succes sur quarante runs. Trois defauts, tous invisibles depuis Windows :
+
+1. `gradlew` et les scripts de banc enregistres en `100644` — « Permission denied »
+   sur Linux, code 126, avant d'executer quoi que ce soit ;
+2. l'etape `lint-no-fiction` citait `FondationsTest`, renomme `FoundationsTest` lors
+   du passage du code a l'anglais ;
+3. `the_hot_path_never_allocates` **instable** : le meme code Rust rendait 0 ou 4
+   allocations d'un commit a l'autre. L'allocateur compteur etait global au processus
+   et comptait aussi le harnais de test, qui alloue sur un autre fil.
+
+Le troisieme est le plus instructif. Le test ne mesurait pas ce que R-320 enonce : il
+mesurait le processus, pas le chemin chaud. Rendu par fil — cellules initialisees en
+`const`, donc sans destructeur ni initialisation paresseuse — il mesure enfin son
+invariant. Et il porte desormais un second test qui verifie que le compteur compte,
+parce qu'un comptage par fil mal cable rendrait le premier vide.
+
+**Regle** : annoncer « tests verts » sur la foi d'une execution locale n'engage rien.
+Lire la CI apres chaque poussee, ou ne pas en avoir. Et un test instable est un defaut
+du test — presque toujours parce qu'il mesure plus large que ce qu'il affirme.

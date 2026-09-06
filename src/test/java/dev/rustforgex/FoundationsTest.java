@@ -14,6 +14,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * cohérentes entre elles.
  */
 class FoundationsTest {
+
+    /** Classe de test citée par une étape de CI, par exemple {@code --tests 'a.b.C'}. */
+    private static final Pattern CI_TEST_FILTER =
+            Pattern.compile("--tests\\s+'([\\w.$]+)'");
 
     /** Marqueurs de fiction interdits dans un module STABLE (contrat agent 3.1). */
     private static final List<String> MARKERS =
@@ -125,6 +131,41 @@ class FoundationsTest {
         }
         assertTrue(violations.isEmpty(),
                 "« placeholder » dans du code effectif :\n  " + String.join("\n  ", violations));
+    }
+
+    /**
+     * Toute classe de test citée par l'intégration continue doit exister.
+     *
+     * <p>Ce test naît d'un défaut réel : une classe renommée de {@code FondationsTest}
+     * en {@code FoundationsTest} lors du passage du code à l'anglais, sans que
+     * {@code ci.yml} suive. Gradle échoue sur un filtre {@code --tests} qui ne
+     * sélectionne rien — à juste titre — et l'étape nommée {@code lint-no-fiction} a
+     * échoué à chaque exécution depuis. Personne ne l'a vu, parce que les tests
+     * passaient en local.
+     *
+     * <p>Une étape de CI qui cite une classe inexistante est exactement la fiction que
+     * {@code lint-no-fiction} traque. Elle relève donc du même test.
+     */
+    @Test
+    @DisplayName("T-006 : les classes de test citées par la CI existent")
+    void testClassesNamedByTheCiExist() throws IOException {
+        Path workflow = root().resolve(".github/workflows/ci.yml");
+        assertTrue(Files.isRegularFile(workflow), "workflow de CI introuvable : " + workflow);
+
+        String content = Files.readString(workflow, StandardCharsets.UTF_8);
+        Matcher matcher = CI_TEST_FILTER.matcher(content);
+        int found = 0;
+        while (matcher.find()) {
+            found++;
+            String className = matcher.group(1);
+            Path source = root()
+                    .resolve("src/test/java")
+                    .resolve(className.replace('.', '/') + ".java");
+            assertTrue(Files.isRegularFile(source),
+                    "ci.yml cite « " + className + " », dont la source est absente : " + source);
+        }
+        assertTrue(found > 0,
+                "aucun filtre --tests trouvé dans ci.yml : ce test ne vérifie plus rien");
     }
 
     @Test
