@@ -96,10 +96,14 @@ jobs:
         run: ./gradlew test --no-daemon
 
       # T-006 : le job `lint-no-fiction` de la PARTIE 24.2 est réalisé par
-      # FondationsTest, qui scanne les sources Java et Rust. Il tourne donc déjà
+      # FoundationsTest, qui scanne les sources Java et Rust. Il tourne donc déjà
       # ci-dessus ; cette étape ne fait que le nommer pour le rapport de CI.
+      #
+      # Le nom doit correspondre exactement : Gradle échoue sur un filtre `--tests`
+      # qui ne sélectionne rien, et c'est heureux — une étape nommée `lint-no-fiction`
+      # qui ne lancerait aucun test serait précisément la fiction qu'elle traque.
       - name: lint-no-fiction
-        run: ./gradlew test --tests 'dev.rustforgex.FondationsTest' --no-daemon
+        run: ./gradlew test --tests 'dev.rustforgex.FoundationsTest' --no-daemon
 
   build:
     name: build + artifact-verify
