@@ -55,6 +55,20 @@ public final class ProbeRegistry implements ProbeIdSource {
     private final AtomicLong failed = new AtomicLong();
 
     /**
+     * Sondes posées sur une classe qu'on n'a pas su rattacher à un mod (C-41).
+     *
+     * <p>Comptée ici parce que c'est le seul endroit qui voit passer chaque classe
+     * sondée avec son propriétaire résolu. La PARTIE 5.39 en fait une métrique,
+     * {@code rfx.discovery.unknown_owner_ratio}, et une condition d'acceptance : moins
+     * de 5 % des classes chaudes doivent être en {@code unknown}.
+     *
+     * <p>Ce compteur en est une <strong>approximation par excès</strong> : il compte des
+     * méthodes sondées, pas des classes, et toutes, pas seulement les chaudes. Il ne
+     * suffit donc pas à prononcer l'acceptance — mais il dit si l'attribution marche.
+     */
+    private final AtomicLong unattributed = new AtomicLong();
+
+    /**
      * @param bridge pont vers le runtime natif
      * @param handle handle du runtime, déjà initialisé
      * @param owners résolveur du mod propriétaire
@@ -73,7 +87,11 @@ public final class ProbeRegistry implements ProbeIdSource {
         requested.incrementAndGet();
         try {
             Map<String, Object> descriptor = Cbor.map();
-            descriptor.put("owner_id", owners.ownerOf(classInternalName));
+            String owner = owners.ownerOf(classInternalName);
+            if (ModOwnerResolver.UNKNOWN.equals(owner)) {
+                unattributed.incrementAndGet();
+            }
+            descriptor.put("owner_id", owner);
             descriptor.put("class_internal_name", classInternalName);
             descriptor.put("method_name", methodName);
             descriptor.put("method_descriptor", methodDescriptor);
@@ -101,6 +119,26 @@ public final class ProbeRegistry implements ProbeIdSource {
             failed.incrementAndGet();
             return NO_PROBE;
         }
+    }
+
+    /**
+     * @return les sondes demandées sur une classe non rattachée à un mod (C-41)
+     */
+    public long unattributed() {
+        return unattributed.get();
+    }
+
+    /**
+     * Part des sondes demandées sur une classe non rattachée, en pourcent.
+     *
+     * <p>Approximation par excès de {@code rfx.discovery.unknown_owner_ratio} : voir
+     * {@link #unattributed()}.
+     *
+     * @return le taux, ou {@code 0} si aucune sonde n'a encore été demandée
+     */
+    public double unknownOwnerPct() {
+        long asked = requested.get();
+        return asked == 0L ? 0.0 : unattributed.get() * 100.0 / asked;
     }
 
     /** @return la correspondance entre trame de pile et identifiant de sonde */

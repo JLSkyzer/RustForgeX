@@ -280,10 +280,23 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       et T-442 le vérifie sur 250 mods synthétiques
 - [ ] Enregistrer les threads créés par les mods (étape 5 de la PARTIE 5.39, RISK-05) :
       demande un hook sur la création de thread, ou l'échantillonnage des piles
-- [ ] `rfx.discovery.unknown_owner_ratio` : suppose de croiser l'inventaire avec les
-      classes réellement sondées, donc de brancher C-41 sur `ProbeRegistry`
-- [ ] Acceptance PARTIE 5.39 : moins de 5 % des classes chaudes en `owner = unknown`.
-      Non mesurable tant que le ratio ci-dessus n'existe pas
+- [x] `rfx.discovery.unknown_owner_ratio` compté dans `ProbeRegistry`, relevé à l'arrêt
+      — mesuré à la fin du chargement il ne portait que sur 160 sondes, l'essentiel des
+      classes se chargeant pendant la partie. **Vérifié en jeu : 2 641 sondes, 0 non
+      rattachée, 0,0 %.** L'explication est structurelle : `TargetScanner` ne vise que
+      des classes de JAR de mods, et ces JAR déclarent leurs paquets
+- [ ] Ce compteur ne voit pas la **mauvaise** attribution, seulement l'absence
+      d'attribution. Deux mods partageant un préfixe de paquet seraient tous deux
+      comptés « rattachés », l'un à tort. C'est ce que l'attribution par module corrige
+- [ ] **L'attribution par module n'a aucun appelant en production** : le transformateur
+      ne connaît que le nom interne de la classe. La table existe, est testée, et sert à
+      `/rfx mods` — mais `ownerOf(module, classe)` n'est appelé que par les tests. Route
+      possible : `StackTraceElement.getModuleName()` dans l'échantillonneur de piles, ou
+      `Class.getModule()` partout où un `Class` est disponible
+- [ ] Acceptance PARTIE 5.39 : moins de 5 % des **classes chaudes** en `owner = unknown`.
+      Le compteur actuel porte sur les méthodes sondées, toutes, pas seulement les
+      chaudes : il ne prononce pas l'acceptance, il montre seulement que l'attribution
+      fonctionne
 
 ### Étape H — C-34 Telemetry, C-35 Diagnostics, C-38 complet
 

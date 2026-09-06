@@ -10,6 +10,7 @@ import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
+import dev.rustforgex.instrument.ProbeRegistry;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -186,6 +187,29 @@ public class RustForgeX {
                         + "connus). Aucune classe n'a été chargée pour cela.",
                 discovery.modCount(), discovery.durationMs(),
                 discovery.knownModules(), discovery.knownPackages());
+    }
+
+    /**
+     * Dit quelle part des sondes n'a pas trouvé de mod propriétaire (C-41).
+     *
+     * <p>La PARTIE 5.39 accepte C-41 si moins de 5 % des classes chaudes sont en
+     * {@code unknown}. Ce chiffre-ci ne prononce pas cette acceptance — il compte des
+     * méthodes, pas des classes, et toutes, pas seulement les chaudes — mais il est le
+     * seul indicateur disponible que l'attribution fonctionne, et il est mesuré.
+     *
+     * <p>Relevé <strong>à l'arrêt</strong>, et pas plus tôt. Mesuré à la fin du
+     * chargement, il ne portait que sur 160 sondes : l'essentiel des classes se charge
+     * pendant la partie, et un taux calculé avant elles ne dirait rien.
+     */
+    private static void logAttribution(RfxRuntime runtime) {
+        ProbeRegistry registry = runtime.instrumentation().registry();
+        if (registry == null || registry.requested() == 0L) {
+            return;
+        }
+        LOGGER.info("RUSTFORGE-X : {} sondes demandées à ce stade, dont {} sur une classe "
+                        + "non rattachée à un mod ({}%).",
+                registry.requested(), registry.unattributed(),
+                String.format(java.util.Locale.ROOT, "%.1f", registry.unknownOwnerPct()));
     }
 
     /** Séquence de démarrage : configuration, vérification de Forge, C-02. */
@@ -371,6 +395,8 @@ public class RustForgeX {
             TickCycle cycle = runtime.tickCycle();
             long ticks = cycle == null ? 0 : cycle.currentTick();
             long rejected = cycle == null ? 0 : cycle.rejectedCalls();
+            // Avant l'arrêt : les compteurs se lisent sur un runtime encore entier.
+            logAttribution(runtime);
             runtime.shutdown();
             LOGGER.info("RUSTFORGE-X arrêté proprement après {} ticks observés ({} appels refusés).",
                     ticks, rejected);
