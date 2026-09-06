@@ -159,7 +159,27 @@ condition posée pour brancher le transformateur est levée.
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
-- [ ] **La mise en pause de la PARTIE 12.4 ne suffit pas à gouverner.** Cinq mesures sur
+- [x] **Les zéros de la ligne de base sont expliqués, et ce n'était pas la méthode.**
+      Elle mesurait 0 parce qu'il n'y avait rien à mesurer : aucune sonde n'était armée
+      (voir « les sondes étaient armées dans le journal, jamais dans le code »). Dès que
+      les sondes ont fonctionné, la première exécution a produit **3,01 %** pour
+      l'armement tardif et **2,43 %** pour l'anticipé — des valeurs plausibles, non
+      nulles, et au-dessus du budget de 1,5 % du MSPT
+- [x] **Le gouverneur s'engage.** Au tick 9 600, la ligne de base à 3,01 % dépasse le
+      budget : le profileur descend jusqu'à `OFF` et désarme les 2 541 sondes. C'est le
+      comportement prévu — protéger le jeu plutôt que mesurer à tout prix
+- [ ] **Conséquence à assumer : une campagne mesure désormais un mélange.** Les 12 000
+      ticks couvrent une période sondée puis une période éteinte. Le p50 qui en sort
+      n'est donc pas « le coût de l'instrumentation » mais celui du produit tel qu'il se
+      comporte. Les deux chiffres sont utiles, ils ne répondent pas à la même question —
+      à séparer explicitement dans le prochain ADR
+- [ ] **L'armement anticipé mesure un coût PLUS FAIBLE que le tardif** (2,43 % contre
+      3,01 %) alors qu'il sonde cinq fois plus de méthodes. Explication possible : il
+      atteint le budget plus tôt, donc le gouverneur l'éteint plus tôt, donc la fenêtre
+      de pause tombe sur un système déjà moins actif — ce serait un artefact de mesure,
+      pas une propriété. **Une seule exécution** ; à confirmer sur les cinq
+- [ ] Texte d'origine, conservé parce qu'il a orienté trois ADR : « la mise en pause de
+      la PARTIE 12.4 ne suffit pas à gouverner. Cinq mesures sur
       la campagne : 13,3 % · 0,0 % · 0,5 % · 0,0 % · 0,0 %, quand la comparaison de
       configurations donne un écart stable de +36,4 %. Elle a vu juste une fois sur cinq.
       Un zéro est la borne, pas un coût nul : la fenêtre en pause a duré plus longtemps
@@ -177,7 +197,13 @@ condition posée pour brancher le transformateur est levée.
       (écart-type inter-exécutions sous 4 % partout). MSPT p95 **+36,1 %**, contre
       +36,4 % et +33,7 %. **Trois campagnes, le même chiffre : le coût est stable et rien
       de ce qui a été fait ne l'a réduit**
-- [ ] **Le gouverneur ne peut pas ramener le coût sous 2 %** (ADR-020, cinquième volet).
+- [ ] **Ce constat portait sur des sondes mortes et doit être refait.** « Le gouverneur
+      ne peut pas ramener le coût sous 2 % » a été établi en comparant `THROTTLED` à
+      `DEEP` — mais dans les deux cas aucune sonde ne mesurait, donc les deux états
+      coûtaient la même chose parce qu'ils *faisaient* la même chose : rien.
+      Le 2026-09-07, avec des sondes vivantes, le gouverneur descend jusqu'à `OFF` et
+      désarme les 2 541 sondes ; reste à voir ce que ça change au MSPT.
+      Texte d'origine conservé ci-dessous pour mémoire :
       L'exécution descendue à `THROTTLED` — aucune sonde armée — donne un p95 de
       3,186 ms, indistinguable des 3,181 à 3,268 ms des exécutions restées à `DEEP`.
       La dépense n'est pas ce que les sondes font, c'est qu'elles existent. **Le seul
@@ -199,8 +225,11 @@ condition posée pour brancher le transformateur est levée.
       `calls_per_tick` est très élevé et le niveau `COUNTER`. **Non implémentée** : il
       faudrait savoir qu'une méthode est très appelée avant de la sonder, donc une
       seconde passe de transformation
-- [ ] Mesurer ce que l'échantillonnage de pile compense : c'est lui qui doit voir les
-      84 % de méthodes qui n'ont plus de sonde
+- [x] **Question caduque : l'échantillonnage ne compensait pas 84 % des méthodes, il
+      était la SEULE source de mesure.** Aucune sonde n'a jamais rapporté avant le
+      2026-09-07 : `RfxProbes.install` n'était appelé que par les tests, et une table de
+      niveaux vide se coinçait dans le cache natif. À reformuler une fois que les sondes
+      auront tourné une campagne entière
 - [ ] Rendre le seuil configurable, pour le balayer dans une campagne au lieu de le
       choisir par raisonnement
 - [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
@@ -450,9 +479,17 @@ donc ouvert.
 
 - [ ] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
       T-410..T-412, T-420..T-422, T-440..T-442 verts
-- [ ] Overhead **mesuré** et affiché sous 2 % sur un profil de charge
+- [ ] Overhead **mesuré** et affiché sous 2 % sur un profil de charge.
+      **État au 2026-09-07 : 3,01 % mesuré par la ligne de base interne**, sur des
+      sondes qui mesurent réellement. Le +6,5 % certifié le 2026-09-06 est caduc : il
+      portait sur des sondes inertes. Deux lectures à ne pas confondre — le coût du
+      sondage en régime armé (3,01 %) et le coût du produit gouverneur compris, que la
+      campagne en cours donnera
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
-- [ ] JAR installable et jouable, client et serveur dédié
+- [ ] JAR installable et jouable, client et serveur dédié.
+      **Le client n'a jamais été lancé une seule fois.** Le filtre de cibles s'y comporte
+      différemment — `dedicatedServer=false` n'écarte pas les classes qui référencent le
+      client — et c'est le risque de casse le moins couvert du jalon
 
 ---
 
