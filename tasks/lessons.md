@@ -267,3 +267,41 @@ et gratuite.
 pas aux métriques. Passer un `grep -c` des motifs d'erreur sur les journaux des deux
 côtés fait apparaître les régressions qu'aucune assertion ne pense à demander — c'est
 exactement ce que la PARTIE 7 du CLAUDE.md appelle relire les journaux.
+
+### 2026-09-06 | Sept heures et demie de campagnes pour des réponses de douze minutes | Certifier n'est pas décider
+
+Quatre campagnes C-36 de 2 h 30 dans la même journée. La question qui motivait les
+deuxième et troisième était « est-ce que ce changement a fait baisser le coût ? », c'est
+à dire distinguer +36 % de +3 %. Un facteur dix ne demande aucune précision : une paire
+B/C de douze minutes y répondait.
+
+La PARTIE 21.3 définit une méthodologie pour **publier** un chiffre. Je l'ai appliquée
+chaque fois que je voulais **savoir** quelque chose. Ce sont deux questions avec des
+exigences de précision sans rapport, et le script acceptait ses paramètres depuis le
+début — je m'en servais déjà en mode court pour les essais à blanc, sans jamais le voir
+comme un instrument de décision.
+
+À la décharge de deux d'entre elles : la variation entre exécutions a produit des
+constats qu'une paire ne pouvait pas donner — la ligne de base rendant zéro quatre fois
+sur cinq, et `THROTTLED` indistinguable de `DEEP`. Mais ces constats auraient pu être
+cherchés **après** avoir obtenu la réponse principale pour douze minutes.
+
+**Règle** : avant toute mesure, demander quelle **précision** la décision exige. Si elle
+tient dans un facteur deux ou plus, une paire courte suffit. La campagne normative ne
+sert qu'à certifier un chiffre qu'on va publier, et elle vient en dernier.
+
+### 2026-09-06 | Une exigence lue comme une consigne | Un plancher n'est pas une politique
+
+R-311 énonce que « le sondage DOIT être refusé pour les méthodes de moins de 12
+instructions ». Nous avions instrumenté tout ce qui dépassait douze, et payé +36 % de
+MSPT pendant tout un jalon. La phrase dit ce qu'il ne faut pas faire ; elle n'ordonne
+rien du reste.
+
+Le cahier des charges se contredisait d'ailleurs à deux pages d'écart : sa table des
+risques note qu'un `nanoTime` coûte vingt à trente nanosecondes et que le niveau `TIMED`
+ne se pose que sur des méthodes « suffisamment longues ». Douze instructions ne l'est
+manifestement pas.
+
+**Règle** : devant un « DOIT être refusé si X », se demander si l'on en a déduit « DOIT
+être accepté si non-X ». Et confronter les seuils chiffrés d'une spécification à ses
+propres affirmations sur les coûts : ils doivent être cohérents entre eux.

@@ -134,10 +134,9 @@ condition posée pour brancher le transformateur est levée.
 - [x] **Coût mesuré par C-36**, campagne conforme PARTIE 21.3 (5 × 12 000 ticks × 2
       configurations, commit `784d8d9`) : MSPT p95 2,523 → 3,372 ms, soit **+33,7 %** ;
       p50 +40,8 % ; TPS inchangé à 20,000 ; démarrage 110 → 118 s
-- [ ] **Le budget de 2 % (H-07, acceptance C-05) n'est pas tenu** : +36,4 % sur le p95,
-      mesuré deux fois à un jour d'intervalle. En absolu 0,90 ms sur 50 ms, donc le jeu
-      ne souffre pas sur cette machine — mais le budget est normatif, et il est dépassé
-      d'un ordre de grandeur. **C'est le défaut ouvert le plus important du jalon**
+- [x] **Le dépassement d'un ordre de grandeur est résorbé** : +36 % est devenu +6,6 %
+      après ADR-021. Ce qui reste est un écart d'un facteur quatre sur le budget de MSPT,
+      et une marge d'un facteur six sur celui de cœur — voir la ligne ci-dessus
 - [x] **`OverheadMeter` ne mesurait pas la dépense dominante** — corrigé : la ligne de
       base de la PARTIE 12.4 mesure le tick entier, donc aussi les `RfxProbes.enter` et
       `exit` injectés. Les deux instruments convergent (32,3 % contre 33,7 %)
@@ -187,8 +186,15 @@ condition posée pour brancher le transformateur est levée.
       plancher, pas une politique. Paire B/C courte sur le serveur de production :
       **16 544 → 2 598 méthodes sondées**, et l'écart p95 passe d'environ **+36 % à
       +2,7 %**. Le chiffre exact n'est pas établi — une seule paire, non conforme
-- [ ] **Campagne conforme sur le nouveau seuil** : il y a enfin quelque chose à
-      certifier. C'est la seule des campagnes restantes qui vaille les 2 h 30
+- [x] **Campagne conforme sur le nouveau seuil** (`fbf659f`, 2026-09-06) : MSPT p95
+      2,409 → 2,569 ms, soit **+6,6 %**, contre +36,1 % avant. Surcoût divisé par 5,5,
+      dispersion sous 4,3 %, TPS inchangé
+- [ ] **Trancher la référence du budget.** H-07 borne à « 2 % d'un cœur » : mesuré
+      **0,32 %**, tenu avec un facteur six de marge. Le budget de MSPT, celui
+      qu'`OverheadMeter` applique, vaut 1,5 % du tick : à +6,6 %, il ne l'est pas. La
+      Definition of Done dit « sous 2 % » sans préciser la référence. **Cette ambiguïté
+      doit être levée par une décision explicite, pas par le choix du chiffre le plus
+      flatteur**
 - [ ] R-311 prévoit une exception — sonder quand même une méthode courte si
       `calls_per_tick` est très élevé et le niveau `COUNTER`. **Non implémentée** : il
       faudrait savoir qu'une méthode est très appelée avant de la sonder, donc une
