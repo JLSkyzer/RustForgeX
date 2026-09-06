@@ -340,9 +340,17 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       production : MSPT p50 1,910 → **9,316 ms**, p95 3,143 → **15,637 ms**, types
       d'événements 12 → 24, TPS toujours à 20,000. **Le serveur au repos cachait un
       facteur cinq**
-- [ ] Refaire une paire B/C **sous charge** : nos 0,16 ms pesaient +6,6 % d'un tick de
-      2,4 ms ; sur un tick de 15,6 ms elles pèseraient environ +1 %. Le budget MSPT de
-      H-07 serait peut-être tenu sous charge réelle — à mesurer, pas à supposer
+- [x] **Paire B/C sous charge mesurée** : p50 +2,6 %, p95 **+2,7 %**, p99 +3,8 %, TPS
+      inchangé. Les deux effets annoncés sont réels et opposés — le pourcentage tombe de
+      +6,6 % à +2,7 %, mais le **coût absolu monte** de 0,16 à **0,275 ms**, davantage de
+      méthodes sondées étant réellement atteintes. Le tick a été multiplié par 4, notre
+      coût par 1,7 seulement
+- [ ] Lecture des budgets sous charge : « 2 % d'un cœur » → 0,275/50 ms = **0,55 %**,
+      tenu avec un facteur quatre de marge. Budget MSPT de 1,5 % → +2,7 %, toujours
+      dépassé mais d'un facteur 1,8 au lieu de 4. **Une seule paire**, pas une campagne
+- [ ] La charge reste vanilla : régions, ticks de blocs, 200 vaches. Aucune machinerie de
+      mod, alors que c'est le premier poste de MSPT d'un pack de 272 mods et la raison
+      d'être du projet. Le monde pré-généré avec usine construite reste la vraie réponse
 - [ ] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
       accumule ses régions, ce qui fait dériver les valeurs absolues entre campagnes
 - [ ] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non
