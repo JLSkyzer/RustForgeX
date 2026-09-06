@@ -326,6 +326,16 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       relevé n'a lieu que sur commande, jamais dans un tick, mais « probablement
       négligeable » n'est pas une mesure
 - [ ] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411)
+- [ ] **`hook_budget_exceeded` vaut 123 sur 4 039 ticks** — première fois qu'il est non
+      nul. Budget : 500 µs par accroche (`DEFAULT_MAX_HOOK_NS`), soit ~1 % des appels.
+      Deux explications tiennent, et le compteur actuel **ne permet pas de trancher** :
+      soit `tick_end` traîne (il parcourt 2 650 unités dans `adapt_probe_levels`), soit
+      une pause GC tombe pendant la mesure — `record_hook` mesure du temps écoulé, donc
+      attribue les pauses GC à nos accroches. La campagne a compté 1 564 ticks
+      contaminés par le GC sur 12 000, ce qui rend la seconde explication très plausible
+- [ ] Rendre ce compteur diagnosticable : retenir la pire durée observée et quelle
+      accroche l'a produite. Un compteur qu'on ne sait pas interpréter ne sert à rien —
+      c'est la même leçon que `CLASSES_SEEN` incrémenté du mauvais côté du retour
 
 ### Étape I — C-36 Benchmark Harness
 

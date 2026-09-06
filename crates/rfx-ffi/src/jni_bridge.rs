@@ -153,6 +153,49 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_transferProbe(
     (checksum & 0x7fff_ffff_ffff_ffff) as jlong
 }
 
+/// Nombre de tentatives pour lire un blob dont la taille peut changer.
+///
+/// Le protocole en deux temps — demander la taille, puis copier — n'est pas atomique :
+/// entre les deux appels, un fil de mod peut deverser ses enregistrements de sonde et
+/// faire changer ce qu'il y a a lire. Le second appel refuse alors un tampon devenu
+/// trop petit, et l'appelant Java croit le runtime muet alors qu'il repond.
+///
+/// Trois tentatives suffisent largement : chacune part de la taille que le refus vient
+/// de rapporter, et la taille ne varie que de quelques dizaines d'octets d'un tick a
+/// l'autre. Boucler sans borne serait pire — une commande de diagnostic ne doit jamais
+/// retenir le fil serveur.
+const READ_ATTEMPTS: usize = 3;
+
+/// Lit un blob CBOR par le protocole en deux temps, en reessayant si la taille change.
+///
+/// `read` recoit `(tampon, capacite, &mut taille)` et suit la convention des fonctions
+/// exportees : capacite nulle pour interroger la taille, sinon copie. Il ecrit la
+/// taille requise dans tous les cas, y compris quand il refuse — c'est ce qui permet a
+/// la tentative suivante de partir de la bonne valeur.
+fn read_sized_blob(mut read: impl FnMut(*mut u8, usize, &mut usize) -> i32) -> Option<Vec<u8>> {
+    let mut size: usize = 0;
+    if read(std::ptr::null_mut(), 0, &mut size) != OK || size == 0 {
+        return None;
+    }
+
+    for _ in 0..READ_ATTEMPTS {
+        let mut buffer = vec![0_u8; size];
+        let mut written: usize = 0;
+        let capacity = buffer.len();
+        if read(buffer.as_mut_ptr(), capacity, &mut written) == OK {
+            buffer.truncate(written);
+            return Some(buffer);
+        }
+        if written == 0 || written == size {
+            // La taille n'a pas change : le refus vient d'autre chose qu'une course,
+            // et reessayer a l'identique ne ferait que perdre du temps.
+            return None;
+        }
+        size = written;
+    }
+    None
+}
+
 /// `RfxNative.status(long)` : blob CBOR de statut, ou `null` en cas d'erreur.
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_status(
@@ -162,30 +205,45 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_status(
 ) -> jbyteArray {
     let null_array: jbyteArray = std::ptr::null_mut();
 
-    let mut size: usize = 0;
-    // SAFETY : tampon nul avec capacite nulle, forme explicitement admise par
-    // `rfx_status` pour interroger la taille requise ; `size` est une locale.
-    let result = unsafe { crate::rfx_status(handle as u64, std::ptr::null_mut(), 0, &mut size) };
-    if result != OK || size == 0 {
+    // SAFETY : `out` est soit nul avec une capacite nulle — forme explicitement admise
+    // par `rfx_status` pour interroger la taille — soit un tampon local possedant
+    // exactement `cap` octets inscriptibles et vivant au-dela de l'appel. `len` est
+    // une locale de `read_sized_blob`.
+    let Some(buffer) =
+        read_sized_blob(|out, cap, len| unsafe { crate::rfx_status(handle as u64, out, cap, len) })
+    else {
         return null_array;
-    }
-
-    let mut buffer = vec![0_u8; size];
-    let mut written: usize = 0;
-    // SAFETY : `buffer` possede exactement `size` octets inscriptibles et vit
-    // au-dela de l'appel.
-    let result = unsafe {
-        crate::rfx_status(
-            handle as u64,
-            buffer.as_mut_ptr(),
-            buffer.len(),
-            &mut written,
-        )
     };
-    if result != OK {
-        return null_array;
+
+    match env.byte_array_from_slice(&buffer) {
+        Ok(array) => array.into_raw(),
+        Err(_) => null_array,
     }
-    buffer.truncate(written);
+}
+
+/// `RfxNative.profilerTop(long, int)` : classement CBOR, ou `null` en cas d'erreur.
+///
+/// Meme forme que `status` : une interrogation de taille, puis une copie. Le
+/// classement n'est demande que par une commande d'operateur, jamais dans un tick.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_profilerTop(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    limit: jint,
+) -> jbyteArray {
+    let null_array: jbyteArray = std::ptr::null_mut();
+    // Une limite negative n'a pas de sens ; la ramener a zero rend un classement vide
+    // mais renseigne quand meme les totaux, ce qui reste une reponse honnete.
+    let limit = u32::try_from(limit).unwrap_or(0);
+
+    // SAFETY : memes preconditions que pour `status` ci-dessus ; `read_sized_blob`
+    // n'appelle jamais avec un pointeur nul et une capacite non nulle.
+    let Some(buffer) = read_sized_blob(|out, cap, len| unsafe {
+        crate::rfx_profiler_top(handle as u64, limit, out, cap, len)
+    }) else {
+        return null_array;
+    };
 
     match env.byte_array_from_slice(&buffer) {
         Ok(array) => array.into_raw(),

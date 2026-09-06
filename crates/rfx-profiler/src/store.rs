@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use rfx_model::{Ewma, Heat, WorkId, WorkloadDynamics};
+use rfx_model::{CostSource, Ewma, Heat, TopEntry, TopWorkloads, WorkId, WorkloadDynamics};
 
 use crate::level::ProbeLevel;
 
@@ -78,6 +78,22 @@ impl WorkloadEntry {
             probed
         } else {
             self.sampled_ns_per_tick.value().max(0.0) as u64
+        }
+    }
+
+    /// D'ou vient le cout rendu par [`Self::cost_ns_per_tick`].
+    ///
+    /// Un chiffre sans sa provenance ne se compare pas : celui d'une sonde est mesure
+    /// a l'appel, celui d'un echantillonnage est statistique (R-322). Les melanger
+    /// sans le dire produirait un classement dont personne ne saurait ce qu'il vaut.
+    #[must_use]
+    pub fn cost_source(&self) -> CostSource {
+        if self.dynamics.ns_per_tick() > 0 {
+            CostSource::Probe
+        } else if self.sampled_ns_per_tick.value() > 0.0 {
+            CostSource::Sampling
+        } else {
+            CostSource::None
         }
     }
 
@@ -233,6 +249,64 @@ impl WorkloadStore {
         live
     }
 
+    /// Classement des `n` unites les plus couteuses, pret a traverser la frontiere.
+    ///
+    /// Rend des identifiants de sonde, jamais de noms : le natif ne retient pas les
+    /// noms de classes et de methodes, et c'est Java qui les a declares. Deux copies
+    /// de la meme information divergeraient au premier rechargement.
+    ///
+    /// `measured` compte les unites ayant un cout non nul, toutes sources confondues.
+    /// Compare a `tracked`, il dit si le classement est representatif ou si presque
+    /// rien n'a ete observe — un classement de zeros est un classement vide, et
+    /// l'afficheur doit pouvoir le dire plutot que d'aligner des unites a 0 ns.
+    #[must_use]
+    pub fn top(&self, n: usize) -> TopWorkloads {
+        let mut ranked: Vec<(usize, &WorkloadEntry)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.live)
+            .collect();
+        ranked.sort_by(|(_, a), (_, b)| {
+            b.cost_ns_per_tick()
+                .cmp(&a.cost_ns_per_tick())
+                .then_with(|| a.work_id.cmp(&b.work_id))
+        });
+
+        let measured = ranked
+            .iter()
+            .filter(|(_, e)| e.cost_ns_per_tick() > 0)
+            .count();
+        let tracked = ranked.len();
+        ranked.truncate(n);
+
+        TopWorkloads {
+            schema: TopWorkloads::SCHEMA,
+            tracked: tracked as u64,
+            measured: measured as u64,
+            entries: ranked
+                .into_iter()
+                .map(|(index, e)| TopEntry {
+                    probe_id: u32::try_from(index).unwrap_or(u32::MAX),
+                    work_id: e.work_id.0,
+                    cost_ns_per_tick: e.cost_ns_per_tick(),
+                    source: e.cost_source(),
+                    calls_per_tick_x100: (e.dynamics.calls_per_tick.value() * 100.0).max(0.0)
+                        as u64,
+                    cpu_ns_p50: e.dynamics.cpu_ns.p50(),
+                    cpu_ns_p95: e.dynamics.cpu_ns.p95(),
+                    timed_calls: e.dynamics.cpu_ns.count(),
+                    sampled_hits: e.sampled_hits,
+                    alloc_bytes_per_tick: e.dynamics.alloc_bytes.value().max(0.0) as u64,
+                    heat: e.dynamics.heat.label().to_owned(),
+                    level: e.level.label().to_owned(),
+                    observation_quality_pct: (e.dynamics.observation_quality * 100.0)
+                        .clamp(0.0, 100.0) as u32,
+                })
+                .collect(),
+        }
+    }
+
     /// Evince l'unite `COLD` la moins recemment vue.
     ///
     /// Ne touche jamais a une unite plus chaude que `COLD` : evincer ce qui coute cher
@@ -278,6 +352,82 @@ mod tests {
         assert_eq!(store.register(work_id(1)), Some(0));
         assert_eq!(store.register(work_id(2)), Some(1));
         assert_eq!(store.register(work_id(3)), Some(2));
+    }
+
+    /// Le classement rend des identifiants de sonde, et dit d'ou vient chaque cout.
+    ///
+    /// Un cout sans sa provenance ne se compare pas : celui d'une sonde est mesure a
+    /// l'appel, celui d'un echantillonnage est statistique (R-322).
+    #[test]
+    fn the_ranking_names_the_source_of_each_cost() {
+        let mut store = WorkloadStore::new(10);
+        let probed = store.register(work_id(1)).expect("probed");
+        let sampled = store.register(work_id(2)).expect("sampled");
+        let silent = store.register(work_id(3)).expect("silent");
+
+        let entry = store.get_mut(probed).expect("entree");
+        entry.dynamics.calls_per_tick.update(10.0);
+        entry.dynamics.cpu_ns.record(1_000);
+
+        store
+            .get_mut(sampled)
+            .expect("entree")
+            .sampled_ns_per_tick
+            .update(500.0);
+
+        let top = store.top(10);
+
+        assert_eq!(top.schema, TopWorkloads::SCHEMA);
+        assert_eq!(top.tracked, 3);
+        assert_eq!(
+            top.measured, 2,
+            "l'unite muette ne compte pas comme mesuree"
+        );
+        assert_eq!(top.entries[0].probe_id, probed);
+        assert_eq!(top.entries[0].source, CostSource::Probe);
+        assert_eq!(top.entries[1].probe_id, sampled);
+        assert_eq!(top.entries[1].source, CostSource::Sampling);
+        assert_eq!(top.entries[2].probe_id, silent);
+        assert_eq!(
+            top.entries[2].source,
+            CostSource::None,
+            "sans mesure, il faut le dire, pas rendre zero comme un cout"
+        );
+    }
+
+    /// `limit` borne les entrees, mais pas les totaux : savoir qu'on regarde vingt
+    /// unites sur deux mille est ce qui dit si le classement veut dire quelque chose.
+    #[test]
+    fn the_limit_bounds_the_entries_not_the_totals() {
+        let mut store = WorkloadStore::new(10);
+        for n in 1..=5 {
+            let id = store.register(work_id(n)).expect("unite");
+            let entry = store.get_mut(id).expect("entree");
+            entry.dynamics.calls_per_tick.update(f64::from(n as u32));
+            entry.dynamics.cpu_ns.record(1_000);
+        }
+
+        let top = store.top(2);
+
+        assert_eq!(top.entries.len(), 2);
+        assert_eq!(top.tracked, 5);
+        assert_eq!(top.measured, 5);
+        assert!(
+            top.entries[0].cost_ns_per_tick >= top.entries[1].cost_ns_per_tick,
+            "le classement doit etre decroissant"
+        );
+    }
+
+    /// Une commande de diagnostic ne doit pas changer ce qu'elle observe.
+    #[test]
+    fn ranking_twice_gives_the_same_answer() {
+        let mut store = WorkloadStore::new(10);
+        let id = store.register(work_id(1)).expect("unite");
+        let entry = store.get_mut(id).expect("entree");
+        entry.dynamics.calls_per_tick.update(4.0);
+        entry.dynamics.cpu_ns.record(2_000);
+
+        assert_eq!(store.top(5), store.top(5));
     }
 
     /// T-143 / R-321 : au-dela du plafond, une unite `COLD` est evincee.

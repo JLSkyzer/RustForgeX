@@ -101,6 +101,19 @@ public final class RfxNative {
     public static native byte[] status(long handle);
 
     /**
+     * Classement des unités de travail les plus coûteuses (C-35).
+     *
+     * <p>Le classement ne porte aucun nom de classe ni de méthode : le natif ne les
+     * retient pas. Il rend des identifiants de sonde, que le mod sait résoudre puisque
+     * c'est lui qui les a déclarés.
+     *
+     * @param handle handle du runtime
+     * @param limit nombre maximal d'entrées rendues
+     * @return le blob CBOR, ou {@code null} en cas d'échec
+     */
+    public static native byte[] profilerTop(long handle, int limit);
+
+    /**
      * Ouvre la fenêtre de tick (IF-02).
      *
      * <p>Toujours appelée depuis le thread autoritatif. Si le tick précédent n'a pas

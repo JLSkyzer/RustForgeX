@@ -375,3 +375,36 @@ parce qu'un comptage par fil mal cable rendrait le premier vide.
 **Regle** : annoncer « tests verts » sur la foi d'une execution locale n'engage rien.
 Lire la CI apres chaque poussee, ou ne pas en avoir. Et un test instable est un defaut
 du test — presque toujours parce qu'il mesure plus large que ce qu'il affirme.
+
+### 2026-09-06 | Un blob CBOR valide et indéchiffrable | Suivre la convention qui est déjà là
+
+`/rfx top` répondait « aucun classement disponible » alors que le natif en produisait
+un. J'avais déclaré `calls_per_tick: f64`. Or `CborReader` ne décode du type majeur 7
+que les booléens — choix assumé, un décodeur qui traverse une frontière de confiance a
+d'autant moins de défauts possibles qu'il accepte moins de choses. C'est exactement
+pourquoi `RuntimeStatus` écrit déjà `overhead_pct_x100`.
+
+La convention était dans le fichier voisin. Je ne l'ai pas lue avant d'écrire.
+
+Plus grave : **rien ne l'a signalé avant un lancement de serveur.** Corrigé par un test
+qui sérialise le modèle et parcourt le CBOR produit avec un décodeur reflétant les
+limites de celui de Java, en échouant sur tout ce que Java refuserait.
+
+**Règle** : avant d'ajouter un modèle qui traverse une frontière, lire un modèle qui la
+traverse déjà. Et toute contrainte d'interopérabilité doit avoir un test des deux côtés,
+sinon elle se vérifie en production.
+
+### 2026-09-06 | Le protocole en deux temps n'était pas atomique | Une taille lue n'est pas une taille garantie
+
+Demander la taille d'un blob, allouer, puis copier : entre les deux appels, un fil de
+mod peut appeler `transferProbe` et faire changer ce qu'il y a à lire. Le second appel
+refuse un tampon devenu trop petit, et Java croit le runtime muet alors qu'il répond.
+
+`rfx_status` avait le même défaut **depuis le début**, latent : sa taille varie moins,
+donc la course ne s'était jamais manifestée. Je ne l'ai vu qu'en écrivant une seconde
+fonction sur le même patron, et en la voyant échouer une fois sur deux.
+
+**Règle** : un protocole « interroger puis lire » suppose que rien ne change entre les
+deux. Si l'état est partagé, cette supposition est fausse — reprendre la taille que le
+refus rapporte, avec un nombre d'essais borné. Et un défaut trouvé dans du code neuf
+doit être cherché dans l'ancien qui partage le même patron.

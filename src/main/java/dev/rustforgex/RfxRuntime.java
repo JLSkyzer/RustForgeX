@@ -269,6 +269,33 @@ public final class RfxRuntime {
     }
 
     /**
+     * Classement des unités les plus coûteuses (C-35, {@code /rfx top}).
+     *
+     * <p>Un appel natif, puis un décodage. Comme le statut, à n'appeler ni dans un tick
+     * ni dans une boucle (INV-14).
+     *
+     * @param limit nombre maximal d'entrées
+     * @return le classement décodé, ou {@code null} s'il est indisponible
+     */
+    public Map<String, Object> topWorkloads(int limit) {
+        if (!active()) {
+            return null;
+        }
+        byte[] blob = bridge.profilerTop(report.handle(), Math.max(limit, 0));
+        if (blob == null || blob.length == 0) {
+            return null;
+        }
+        try {
+            Object decoded = CborReader.decode(blob);
+            return decoded instanceof Map<?, ?> ? cast(decoded) : null;
+        } catch (CborReader.InvalidCbor | RuntimeException e) {
+            // Un classement illisible n'est pas une panne du jeu : la commande dira
+            // qu'il est indisponible, et le tick continue.
+            return null;
+        }
+    }
+
+    /**
      * Écrit un rapport de métriques exploitable (C-34, C-35).
      *
      * <p>Le fichier est nommé par l'horodatage, jamais écrasé : deux rapports pris à

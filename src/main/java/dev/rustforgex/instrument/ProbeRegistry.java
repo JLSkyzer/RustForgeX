@@ -5,6 +5,9 @@ import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.launch.ProbeIdSource;
 
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -69,6 +72,23 @@ public final class ProbeRegistry implements ProbeIdSource {
     private final AtomicLong unattributed = new AtomicLong();
 
     /**
+     * Nom lisible de chaque méthode sondée, indexé par identifiant de sonde.
+     *
+     * <p>Le natif ne retient <strong>aucun</strong> nom : il calcule le {@code WorkId}
+     * à l'enregistrement et n'en garde que l'entier. Quand il rend un classement, il
+     * rend donc des identifiants de sonde, et c'est ici qu'on retrouve à quoi ils
+     * correspondent — chez celui qui les a déclarés.
+     *
+     * <p>Garder les noms des deux côtés créerait deux sources de vérité pour la même
+     * information, qui divergeraient au premier rechargement.
+     *
+     * <p>Les identifiants sont denses et attribués dans l'ordre : une liste
+     * synchronisée suffit, et l'accès par indice est direct.
+     */
+    private final List<String> namesByProbeId =
+            Collections.synchronizedList(new ArrayList<>(4096));
+
+    /**
      * @param bridge pont vers le runtime natif
      * @param handle handle du runtime, déjà initialisé
      * @param owners résolveur du mod propriétaire
@@ -104,6 +124,7 @@ public final class ProbeRegistry implements ProbeIdSource {
             if (probeId >= 0) {
                 granted.incrementAndGet();
                 frameIndex.declare(classInternalName, methodName, probeId);
+                rememberName(probeId, classInternalName, methodName);
                 return probeId;
             }
             // -1 : plafond d'unités suivies atteint, la méthode n'est pas sondée.
@@ -139,6 +160,39 @@ public final class ProbeRegistry implements ProbeIdSource {
     public double unknownOwnerPct() {
         long asked = requested.get();
         return asked == 0L ? 0.0 : unattributed.get() * 100.0 / asked;
+    }
+
+    /**
+     * Retrouve la méthode que désigne un identifiant de sonde.
+     *
+     * @param probeId identifiant rendu par le natif
+     * @return {@code classe#methode}, ou {@code null} si cet identifiant est inconnu
+     */
+    public String nameOf(int probeId) {
+        if (probeId < 0) {
+            return null;
+        }
+        synchronized (namesByProbeId) {
+            return probeId < namesByProbeId.size() ? namesByProbeId.get(probeId) : null;
+        }
+    }
+
+    /**
+     * Retient le nom d'une sonde, à la position de son identifiant.
+     *
+     * <p>Les identifiants sont denses mais deux fils peuvent en obtenir deux dans un
+     * ordre quelconque : la liste est donc comblée jusqu'à la position voulue plutôt
+     * que simplement allongée. Un trou vaut mieux qu'un décalage — un décalage
+     * attribuerait un coût à la mauvaise méthode, ce qui est pire que ne rien dire.
+     */
+    private void rememberName(int probeId, String classInternalName, String methodName) {
+        String name = classInternalName.replace('/', '.') + '#' + methodName;
+        synchronized (namesByProbeId) {
+            while (namesByProbeId.size() <= probeId) {
+                namesByProbeId.add(null);
+            }
+            namesByProbeId.set(probeId, name);
+        }
     }
 
     /** @return la correspondance entre trame de pile et identifiant de sonde */

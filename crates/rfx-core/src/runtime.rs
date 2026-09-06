@@ -342,6 +342,20 @@ impl Runtime {
         self.panics
     }
 
+    /// Classement des unites de travail les plus couteuses (C-35, `/rfx top`).
+    ///
+    /// Lecture pure : ne modifie rien, ne remet aucun compteur a zero. Deux appels
+    /// consecutifs rendent la meme chose si aucun tick ne s'est ecoule entre eux,
+    /// faute de quoi une commande de diagnostic changerait ce qu'elle observe.
+    ///
+    /// `limit` est borne par l'appelant ; zero rend un classement vide mais renseigne
+    /// tout de meme `tracked` et `measured`, ce qui suffit a savoir s'il y avait
+    /// quelque chose a voir.
+    #[must_use]
+    pub fn top_workloads(&self, limit: usize) -> rfx_model::TopWorkloads {
+        self.profiler.store().top(limit)
+    }
+
     /// Construit le blob de statut publie vers Java (`/rfx status`).
     #[must_use]
     pub fn status(&self) -> RuntimeStatus {

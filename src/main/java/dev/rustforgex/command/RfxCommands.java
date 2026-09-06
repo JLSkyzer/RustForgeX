@@ -50,6 +50,11 @@ public final class RfxCommands {
                                     showMods(context.getSource());
                                     return 1;
                                 }))
+                        .then(Commands.literal("top")
+                                .executes(context -> {
+                                    showTop(context.getSource());
+                                    return 1;
+                                }))
                         .then(Commands.literal("report")
                                 .executes(context -> {
                                     writeReport(context.getSource());
@@ -80,6 +85,20 @@ public final class RfxCommands {
         } catch (java.io.IOException e) {
             source.sendFailure(Component.translatable(
                     REPORT_PREFIX + "failed", Component.literal(e.toString())));
+        }
+    }
+
+    /** Envoie le classement des unités les plus coûteuses (C-35). */
+    private static void showTop(CommandSourceStack source) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        List<Component> lines = runtime == null
+                ? List.of(Component.translatable(TopReport.KEY_PREFIX + "unavailable"))
+                : TopReport.lines(runtime.topWorkloads(TopReport.DEFAULT_LIMIT),
+                        runtime.instrumentation() == null
+                                ? null : runtime.instrumentation().registry());
+
+        for (Component line : lines) {
+            source.sendSuccess(() -> line, false);
         }
     }
 

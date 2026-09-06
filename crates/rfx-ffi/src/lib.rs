@@ -252,6 +252,60 @@ pub unsafe extern "C" fn rfx_status(
     })
 }
 
+/// Ecrit le classement des unites les plus couteuses dans `out`, en CBOR (C-35).
+///
+/// Meme protocole en deux temps que [`rfx_status`] : appeler d'abord avec `cap == 0`
+/// pour obtenir la taille requise dans `out_len`, puis rappeler avec un tampon de
+/// cette taille.
+///
+/// `limit` borne le nombre d'entrees rendues. Le classement ne transporte aucun nom de
+/// classe ni de methode : le natif ne les retient pas, et c'est Java qui les a
+/// declares. Il rend des identifiants de sonde, que Java sait resoudre.
+///
+/// R-700 : un seul passage rend tout le classement. Interroger les unites une par une
+/// couterait une traversee par unite, pour une commande qui en veut vingt.
+///
+/// # Safety
+///
+/// `out` doit pointer sur au moins `cap` octets inscriptibles (il peut etre nul si
+/// `cap` vaut zero), et `out_len` sur un `usize` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_profiler_top(
+    handle: u64,
+    limit: u32,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if out_len.is_null() || (out.is_null() && cap > 0) {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+
+        let top = match runtime::with(handle, |rt| rt.top_workloads(limit as usize)) {
+            Ok(t) => t,
+            Err(e) => return e.ffi_code(),
+        };
+        let Ok(blob) = rfx_model::to_cbor(&top) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+
+        // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+        unsafe { out_len.write(blob.len()) };
+        if cap == 0 {
+            return OK;
+        }
+        if cap < blob.len() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : `out` possede au moins `cap` octets inscriptibles et `cap` est
+        // superieur ou egal a la longueur copiee ; les zones ne se recouvrent pas,
+        // `blob` etant une allocation locale.
+        unsafe { std::ptr::copy_nonoverlapping(blob.as_ptr(), out, blob.len()) };
+        OK
+    })
+}
+
 // ---------------------------------------------------------------------------
 // IF-02 : cycle de tick
 // ---------------------------------------------------------------------------

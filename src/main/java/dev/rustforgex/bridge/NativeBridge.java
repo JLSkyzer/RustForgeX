@@ -68,6 +68,15 @@ public interface NativeBridge {
     byte[] status(long handle);
 
     /**
+     * Classement des unités de travail les plus coûteuses (C-35, {@code /rfx top}).
+     *
+     * @param handle handle du runtime
+     * @param limit nombre maximal d'entrées
+     * @return le blob CBOR, ou {@code null} si le classement est indisponible
+     */
+    byte[] profilerTop(long handle, int limit);
+
+    /**
      * @param handle handle du runtime
      * @return {@code -3001} si le confinement des panics fonctionne
      */
@@ -189,6 +198,11 @@ public interface NativeBridge {
             @Override
             public long transferProbe(long handle, ByteBuffer buffer, int length) {
                 return RfxNative.transferProbe(handle, buffer, length);
+            }
+
+            @Override
+            public byte[] profilerTop(long handle, int limit) {
+                return RfxNative.profilerTop(handle, limit);
             }
 
             @Override

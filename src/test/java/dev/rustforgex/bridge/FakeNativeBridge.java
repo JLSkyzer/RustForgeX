@@ -59,6 +59,18 @@ public class FakeNativeBridge implements NativeBridge {
         return new byte[0];
     }
 
+    /**
+     * Aucun classement : ce double n'a pas de profileur derrière lui.
+     *
+     * <p>{@code null} plutôt qu'un tableau vide — un tableau vide serait un CBOR
+     * illisible, donc une erreur de décodage, là où {@code null} dit exactement ce
+     * qu'il en est : le classement n'est pas disponible.
+     */
+    @Override
+    public byte[] profilerTop(long handle, int limit) {
+        return null;
+    }
+
     @Override
     public int panicTest(long handle) {
         return -3001;

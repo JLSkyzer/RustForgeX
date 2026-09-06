@@ -18,6 +18,7 @@ pub mod dynamics;
 pub mod hardware;
 pub mod maturity;
 pub mod status;
+pub mod top;
 pub mod workid;
 
 pub use config::{RuntimeConfig, RuntimeMode};
@@ -27,6 +28,7 @@ pub use maturity::Maturity;
 pub use status::{
     ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, TickStatus,
 };
+pub use top::{CostSource, TopEntry, TopWorkloads};
 pub use workid::{Side, WorkDescriptor, WorkId};
 
 /// Version du schema de serialisation des blobs CBOR echanges avec Java.
