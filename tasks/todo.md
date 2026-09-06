@@ -300,11 +300,32 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 
 ### Étape H — C-34 Telemetry, C-35 Diagnostics, C-38 complet
 
-- [ ] Métriques typées à cardinalité bornée, export JSON, coût < 0,2 % du MSPT
-- [ ] Aucune socket ouverte par RUSTFORGE-X (T-400)
-- [ ] `/rfx why`, `/rfx top`, `/rfx mods`, `/rfx workload`, `/rfx report`
-- [ ] Fiche d'explication au format normatif de la PARTIE 5.33, en moins de 50 ms
-- [ ] Anonymisation des chemins dans les rapports exportables (R-571)
+- [x] **C-34 : métriques typées à cardinalité bornée, export JSON.** 27 séries en six
+      domaines, chacune nommée `rfx.<domaine>.<mesure>`, typée, unitée et documentée.
+      Borne de 256 séries **vérifiée à l'exécution** — la dépasser lève, parce qu'un
+      dépassement signale un nom construit à partir d'une donnée (T-402)
+- [x] R-660 tenu dans la télémétrie : une valeur que la source n'a pas mesurée n'est
+      pas publiée du tout. La ligne de base de la PARTIE 12.4 n'apparaît qu'après une
+      pause réelle — un `0 %` sans mesure ferait passer une absence pour un coût nul
+- [x] **T-400 : aucune socket.** Vérifié mécaniquement, pas promis : aucune source Java
+      ni Rust n'a le droit de nommer un type ouvrant une connexion
+- [x] **R-562 : toute métrique documentée dans `BENCHMARKS.md`**, et un test échoue si
+      une métrique produite par le code n'y figure pas. Un catalogue qu'aucun test ne
+      garde décrit bientôt un système qui n'existe plus
+- [x] **R-571 : anonymisation** — `<gameDir>` et `<home>` remplacent les racines, plus
+      longue d'abord, les deux séparateurs reconnus (T-412)
+- [x] `/rfx mods` et `/rfx report`
+- [ ] `/rfx why`, `/rfx top`, `/rfx workload` : demandent la liste des unités de travail
+      les plus coûteuses, que le natif n'exporte pas encore. Suppose une fonction FFI
+      de plus — travail normal, mais pas gratuit
+- [ ] Fiche d'explication de la PARTIE 5.33 : **seul le bloc `MEASURED` est productible
+      à ce jalon.** `ANALYSIS` suppose C-19 à C-22 (lectures, écritures, déterminisme),
+      `DECISION` suppose C-23 à C-27. Aucun n'existe. Les remplir serait inventer
+- [ ] R-570 : fiche en moins de 50 ms — non mesurable tant que la fiche n'existe pas
+- [ ] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401) — **non mesuré**. Le
+      relevé n'a lieu que sur commande, jamais dans un tick, mais « probablement
+      négligeable » n'est pas une mesure
+- [ ] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411)
 
 ### Étape I — C-36 Benchmark Harness
 

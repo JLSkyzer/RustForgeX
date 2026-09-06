@@ -36,6 +36,18 @@ class FoundationsTest {
     private static final Pattern CI_TEST_FILTER =
             Pattern.compile("--tests\\s+'([\\w.$]+)'");
 
+    /**
+     * Types dont la seule présence trahirait une connexion sortante (R-560, INV-15).
+     *
+     * <p>Côté Java comme côté Rust. La liste vise ce qui ouvre une connexion, pas ce qui
+     * manipule une adresse : {@code URI} sert à nommer une ressource locale et reste
+     * autorisé, {@code URL#openStream} non.
+     */
+    private static final List<String> NETWORK_TYPES = List.of(
+            "java.net.Socket", "ServerSocket", "HttpClient", "HttpURLConnection",
+            "URLConnection", "DatagramSocket", "SocketChannel", "InetAddress",
+            "std::net::", "TcpStream", "TcpListener", "UdpSocket");
+
     /** Marqueurs de fiction interdits dans un module STABLE (contrat agent 3.1). */
     private static final List<String> MARKERS =
             List.of("TODO", "FIXME", "todo!(", "unimplemented!(");
@@ -166,6 +178,46 @@ class FoundationsTest {
         }
         assertTrue(found > 0,
                 "aucun filtre --tests trouvé dans ci.yml : ce test ne vérifie plus rien");
+    }
+
+    /**
+     * T-400 : RUSTFORGE-X n'ouvre aucune socket (R-560, INV-15).
+     *
+     * <p>« Aucune télémétrie externe » est une promesse que personne ne peut vérifier en
+     * relisant du code, et que le premier ajout distrait romprait sans bruit. Elle se
+     * vérifie donc mécaniquement : aucune source n'a le droit de nommer les types qui
+     * ouvrent une connexion.
+     *
+     * <p>Le test porte sur les <em>noms de types</em>, pas sur les imports : une
+     * référence pleinement qualifiée passerait sous un contrôle d'imports.
+     */
+    @Test
+    @DisplayName("T-400 : aucune source ne nomme un type ouvrant une connexion réseau")
+    void noSourceNamesANetworkType() throws IOException {
+        List<Path> files = sources();
+        Assumptions.assumeFalse(files.isEmpty(), "sources introuvables");
+
+        List<String> violations = new ArrayList<>();
+        for (Path file : files) {
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (isDocumentation(line) || line.trim().startsWith("//")) {
+                    // La documentation doit pouvoir énoncer l'interdiction elle-même.
+                    continue;
+                }
+                for (String type : NETWORK_TYPES) {
+                    if (line.contains(type)) {
+                        violations.add(root().relativize(file) + ":" + (i + 1)
+                                + " nomme « " + type + " »");
+                    }
+                }
+            }
+        }
+        assertTrue(violations.isEmpty(),
+                "R-560 et INV-15 : RUSTFORGE-X n'ouvre aucune connexion réseau."
+                        + System.lineSeparator() + "  "
+                        + String.join(System.lineSeparator() + "  ", violations));
     }
 
     @Test

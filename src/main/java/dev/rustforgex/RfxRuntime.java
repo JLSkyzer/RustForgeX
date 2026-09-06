@@ -5,17 +5,27 @@ import dev.rustforgex.bridge.CborReader;
 import dev.rustforgex.bridge.NativeBridge;
 import dev.rustforgex.command.StatusReport;
 import dev.rustforgex.config.Configuration;
+import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.forge.ForgeVersions;
 import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.ModSource;
+import dev.rustforgex.telemetry.Anonymizer;
+import dev.rustforgex.telemetry.MetricSet;
+import dev.rustforgex.telemetry.MetricsJson;
+import dev.rustforgex.telemetry.Telemetry;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
+import dev.rustforgex.instrument.ProbeRegistry;
 import dev.rustforgex.instrument.ProbeSink;
 import net.minecraft.network.chat.Component;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -51,14 +61,25 @@ public final class RfxRuntime {
      * quand une commande le demande.
      */
     private volatile ModDiscovery modDiscovery;
+
+    /**
+     * Racine de travail, {@code <gameDir>/rustforgex}.
+     *
+     * <p>Retenue pour deux usages : écrire les rapports sous {@code reports/}, et servir
+     * de racine à l'anonymisation (R-571) — c'est le chemin qu'un rapport ne doit pas
+     * révéler.
+     */
+    private final Path root;
     private final EventObserver eventObserver;
 
     private RfxRuntime(
+            Path root,
             Configuration configuration,
             Bootstrap.Report report,
             boolean observeOnly,
             NativeBridge bridge,
             boolean clientSide) {
+        this.root = root;
         this.configuration = configuration;
         this.report = report;
         this.observeOnly = observeOnly;
@@ -150,7 +171,8 @@ public final class RfxRuntime {
             report = Bootstrap.start(Bootstrap.Context.real(root, configuration, clientSide));
         }
 
-        instance = new RfxRuntime(configuration, report, observeOnly, NativeBridge.real(), clientSide);
+        instance = new RfxRuntime(
+                root, configuration, report, observeOnly, NativeBridge.real(), clientSide);
         return instance;
     }
 
@@ -214,6 +236,57 @@ public final class RfxRuntime {
      */
     public ModDiscovery modDiscovery() {
         return modDiscovery;
+    }
+
+    /**
+     * Relève les métriques du runtime (C-34).
+     *
+     * <p>Un appel natif — celui du statut — puis une mise en forme. À n'appeler ni dans
+     * un tick ni dans une boucle (INV-14).
+     *
+     * @return le recueil, jamais {@code null}
+     */
+    public MetricSet metrics() {
+        Instrumentation instr = instrumentation;
+        ProbeRegistry registry = instr == null ? null : instr.registry();
+        ModDiscovery discovery = modDiscovery;
+        EventObserver observer = eventObserver;
+        EventDispatchTable events = observer == null ? null : observer.table();
+
+        return Telemetry.collect(
+                nativeStatus(),
+                instr == null ? null : new Telemetry.InstrumentationCounts(
+                        instr.armed(), instr.classesSeen(), instr.classesMissed(),
+                        instr.methodsProbed(), instr.transformFailures(),
+                        registry == null ? 0L : registry.requested(),
+                        registry == null ? 0L : registry.unattributed()),
+                discovery == null ? null : new Telemetry.DiscoveryCounts(
+                        discovery.modCount(), discovery.knownModules(),
+                        discovery.knownPackages(), discovery.durationMs()),
+                events == null ? null : new Telemetry.EventCounts(
+                        events.dispatched(), events.knownTypes(),
+                        events.timed(), events.abandoned()));
+    }
+
+    /**
+     * Écrit un rapport de métriques exploitable (C-34, C-35).
+     *
+     * <p>Le fichier est nommé par l'horodatage, jamais écrasé : deux rapports pris à
+     * deux moments sont deux observations, et l'un ne remplace pas l'autre.
+     *
+     * <p>Les chemins y sont anonymisés (R-571) : un rapport est fait pour être envoyé.
+     *
+     * @return le chemin du rapport écrit
+     * @throws IOException si le fichier ne peut être écrit
+     */
+    public Path writeReport() throws IOException {
+        Path directory = root.resolve("reports");
+        Files.createDirectories(directory);
+        Path file = directory.resolve("rfx-report-" + Instant.now().getEpochSecond() + ".json");
+        Files.writeString(file,
+                MetricsJson.render(metrics(), Anonymizer.ofSystem(root)),
+                StandardCharsets.UTF_8);
+        return file;
     }
 
     /**

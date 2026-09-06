@@ -33,6 +33,9 @@ public final class RfxCommands {
      *
      * @param dispatcher répartiteur fourni par {@code RegisterCommandsEvent}
      */
+    /** Préfixe des clés de traduction du rapport exporté. */
+    private static final String REPORT_PREFIX = "rustforgex.report.";
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(
                 Commands.literal("rfx")
@@ -46,7 +49,38 @@ public final class RfxCommands {
                                 .executes(context -> {
                                     showMods(context.getSource());
                                     return 1;
+                                }))
+                        .then(Commands.literal("report")
+                                .executes(context -> {
+                                    writeReport(context.getSource());
+                                    return 1;
                                 })));
+    }
+
+    /**
+     * Écrit un rapport de métriques et dit où il est (C-34, C-35).
+     *
+     * <p>L'écriture est une entrée-sortie : elle a lieu parce qu'un joueur l'a demandée,
+     * jamais pendant un tick. Un échec d'écriture est dit, il n'interrompt rien.
+     */
+    private static void writeReport(CommandSourceStack source) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime == null) {
+            source.sendSuccess(
+                    () -> Component.translatable(StatusReport.KEY_PREFIX + "not_started"), false);
+            return;
+        }
+        try {
+            java.nio.file.Path file = runtime.writeReport();
+            // Le chemin affiché est celui de la machine de l'opérateur : c'est lui qui
+            // doit retrouver le fichier. R-571 porte sur le CONTENU exporté, pas sur ce
+            // qu'on dit à celui qui vient de le demander chez lui.
+            source.sendSuccess(() -> Component.translatable(
+                    REPORT_PREFIX + "written", Component.literal(file.toString())), false);
+        } catch (java.io.IOException e) {
+            source.sendFailure(Component.translatable(
+                    REPORT_PREFIX + "failed", Component.literal(e.toString())));
+        }
     }
 
     /** Envoie l'inventaire des mods (C-41) à l'émetteur de la commande. */
