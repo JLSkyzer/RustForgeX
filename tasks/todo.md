@@ -362,14 +362,22 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       `-PrfxSynthClasses` / `-PrfxSynthMethods`. Vérifié en jeu : `methods_probed`
       2 648 → **5 050**, soit +2 402. La surface instrumentée est doublée par rapport au
       modpack seul
-- [ ] **Défaut de C-04 mis au jour par le générateur : les classes chargées pendant la
-      construction des mods ne sont jamais sondées.** Une classe ne se charge qu'une
-      fois, et le transformateur s'arme au setup commun, 23 s plus tard. Les 2 649
-      méthodes sondées ne sont donc pas « celles du modpack » mais « celles chargées
-      après le setup commun » — limite jamais formulée jusqu'ici
-- [ ] Examiner si le runtime natif peut démarrer dès le **constructeur** du mod plutôt
-      qu'au setup commun : le transformateur attraperait bien plus de classes. Demande
-      que la configuration et le natif se chargent plus tôt — à examiner, pas à décréter
+- [x] **Défaut de C-04 mis au jour par le générateur : les classes chargées pendant la
+      construction des mods ne sont jamais sondées.** Chiffré par un compteur des ratés
+      (`CLASSES_MISSED`) : sur 76 327 classes visées, **32 712 passent avant l'armement**,
+      soit 43 %. Les 2 635 méthodes sondées ne sont pas « celles du modpack » mais
+      « celles chargées après le setup commun »
+- [x] **Le runtime peut démarrer au constructeur du mod** (ADR-022) : option
+      `instrumentation.early_arm`, fausse par défaut. Vérifié en production, 288 mods :
+      classes perdues 32 712 → **5 318**, méthodes sondées 2 635 → **13 615** (×5,2),
+      zéro échec de transformation. Les 4 875 classes chargées avant la construction du
+      mod restent hors d'atteinte — les viser supposerait de démarrer le natif dans la
+      couche d'amorçage, ce qui touche INV-13
+- [ ] **Mesurer ce que l'armement anticipé coûte au tick** avant d'en faire le défaut.
+      ADR-021 a établi que le coût croît avec le nombre de méthodes sondées ; quintupler
+      cette population rouvre la question. Paire B/C sous charge `mobs` lancée avec
+      `run-macro-prod.sh … mobs true`, à comparer aux +2,7 % p95 de l'ordonnancement
+      tardif
 - [ ] Calibrer les profils sur la table de la PARTIE 22 : `vanilla` 200 entités /
       400 chunks, `light` 10 mods / 500 / 600, `medium` 60 / 2 000 / 1 200, `heavy`
       150 / 8 000 / 2 500. Le profil actuel est en dessous du plus petit
