@@ -1,0 +1,215 @@
+{
+  "schema": 1,
+  "rfx_version": "0.1.0",
+  "commit": "16dc1a7f6e63f7c18b88824c69ef87837fe94c84",
+  "dirty": true,
+  "level": "macro",
+  "collected_at": 1788706481,
+  "hardware": {
+    "physical_cores": 8,
+    "logical_cores": 16,
+    "ram_gb": 31,
+    "probed": true
+  },
+  "configurations": {
+    "b-mods-seuls": {
+      "runs": 1,
+      "run_indices": [
+        1
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "load": "mobs",
+      "methods_probed": 0,
+      "methodology_compliant": false,
+      "compliance_notes": [
+        "1 exécutions au lieu des 5 exigées (PARTIE 21.3, point 5)"
+      ],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1567.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1567.0,
+          "max": 1567.0,
+          "runs": 1
+        },
+        "gc_contaminated_ticks": {
+          "median": 1564.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1564.0,
+          "max": 1564.0,
+          "runs": 1
+        },
+        "gc_time_ms": {
+          "median": 4682.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 4682.0,
+          "max": 4682.0,
+          "runs": 1
+        },
+        "mspt_max": {
+          "median": 1625.49,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1625.49,
+          "max": 1625.49,
+          "runs": 1
+        },
+        "mspt_p50": {
+          "median": 5.034,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 5.034,
+          "max": 5.034,
+          "runs": 1
+        },
+        "mspt_p95": {
+          "median": 10.055,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 10.055,
+          "max": 10.055,
+          "runs": 1
+        },
+        "mspt_p99": {
+          "median": 14.237,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 14.237,
+          "max": 14.237,
+          "runs": 1
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 1
+        },
+        "window_seconds": {
+          "median": 599.997,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 599.997,
+          "max": 599.997,
+          "runs": 1
+        }
+      }
+    },
+    "c-rfx-actif": {
+      "runs": 1,
+      "run_indices": [
+        1
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "load": "mobs",
+      "methods_probed": 13662,
+      "methodology_compliant": false,
+      "compliance_notes": [
+        "1 exécutions au lieu des 5 exigées (PARTIE 21.3, point 5)"
+      ],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1452.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1452.0,
+          "max": 1452.0,
+          "runs": 1
+        },
+        "gc_contaminated_ticks": {
+          "median": 1400.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1400.0,
+          "max": 1400.0,
+          "runs": 1
+        },
+        "gc_time_ms": {
+          "median": 4615.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 4615.0,
+          "max": 4615.0,
+          "runs": 1
+        },
+        "mspt_max": {
+          "median": 1174.021,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 1174.021,
+          "max": 1174.021,
+          "runs": 1
+        },
+        "mspt_p50": {
+          "median": 5.596,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 5.596,
+          "max": 5.596,
+          "runs": 1
+        },
+        "mspt_p95": {
+          "median": 10.169,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 10.169,
+          "max": 10.169,
+          "runs": 1
+        },
+        "mspt_p99": {
+          "median": 14.48,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 14.48,
+          "max": 14.48,
+          "runs": 1
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 1
+        },
+        "window_seconds": {
+          "median": 600.001,
+          "iqr": 0.0,
+          "relative_stddev": null,
+          "min": 600.001,
+          "max": 600.001,
+          "runs": 1
+        }
+      }
+    }
+  },
+  "comparison": {
+    "baseline": "b-mods-seuls",
+    "candidate": "c-rfx-actif",
+    "delta_pct": {
+      "gc_collections": -7.338864071474155,
+      "gc_contaminated_ticks": -10.485933503836318,
+      "gc_time_ms": -1.4310123878684322,
+      "mspt_max": -27.774332662766305,
+      "mspt_p50": 11.164084227254675,
+      "mspt_p95": 1.1337642963699728,
+      "mspt_p99": 1.7068202570766335,
+      "tps": 0.0,
+      "window_seconds": 0.0006666700000198501
+    },
+    "trustworthy": false
+  },
+  "notes": [
+    "arbre de travail modifié : ce résultat ne décrit aucun commit publiable",
+    "configuration « b-mods-seuls » non conforme : 1 exécutions au lieu des 5 exigées (PARTIE 21.3, point 5)",
+    "configuration « c-rfx-actif » non conforme : 1 exécutions au lieu des 5 exigées (PARTIE 21.3, point 5)"
+  ]
+}

@@ -49,6 +49,15 @@ pub struct RunFile {
     pub label: String,
     /// Numéro de l'exécution.
     pub run: u32,
+    /// Profil de charge appliqué au monde (PARTIE 22).
+    ///
+    /// Absent des exécutions écrites avant que le harnais sache appliquer une charge :
+    /// une campagne archivée reste donc lisible, et se déclare de charge inconnue.
+    #[serde(default)]
+    pub load: Option<String>,
+    /// État de RUSTFORGE-X à l'arrêt, dont la surface sondée.
+    #[serde(default)]
+    pub rfx: Option<RunRfx>,
     /// Ticks d'échauffement ignorés.
     pub warmup_ticks: u64,
     /// Ticks effectivement mesurés.
@@ -57,6 +66,14 @@ pub struct RunFile {
     pub window_seconds: f64,
     /// Mesures de cette exécution.
     pub metrics: BTreeMap<String, f64>,
+}
+
+/// Ce que l'exécution rapporte de RUSTFORGE-X lui-même.
+#[derive(Debug, Deserialize)]
+pub struct RunRfx {
+    /// Méthodes portant une sonde à l'arrêt du serveur.
+    #[serde(default)]
+    pub methods_probed: u64,
 }
 
 /// Statistique d'une métrique sur l'ensemble des exécutions d'une configuration.
@@ -87,6 +104,17 @@ pub struct Configuration {
     pub warmup_ticks: u64,
     /// Ticks mesurés par exécution.
     pub measured_ticks: u64,
+    /// Profil de charge, ou `inconnue` si les exécutions n'en déclarent pas.
+    ///
+    /// Vaut `mêlées` si les exécutions agrégées n'ont pas tourné sous la même charge :
+    /// les agréger n'aurait alors aucun sens, et le dire vaut mieux que le taire.
+    pub load: String,
+    /// Méthodes sondées, médiane des exécutions ; `0` sans instrumentation.
+    ///
+    /// Décisif pour comparer deux campagnes : le surcoût dépend de la surface sondée
+    /// (ADR-021), et le moment de l'armement la fait varier d'un facteur cinq
+    /// (ADR-022). Deux résultats qui ne l'exposent pas ne sont pas comparables.
+    pub methods_probed: u64,
     /// `true` si la campagne suit la méthodologie de la PARTIE 21.3.
     pub methodology_compliant: bool,
     /// Ce qui manque à la conformité, en clair.
@@ -196,6 +224,25 @@ fn summarize(runs: &[RunFile]) -> Configuration {
     let warmup = runs.iter().map(|r| r.warmup_ticks).min().unwrap_or(0);
     let measured = runs.iter().map(|r| r.measured_ticks).min().unwrap_or(0);
 
+    let mut loads: Vec<&str> = runs
+        .iter()
+        .map(|r| r.load.as_deref().unwrap_or("inconnue"))
+        .collect();
+    loads.sort_unstable();
+    loads.dedup();
+    let load = if loads.len() == 1 {
+        loads[0].to_string()
+    } else {
+        format!("mêlées ({})", loads.join(", "))
+    };
+
+    let mut probed: Vec<u64> = runs
+        .iter()
+        .map(|r| r.rfx.as_ref().map_or(0, |x| x.methods_probed))
+        .collect();
+    probed.sort_unstable();
+    let methods_probed = probed.get(probed.len() / 2).copied().unwrap_or(0);
+
     let mut compliance_notes = Vec::new();
     if runs.len() < REQUIRED_RUNS {
         compliance_notes.push(format!(
@@ -225,6 +272,8 @@ fn summarize(runs: &[RunFile]) -> Configuration {
         run_indices,
         warmup_ticks: warmup,
         measured_ticks: measured,
+        load,
+        methods_probed,
         methodology_compliant: compliance_notes.is_empty(),
         compliance_notes,
         rejected,
@@ -308,11 +357,54 @@ mod tests {
         RunFile {
             label: label.to_owned(),
             run: index,
+            load: Some("mobs".to_owned()),
+            rfx: Some(RunRfx {
+                methods_probed: 2_635,
+            }),
             warmup_ticks: REQUIRED_WARMUP_TICKS,
             measured_ticks: REQUIRED_MEASURED_TICKS,
             window_seconds: 600.0,
             metrics: BTreeMap::from([("mspt_p95".to_owned(), p95)]),
         }
+    }
+
+    /// Deux campagnes qui ne disent pas sous quelle charge ni avec quelle surface
+    /// sondée elles ont tourné ne sont pas comparables. C'est arrivé : le résultat
+    /// agrégé taisait les deux, et deux campagnes ont failli être mises en regard sans
+    /// qu'on puisse vérifier qu'elles portaient sur la même chose (ADR-022).
+    #[test]
+    fn an_aggregate_states_its_load_and_its_probed_surface() {
+        let runs: Vec<RunFile> = (1..=5).map(|n| run("rfx-on", n, 10.0)).collect();
+        let summary = summarize(&runs);
+
+        assert_eq!(summary.load, "mobs");
+        assert_eq!(summary.methods_probed, 2_635);
+    }
+
+    /// Agréger des exécutions de charges différentes n'a aucun sens. Le harnais ne
+    /// l'interdit pas — une campagne interrompue puis reprise autrement arrive — mais
+    /// il doit le dire, faute de quoi la moyenne passerait pour une mesure.
+    #[test]
+    fn mixed_loads_are_named_as_such() {
+        let mut runs: Vec<RunFile> = (1..=4).map(|n| run("rfx-on", n, 10.0)).collect();
+        runs[3].load = Some("none".to_owned());
+
+        assert_eq!(summarize(&runs).load, "mêlées (mobs, none)");
+    }
+
+    /// Une campagne archivée avant que le harnais sache appliquer une charge doit
+    /// rester lisible : elle se déclare de charge inconnue, sans échouer.
+    #[test]
+    fn an_archived_campaign_without_a_load_stays_readable() {
+        let mut runs: Vec<RunFile> = (1..=5).map(|n| run("rfx-off", n, 10.0)).collect();
+        for r in &mut runs {
+            r.load = None;
+            r.rfx = None;
+        }
+        let summary = summarize(&runs);
+
+        assert_eq!(summary.load, "inconnue");
+        assert_eq!(summary.methods_probed, 0);
     }
 
     #[test]
