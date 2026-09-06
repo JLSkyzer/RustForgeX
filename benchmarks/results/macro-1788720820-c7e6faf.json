@@ -1,0 +1,324 @@
+{
+  "schema": 1,
+  "rfx_version": "0.1.0",
+  "commit": "c7e6faf01811710434ca0eb5acc8747206cda0ae",
+  "dirty": false,
+  "level": "macro",
+  "collected_at": 1788720820,
+  "hardware": {
+    "physical_cores": 8,
+    "logical_cores": 16,
+    "ram_gb": 31,
+    "probed": true
+  },
+  "configurations": {
+    "b-mods-seuls": {
+      "runs": 5,
+      "run_indices": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "load": "mobs",
+      "methods_probed": 0,
+      "methodology_compliant": true,
+      "compliance_notes": [],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1463.0,
+          "iqr": 40.0,
+          "relative_stddev": 0.029997270963634828,
+          "min": 1448.0,
+          "max": 1556.0,
+          "runs": 5
+        },
+        "gc_contaminated_ticks": {
+          "median": 1454.0,
+          "iqr": 40.0,
+          "relative_stddev": 0.03039369365059866,
+          "min": 1446.0,
+          "max": 1553.0,
+          "runs": 5
+        },
+        "gc_time_ms": {
+          "median": 3845.0,
+          "iqr": 182.0,
+          "relative_stddev": 0.04181568963013991,
+          "min": 3657.0,
+          "max": 4064.0,
+          "runs": 5
+        },
+        "mspt_max": {
+          "median": 1178.072,
+          "iqr": 81.05200000000013,
+          "relative_stddev": 0.05354099669908539,
+          "min": 1111.554,
+          "max": 1268.085,
+          "runs": 5
+        },
+        "mspt_p50": {
+          "median": 3.918,
+          "iqr": 0.05600000000000005,
+          "relative_stddev": 0.012909892550822826,
+          "min": 3.843,
+          "max": 3.973,
+          "runs": 5
+        },
+        "mspt_p95": {
+          "median": 7.78,
+          "iqr": 0.10400000000000009,
+          "relative_stddev": 0.02154569567474978,
+          "min": 7.692,
+          "max": 8.124,
+          "runs": 5
+        },
+        "mspt_p99": {
+          "median": 10.976,
+          "iqr": 0.2699999999999996,
+          "relative_stddev": 0.043321606215799245,
+          "min": 10.934,
+          "max": 12.081,
+          "runs": 5
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": 0.0,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 5
+        },
+        "window_seconds": {
+          "median": 599.998,
+          "iqr": 0.0,
+          "relative_stddev": 1.8257473356012782e-6,
+          "min": 599.997,
+          "max": 600.0,
+          "runs": 5
+        }
+      }
+    },
+    "c-rfx-actif": {
+      "runs": 5,
+      "run_indices": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "load": "mobs",
+      "methods_probed": 2649,
+      "methodology_compliant": true,
+      "compliance_notes": [],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1637.0,
+          "iqr": 8.0,
+          "relative_stddev": 0.03130499074922234,
+          "min": 1525.0,
+          "max": 1642.0,
+          "runs": 5
+        },
+        "gc_contaminated_ticks": {
+          "median": 1633.0,
+          "iqr": 11.0,
+          "relative_stddev": 0.03081319417001474,
+          "min": 1522.0,
+          "max": 1636.0,
+          "runs": 5
+        },
+        "gc_time_ms": {
+          "median": 4335.0,
+          "iqr": 273.0,
+          "relative_stddev": 0.06826754019504026,
+          "min": 3988.0,
+          "max": 4766.0,
+          "runs": 5
+        },
+        "mspt_max": {
+          "median": 1214.666,
+          "iqr": 216.57799999999997,
+          "relative_stddev": 0.14403590652622983,
+          "min": 904.003,
+          "max": 1281.2,
+          "runs": 5
+        },
+        "mspt_p50": {
+          "median": 4.173,
+          "iqr": 0.28300000000000036,
+          "relative_stddev": 0.046188452605097546,
+          "min": 4.012,
+          "max": 4.477,
+          "runs": 5
+        },
+        "mspt_p95": {
+          "median": 8.301,
+          "iqr": 0.17100000000000115,
+          "relative_stddev": 0.03371867719477638,
+          "min": 7.743,
+          "max": 8.43,
+          "runs": 5
+        },
+        "mspt_p99": {
+          "median": 11.765,
+          "iqr": 0.21700000000000053,
+          "relative_stddev": 0.027834002650813233,
+          "min": 11.31,
+          "max": 12.196,
+          "runs": 5
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": 0.0,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 5
+        },
+        "window_seconds": {
+          "median": 599.997,
+          "iqr": 0.002000000000066393,
+          "relative_stddev": 3.8005986858605028e-6,
+          "min": 599.995,
+          "max": 600.001,
+          "runs": 5
+        }
+      }
+    },
+    "c-rfx-arme-tot": {
+      "runs": 5,
+      "run_indices": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "warmup_ticks": 3600,
+      "measured_ticks": 12000,
+      "load": "mobs",
+      "methods_probed": 13640,
+      "methodology_compliant": true,
+      "compliance_notes": [],
+      "rejected": false,
+      "metrics": {
+        "gc_collections": {
+          "median": 1579.0,
+          "iqr": 60.0,
+          "relative_stddev": 0.052754151885412895,
+          "min": 1448.0,
+          "max": 1664.0,
+          "runs": 5
+        },
+        "gc_contaminated_ticks": {
+          "median": 1573.0,
+          "iqr": 60.0,
+          "relative_stddev": 0.051896835676880464,
+          "min": 1447.0,
+          "max": 1659.0,
+          "runs": 5
+        },
+        "gc_time_ms": {
+          "median": 4214.0,
+          "iqr": 127.0,
+          "relative_stddev": 0.028632613090897742,
+          "min": 4056.0,
+          "max": 4367.0,
+          "runs": 5
+        },
+        "mspt_max": {
+          "median": 1184.494,
+          "iqr": 57.83800000000019,
+          "relative_stddev": 0.05588048691161612,
+          "min": 1081.385,
+          "max": 1253.434,
+          "runs": 5
+        },
+        "mspt_p50": {
+          "median": 4.665,
+          "iqr": 0.20399999999999974,
+          "relative_stddev": 0.03982937947940365,
+          "min": 4.433,
+          "max": 4.91,
+          "runs": 5
+        },
+        "mspt_p95": {
+          "median": 8.697,
+          "iqr": 0.19599999999999973,
+          "relative_stddev": 0.022359432228128456,
+          "min": 8.499,
+          "max": 8.985,
+          "runs": 5
+        },
+        "mspt_p99": {
+          "median": 11.856,
+          "iqr": 0.46999999999999886,
+          "relative_stddev": 0.030878559647003867,
+          "min": 11.688,
+          "max": 12.573,
+          "runs": 5
+        },
+        "tps": {
+          "median": 20.0,
+          "iqr": 0.0,
+          "relative_stddev": 0.0,
+          "min": 20.0,
+          "max": 20.0,
+          "runs": 5
+        },
+        "window_seconds": {
+          "median": 599.999,
+          "iqr": 0.0030000000000427463,
+          "relative_stddev": 2.527631045863137e-6,
+          "min": 599.997,
+          "max": 600.0,
+          "runs": 5
+        }
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "baseline": "b-mods-seuls",
+      "candidate": "c-rfx-actif",
+      "delta_pct": {
+        "gc_collections": 11.89336978810663,
+        "gc_contaminated_ticks": 12.310866574965612,
+        "gc_time_ms": 12.743823146944083,
+        "mspt_max": 3.106261756497061,
+        "mspt_p50": 6.508422664624805,
+        "mspt_p95": 6.696658097686374,
+        "mspt_p99": 7.188411078717198,
+        "tps": 0.0,
+        "window_seconds": -0.00016666722223908077
+      },
+      "trustworthy": true
+    },
+    {
+      "baseline": "b-mods-seuls",
+      "candidate": "c-rfx-arme-tot",
+      "delta_pct": {
+        "gc_collections": 7.928913192071087,
+        "gc_contaminated_ticks": 8.184319119669876,
+        "gc_time_ms": 9.596879063719117,
+        "mspt_max": 0.5451279718047816,
+        "mspt_p50": 19.065849923430317,
+        "mspt_p95": 11.786632390745487,
+        "mspt_p99": 8.017492711370252,
+        "tps": 0.0,
+        "window_seconds": 0.0001666672222201329
+      },
+      "trustworthy": true
+    }
+  ],
+  "notes": []
+}
