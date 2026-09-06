@@ -8,7 +8,14 @@
 # s'appliquent réellement : leurs refmaps ne se résolvent pas contre les mappings de
 # développement, et un modpack qui refuse de démarrer sous ForgeGradle démarre ici.
 #
-#   ./benchmarks/run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauffement] [charge]
+#   ./benchmarks/run-macro-prod.sh <racine_du_serveur> [runs] [ticks] [echauffement] [charge] [armement_anticipe]
+#
+# L'armement anticipe vaut « false » (defaut : le runtime demarre au setup commun) ou
+# « true » (il demarre a la construction du mod). Mesure sur le serveur de banc, 288
+# mods : le second fait passer la surface sondee de 2 635 a 13 615 methodes, parce que
+# 27 837 classes se chargent pendant la construction des autres mods et ne repassent
+# jamais. Ce que cette couverture coute au tick est justement ce que cette campagne
+# mesure ; c'est pourquoi le defaut reste l'ordonnancement deja certifie.
 #
 # La charge vaut « none » (serveur au repos), « chunks » ou « mobs ». Un serveur au
 # repos ne mesure qu'a moitie : son tick dure 1,6 a 2,5 ms la ou un serveur joue en dure
@@ -24,6 +31,7 @@ RUNS="${2:-5}"
 TICKS="${3:-12000}"
 WARMUP="${4:-3600}"
 LOAD="${5:-none}"
+EARLY_ARM="${6:-false}"
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNS_DIR="$PROJECT/benchmarks/runs"
@@ -70,6 +78,7 @@ echo "Mods      : $(ls "$SERVER/mods"/*.jar 2>/dev/null | wc -l)"
 echo "Campagne  : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés) × 2 configurations"
 echo "            B = modpack seul · C = modpack + RUSTFORGE-X (PARTIE 21.2)"
 echo "Charge    : $LOAD (PARTIE 22)"
+echo "Armement  : $(if [ "$EARLY_ARM" = "true" ]; then echo "anticipe, a la construction du mod"; else echo "au setup commun (defaut certifie)"; fi)"
 echo
 
 for run in $(seq 1 "$RUNS"); do
@@ -97,7 +106,9 @@ for run in $(seq 1 "$RUNS"); do
                 -Drustforgex.bench.ticks="$TICKS" \
                 -Drustforgex.bench.warmup="$WARMUP" \
                 -Drustforgex.bench.label="$label" \
-                -Drustforgex.bench.run="$run"                 -Drustforgex.bench.load="$LOAD" \
+                -Drustforgex.bench.run="$run" \
+                -Drustforgex.bench.load="$LOAD" \
+                -Drustforgex.instrumentation.early_arm="$EARLY_ARM" \
                 -Drustforgex.bench.out="$RUNS_DIR/$label-$run.json" \
                 $rfx \
                 "@user_jvm_args.txt" "@$ARGS_FILE" nogui

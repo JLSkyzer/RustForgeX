@@ -63,6 +63,24 @@ public final class Instrumentation {
         }
     }
 
+    /**
+     * Classes déjà passées par le transformateur, avant même qu'une instrumentation
+     * existe.
+     *
+     * <p>Statique et appelable à tout moment, y compris à la construction du mod : c'est
+     * là qu'elle sert, pour connaître la part de couverture perdue avant que RUSTFORGE-X
+     * ait eu la moindre occasion d'agir.
+     *
+     * @return le nombre de classes manquées à cet instant, ou {@code 0} sans plugin
+     */
+    public static long classesMissedSoFar() {
+        try {
+            return InstrumentationLink.classesMissed();
+        } catch (NoClassDefFoundError e) {
+            return 0L;
+        }
+    }
+
     /** Désarme le transformateur, sans échouer s'il n'a jamais été armé. */
     public void disarm() {
         if (state != State.ARMED) {
@@ -89,6 +107,29 @@ public final class Instrumentation {
     /** @return le nombre de classes vues passer, ou {@code 0} si non armé */
     public long classesSeen() {
         return armed() ? InstrumentationLink.classesSeen() : 0L;
+    }
+
+    /**
+     * Classes passées par le transformateur <strong>avant</strong> son armement.
+     *
+     * <p>Contrairement aux autres compteurs, celui-ci n'est pas conditionné à l'état
+     * armé : c'est précisément la période <em>précédant</em> l'armement qu'il mesure.
+     * Une classe ne se charge qu'une fois ; celles-là sont hors d'atteinte
+     * définitivement, et leur nombre dit ce que « {@code N} méthodes sondées » vaut
+     * réellement comme couverture.
+     *
+     * @return le nombre de classes manquées, ou {@code 0} si le plugin est absent
+     */
+    public long classesMissed() {
+        if (state == State.PLUGIN_MISSING) {
+            // Charger InstrumentationLink échouerait de nouveau : ne pas réessayer.
+            return 0L;
+        }
+        try {
+            return InstrumentationLink.classesMissed();
+        } catch (NoClassDefFoundError e) {
+            return 0L;
+        }
     }
 
     /** @return le nombre de méthodes sondées, ou {@code 0} si non armé */

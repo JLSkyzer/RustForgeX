@@ -81,6 +81,26 @@ class ConfigurationTest {
         assertEquals(3, c.getLong("runtime.panic_threshold"));
         assertEquals(20_000, c.getLong("profiler.max_workloads"));
         assertEquals(2, c.getLong("profiler.cpu_budget_pct"));
+        assertFalse(c.getBoolean("instrumentation.early_arm"));
+    }
+
+    /**
+     * ADR-022 : l'armement anticipé quintuple la surface sondée, donc probablement le
+     * coût de tick, qui n'est pas mesuré. Le défaut doit rester l'ordonnancement sur
+     * lequel les campagnes ont conclu — un défaut qui bascule sans mesure invaliderait
+     * silencieusement tout ce qui a été certifié.
+     */
+    @Test
+    @DisplayName("ADR-022 : l'armement anticipé n'est pas le défaut")
+    void earlyArmingIsNotTheDefault(@TempDir Path root) {
+        assertFalse(Configuration.defaults().getBoolean("instrumentation.early_arm"));
+
+        Configuration overridden = Configuration.load(
+                root.resolve(Configuration.FILE_PATH),
+                key -> "rustforgex.instrumentation.early_arm".equals(key) ? "true" : null);
+
+        assertTrue(overridden.getBoolean("instrumentation.early_arm"),
+                "la campagne doit pouvoir demander l'armement anticipé sans éditer le fichier");
     }
 
     @Test

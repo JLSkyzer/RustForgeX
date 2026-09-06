@@ -333,3 +333,23 @@ setup commun ».
 **Règle** : pour tout mécanisme qui s'arme en cours de démarrage, se demander ce qui est
 déjà passé avant, et si cela repassera. Pour le chargement de classes, la réponse est
 non.
+
+### 2026-09-06 | J'ai supposé « beaucoup », le compteur a dit 32 712 | Un compteur qui ne compte que le cas nominal ne mesure rien
+
+La leçon précédente identifiait le bon problème et s'arrêtait à une intuition. Il a
+suffi d'un compteur pour la chiffrer — et le chiffre n'était pas devinable :
+
+- 32 712 des 76 327 classes visées passent avant l'armement, soit 43 % ;
+- mais 4 875 seulement passent avant la construction du mod.
+
+Autrement dit, **85 % de la perte tient à une fenêtre de trente-huit secondes** qu'on
+pouvait fermer avec un réglage, pas à une limite d'architecture. J'aurais pu conclure
+« c'est structurel, il faudrait déplacer le natif dans la couche d'amorçage » — une
+refonte, pour un problème qui se réglait autrement.
+
+Ce qui empêchait de le voir : `CLASSES_SEEN` était incrémenté **après** le retour
+anticipé du cas non armé. Le compteur ne comptait que ce qui allait bien.
+
+**Règle** : un compteur placé dans le chemin nominal ne dit rien du chemin qui échoue.
+Quand on veut savoir ce qu'on rate, compter les ratés — pas les réussites. Et avant de
+conclure qu'une limite est structurelle, mesurer où elle mord réellement.

@@ -94,9 +94,35 @@ public final class RfxRuntime {
      * @return l'instance démarrée
      */
     public static synchronized RfxRuntime start(Path root, boolean clientSide, String forgeVersion) {
-        Configuration configuration =
-                Configuration.load(root.resolve(Configuration.FILE_PATH), System::getProperty);
+        return start(root, loadConfiguration(root), clientSide, forgeVersion);
+    }
 
+    /**
+     * Charge la configuration sans rien démarrer.
+     *
+     * <p>Séparée du démarrage parce qu'une décision se lit dans la configuration
+     * <em>avant</em> qu'il y ait un runtime : {@code instrumentation.early_arm} dit à
+     * quel moment démarrer, et ne peut donc pas être lue par ce qui a déjà démarré.
+     *
+     * @param root racine de travail, {@code <gameDir>/rustforgex}
+     * @return la configuration effective, porteuse de ses avertissements
+     */
+    public static Configuration loadConfiguration(Path root) {
+        return Configuration.load(root.resolve(Configuration.FILE_PATH), System::getProperty);
+    }
+
+    /**
+     * Démarre le runtime avec une configuration déjà lue.
+     *
+     * @param root racine de travail
+     * @param configuration configuration effective, telle que rendue par
+     *     {@link #loadConfiguration(Path)}
+     * @param clientSide {@code true} côté client
+     * @param forgeVersion version rapportée par Forge, pour FM-01
+     * @return l'instance démarrée
+     */
+    public static synchronized RfxRuntime start(
+            Path root, Configuration configuration, boolean clientSide, String forgeVersion) {
         // FM-01 : une version de Forge hors plage n'empêche pas le jeu de tourner ;
         // elle interdit toute transformation (E-1001, mode observation seule).
         boolean observeOnly = !ForgeVersions.isSupported(forgeVersion);

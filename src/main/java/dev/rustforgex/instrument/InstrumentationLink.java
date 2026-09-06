@@ -58,6 +58,11 @@ final class InstrumentationLink {
         return RfxClassTransformer.classesSeen();
     }
 
+    /** @return le nombre de classes passées avant l'armement, donc jamais sondées */
+    static long classesMissed() {
+        return RfxClassTransformer.classesMissed();
+    }
+
     /** @return le nombre de méthodes effectivement sondées */
     static long methodsProbed() {
         return RfxClassTransformer.methodsProbed();

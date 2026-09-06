@@ -63,6 +63,17 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     private static volatile boolean registered;
 
     private static final AtomicLong CLASSES_SEEN = new AtomicLong();
+
+    /**
+     * Classes passées avant l'armement, donc perdues pour toujours.
+     *
+     * <p>Une classe ne se charge qu'une fois. Celles qui traversent le transformateur
+     * avant qu'il ait des identifiants de sonde à distribuer ressortent inchangées et ne
+     * repasseront jamais. Ce compteur dit combien de couverture est hors d'atteinte, et
+     * c'est la seule façon de savoir ce que « {@code N} méthodes sondées » vaut
+     * réellement.
+     */
+    private static final AtomicLong CLASSES_MISSED = new AtomicLong();
     private static final AtomicLong CLASSES_TRANSFORMED = new AtomicLong();
     private static final AtomicLong METHODS_PROBED = new AtomicLong();
     private static final AtomicLong TRANSFORM_FAILURES = new AtomicLong();
@@ -114,6 +125,11 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     }
 
     /** @return le nombre de classes soumises au transformateur */
+    public static long classesMissed() {
+        return CLASSES_MISSED.get();
+    }
+
+    /** @return le nombre de classes vues passer depuis l'armement */
     public static long classesSeen() {
         return CLASSES_SEEN.get();
     }
@@ -150,6 +166,7 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     public ClassNode transform(ClassNode classNode, ITransformerVotingContext context) {
         ProbeIdSource source = probeIds;
         if (source == null) {
+            CLASSES_MISSED.incrementAndGet();
             return classNode;
         }
         CLASSES_SEEN.incrementAndGet();

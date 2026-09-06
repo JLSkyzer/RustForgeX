@@ -54,6 +54,30 @@ java -Drustforgex.general.enabled=false -jar ...
 > Le coût réellement mesuré s'affiche dans `/rfx status`, ligne « Coût mesuré » : il
 > vient de la mise en pause périodique de la PARTIE 12.4, et non d'une estimation.
 
+### Section `instrumentation`
+
+| Clé | Type | Défaut | Plage | Rechargeable | Description |
+|---|---|---|---|---|---|
+| `instrumentation.early_arm` | booléen | `false` | — | non | Armer le sondage dès la construction du mod plutôt qu'au setup commun. |
+
+Le transformateur est enregistré au lancement, mais ne pose de sonde qu'une fois *armé*,
+ce qui suppose le runtime natif démarré. Toute classe chargée entre les deux ressort
+inchangée — et définitivement, puisqu'une classe ne se charge qu'une fois.
+
+Mesuré sur un serveur de 288 mods : avec le défaut, **32 712** des 76 327 classes visées
+passent avant l'armement, et **2 635** méthodes sont sondées. Avec `early_arm = true`,
+il n'en passe plus que **5 318**, et **13 615** méthodes sont sondées — cinq fois plus de
+couverture, parce que les blocs et entités des mods se chargent pendant la construction
+de ceux-ci.
+
+Le défaut reste `false` : le surcoût de RUSTFORGE-X croît avec le nombre de méthodes
+sondées (ADR-021), et celui de l'armement anticipé n'est pas encore mesuré. Voir
+[ADR-022](docs/decisions/ADR-022.md).
+
+La ligne de journal de l'armement indique les deux chiffres, quelle que soit l'option :
+combien de classes sont passées avant l'armement, et combien avant même la construction
+du mod — ces dernières étant hors d'atteinte dans les deux cas.
+
 ### Les autres sections de la PARTIE 28.2
 
 La configuration normative du cahier des charges décrit aussi les sections

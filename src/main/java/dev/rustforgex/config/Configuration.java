@@ -77,7 +77,11 @@ public final class Configuration {
                             + "est évincée", false),
             OptionConfig.integerOption("profiler", "cpu_budget_pct", 2, 1, 50,
                     "Part d'un cœur accordée au profilage, en pourcent ; au-delà, la "
-                            + "profondeur de sondage descend", false));
+                            + "profondeur de sondage descend", false),
+            OptionConfig.booleanOption("instrumentation", "early_arm", false,
+                    "Armer le sondage dès la construction du mod plutôt qu'au setup "
+                            + "commun. Élargit fortement la couverture, au prix d'un coût "
+                            + "de tick non encore mesuré", false));
 
     private final Map<String, Object> values;
     private final List<String> warnings;

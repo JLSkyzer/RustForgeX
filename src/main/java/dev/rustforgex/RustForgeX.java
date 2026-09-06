@@ -49,6 +49,17 @@ public class RustForgeX {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    /**
+     * Classes déjà perdues à la construction du mod.
+     *
+     * <p>Le transformateur est enregistré par ModLauncher bien avant que Forge construise
+     * les mods ; il ne peut sonder quoi que ce soit qu'une fois <em>armé</em>, ce qui
+     * suppose le runtime natif démarré. Tout ce qui se charge entre les deux ressort
+     * inchangé, définitivement. Ce relevé, comparé à celui de l'armement, dit combien
+     * avancer le démarrage rapporterait — et combien est hors de toute portée.
+     */
+    private final long classesMissedAtConstruct;
+
     private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
     private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
     private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
@@ -67,13 +78,41 @@ public class RustForgeX {
 
     /** Construit le mod et s'attache aux deux bus d'événements de Forge. */
     public RustForgeX() {
+        this.classesMissedAtConstruct = Instrumentation.classesMissedSoFar();
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
-        modBus.addListener(this::onCommonSetup);
         MinecraftForge.EVENT_BUS.register(this);
         // C-36 niveau B : sans la propriété qui l'arme, cet appel ne fait rien et
         // n'abonne personne. Il est ici, et non dans le setup, parce qu'un benchmark
         // doit pouvoir mesurer un serveur où RUSTFORGE-X est désactivé.
         MacroRecorder.armIfRequested();
+
+        if (earlyArmRequested()) {
+            logArmingSchedule();
+            startupGuard.run(this::startRuntime);
+        } else {
+            modBus.addListener(this::onCommonSetup);
+        }
+    }
+
+    /**
+     * Décide du moment de l'armement, avant tout démarrage.
+     *
+     * <p>La lecture est isolée dans sa propre garde : la configuration est du fichier,
+     * donc de l'entrée-sortie, et un fichier illisible ne doit pas empêcher le mod de
+     * se construire. En cas de doute on retombe sur l'ordonnancement mesuré, qui est
+     * celui du setup commun.
+     *
+     * @return {@code true} si {@code instrumentation.early_arm} est demandé
+     */
+    private boolean earlyArmRequested() {
+        try {
+            return RfxRuntime.loadConfiguration(FMLPaths.GAMEDIR.get().resolve(MODID))
+                    .getBoolean("instrumentation.early_arm");
+        } catch (RuntimeException e) {
+            LOGGER.warn("RUSTFORGE-X : configuration illisible à la construction ({}). "
+                    + "Armement au setup commun, comme par défaut.", e.toString());
+            return false;
+        }
     }
 
     /**
@@ -86,6 +125,31 @@ public class RustForgeX {
      */
     private void onCommonSetup(final FMLCommonSetupEvent event) {
         event.enqueueWork(() -> startupGuard.run(this::startRuntime));
+    }
+
+    /**
+     * Ce que coûte le moment de l'armement.
+     *
+     * <p>Le transformateur est enregistré par ModLauncher dès le lancement, mais il ne
+     * sonde rien tant que le runtime natif ne lui a pas donné d'identifiants de sonde.
+     * Entre les deux, les classes traversent et ressortent inchangées — définitivement,
+     * puisqu'une classe ne se charge qu'une fois.
+     *
+     * <p>Mesuré sur le serveur de banc, 288 mods : sur 76 327 classes visées,
+     * <strong>32 712</strong> passent avant l'armement au setup commun, dont seulement
+     * 4 875 avant la construction de ce mod. Les 27 837 restantes se chargent pendant
+     * les trente-huit secondes de construction des autres mods — et ce sont
+     * précisément celles que l'enregistrement des blocs, entités et blocs-entités fait
+     * charger.
+     *
+     * <p>L'armement anticipé les récupère. Il n'est pas le défaut pour autant : le coût
+     * de tick d'ADR-021 a été certifié sur l'ordonnancement tardif, et élargir la
+     * surface sondée le rouvre. Le défaut reste donc ce qui est mesuré, et l'option
+     * existe pour que la campagne tranche.
+     */
+    private void logArmingSchedule() {
+        LOGGER.debug("Armement anticipé demandé : le runtime démarre à la construction "
+                + "du mod. {} classes étaient déjà passées.", classesMissedAtConstruct);
     }
 
     /** Séquence de démarrage : configuration, vérification de Forge, C-02. */
@@ -167,11 +231,14 @@ public class RustForgeX {
      * ressemble à un fonctionnement normal : il est dit explicitement, et il est dit
      * que le jeu n'en souffre pas.
      */
-    private static void logInstrumentation(RfxRuntime runtime) {
+    private void logInstrumentation(RfxRuntime runtime) {
         switch (runtime.instrumentation().state()) {
             case ARMED -> LOGGER.info(
                     "RUSTFORGE-X : instrumentation active, les classes chargées ensuite "
-                            + "seront sondées.");
+                            + "seront sondées. {} classes étaient déjà passées avant "
+                            + "l'armement et resteront hors de portée, dont {} avant même "
+                            + "la construction du mod.",
+                    runtime.instrumentation().classesMissed(), classesMissedAtConstruct);
             case PLUGIN_MISSING -> LOGGER.warn(
                     "RUSTFORGE-X : le fichier « {}-launch.jar » est absent du dossier mods. "
                             + "Aucune méthode ne sera sondée : le mod observe la machine et "
