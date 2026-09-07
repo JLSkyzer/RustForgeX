@@ -87,6 +87,7 @@ impl Runtime {
             cpu_budget_pct: config.profiler_cpu_budget_pct as f32,
             baseline_period_ticks: u64::from(config.profiler_baseline_period_ticks),
             baseline_pause_ticks: config.profiler_baseline_pause_ticks,
+            baseline_cycles: config.profiler_baseline_cycles,
         };
         Self {
             config,

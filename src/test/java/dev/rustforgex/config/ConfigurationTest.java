@@ -82,8 +82,9 @@ class ConfigurationTest {
         assertEquals(20_000, c.getLong("profiler.max_workloads"));
         assertEquals(2, c.getLong("profiler.cpu_budget_pct"));
         assertFalse(c.getBoolean("instrumentation.early_arm"));
-        assertEquals(300, c.getLong("profiler.baseline_period_ticks"));
-        assertEquals(20, c.getLong("profiler.baseline_pause_ticks"));
+        assertEquals(2_048, c.getLong("profiler.baseline_period_ticks"));
+        assertEquals(512, c.getLong("profiler.baseline_pause_ticks"));
+        assertEquals(30, c.getLong("profiler.baseline_cycles"));
     }
 
     /**

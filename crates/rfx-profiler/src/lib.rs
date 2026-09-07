@@ -78,6 +78,8 @@ pub struct ProfilerConfig {
     /// une valeur negative, physiquement impossible. Le prix d'une fenetre large est
     /// que le profilage est eteint d'autant plus longtemps.
     pub baseline_pause_ticks: u32,
+    /// Cycles agreges avant qu'une mesure soit rendue.
+    pub baseline_cycles: u32,
 }
 
 impl Default for ProfilerConfig {
@@ -87,6 +89,7 @@ impl Default for ProfilerConfig {
             cpu_budget_pct: DEFAULT_CPU_BUDGET_PCT,
             baseline_period_ticks: baseline::BASELINE_PERIOD_TICKS,
             baseline_pause_ticks: baseline::BASELINE_PAUSE_TICKS,
+            baseline_cycles: baseline::BASELINE_CYCLES,
         }
     }
 }
@@ -141,7 +144,7 @@ impl Profiler {
             baseline: BaselineSampler::with_cadence(
                 config.baseline_period_ticks,
                 config.baseline_pause_ticks,
-                baseline::BASELINE_CYCLES,
+                config.baseline_cycles,
             ),
             records_dropped_paused: 0,
             config,

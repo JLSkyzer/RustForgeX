@@ -501,3 +501,26 @@ corriger. Et l'appliquer aux modèles **déjà en service**, pas seulement au de
 Corollaire : un décodeur minimal est une bonne chose, mais sa minimalité est un
 **contrat**, pas un détail d'implémentation. Il doit être testé des deux côtés — ce que
 Rust produit, et ce que Java accepte.
+
+### 2026-09-08 | « Ça ne converge pas » alors que ça convergeait par en dessous | Ranger par qualité de mesure, pas par paramètre
+
+Cinq cadences ont rendu 0 · 1,77 · 1,85 · 4,08 · 6,29 %. Rangées par taille de fenêtre,
+ça ressemblait à une divergence, et c'est ce que j'ai conclu à voix haute.
+
+Rangées par **niveau de bruit**, elles montrent une approche monotone par en dessous.
+Une médiane de différences **signées** est biaisée vers zéro quand le bruit domine : le
+bruit négatif la tire vers le bas et le signal, trop petit, ne peut pas la ramener. À la
+limite elle rend exactement 0 — ce qu'a fait la fenêtre de vingt ticks.
+
+Les petits chiffres n'étaient pas des coûts faibles, c'étaient des mesures ratées. J'ai
+annoncé successivement 3,01 % puis « 70 µs, presque quatre fois moins », en croyant
+corriger une erreur alors que j'en ajoutais une.
+
+**Règles** :
+- quand une série de mesures semble diverger, la ranger par **qualité de mesure** avant
+  de conclure. Le paramètre qu'on a fait varier n'est pas forcément l'axe pertinent ;
+- publier avec chaque estimation de quoi juger si elle vaut quelque chose. Ici trois
+  nombres — queue négative, queue positive, proportion de cycles du bon signe — ont
+  suffi à retourner l'interprétation ;
+- se méfier d'un estimateur robuste appliqué à un signal noyé : la médiane ne protège
+  pas du biais, elle protège des valeurs aberrantes.

@@ -64,10 +64,10 @@ use crate::overhead::TickCost;
 /// Quinze secondes de jeu. La PARTIE 12.4 ecrit `N = 6000`, soit cinq minutes ; cette
 /// cadence a ete **mesuree insuffisante** (voir l'en-tete du module et ADR-020). Le
 /// principe reste celui du cahier des charges, sa cadence seule change.
-pub const BASELINE_PERIOD_TICKS: u64 = 300;
+pub const BASELINE_PERIOD_TICKS: u64 = 2_048;
 
 /// Duree d'une pause de mesure, en ticks (PARTIE 12.4).
-pub const BASELINE_PAUSE_TICKS: u32 = 20;
+pub const BASELINE_PAUSE_TICKS: u32 = 512;
 
 /// Cycles agreges avant qu'une mesure soit rendue.
 ///

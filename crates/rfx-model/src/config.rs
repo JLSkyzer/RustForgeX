@@ -101,6 +101,13 @@ pub struct RuntimeConfig {
     /// negative — physiquement impossible pour un cout.
     #[serde(default = "default_baseline_pause_ticks")]
     pub profiler_baseline_pause_ticks: u32,
+    /// `profiler.baseline_cycles` : cycles agreges avant qu'une mesure soit rendue.
+    ///
+    /// Une mesure coute `cycles x (periode + pause)` ticks. Le regler permet d'echanger
+    /// de la precision contre du temps quand on cherche a departager deux cadences,
+    /// plutot que d'attendre une heure par point de mesure.
+    #[serde(default = "default_baseline_cycles")]
+    pub profiler_baseline_cycles: u32,
 }
 
 /// Plafond d'unites de travail par defaut (PARTIE 5.5).
@@ -115,12 +122,17 @@ fn default_cpu_budget_pct() -> u32 {
 
 /// Ticks entre deux mises en pause par defaut (PARTIE 12.4).
 fn default_baseline_period_ticks() -> u32 {
-    300
+    2_048
 }
 
 /// Duree d'une pause de mesure par defaut, en ticks.
 fn default_baseline_pause_ticks() -> u32 {
-    20
+    512
+}
+
+/// Cycles agreges par defaut avant qu'une mesure soit rendue.
+fn default_baseline_cycles() -> u32 {
+    30
 }
 
 impl Default for RuntimeConfig {
@@ -137,6 +149,7 @@ impl Default for RuntimeConfig {
             profiler_cpu_budget_pct: default_cpu_budget_pct(),
             profiler_baseline_period_ticks: default_baseline_period_ticks(),
             profiler_baseline_pause_ticks: default_baseline_pause_ticks(),
+            profiler_baseline_cycles: default_baseline_cycles(),
         }
     }
 }

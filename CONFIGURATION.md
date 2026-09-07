@@ -58,30 +58,40 @@ java -Drustforgex.general.enabled=false -jar ...
 
 | Clé | Type | Défaut | Plage | Rechargeable | Description |
 |---|---|---|---|---|---|
-| `profiler.baseline_period_ticks` | entier | `300` | `20` .. `6000` | non | Ticks entre deux mises en pause de mesure |
-| `profiler.baseline_pause_ticks` | entier | `20` | `5` .. `512` | non | Durée d'une pause, et taille des deux fenêtres comparées |
+| `profiler.baseline_period_ticks` | entier | `2048` | `20` .. `6000` | non | Ticks entre deux mises en pause de mesure |
+| `profiler.baseline_pause_ticks` | entier | `512` | `5` .. `512` | non | Durée d'une pause, et taille des deux fenêtres comparées |
+| `profiler.baseline_cycles` | entier | `30` | `3` .. `64` | non | Cycles agrégés avant qu'une mesure soit rendue |
 
 Le coût de RUSTFORGE-X est mesuré en éteignant périodiquement le sondage et en
 comparant la médiane des ticks actifs à celle des ticks en pause. `baseline_pause_ticks`
 fixe la taille des deux fenêtres, et décide donc si cette comparaison mesure quelque
 chose.
 
-Mesuré sur le serveur de banc, 30 cycles, même charge :
+Le profilage ne peut pas rendre un tick plus rapide : **une différence négative par
+cycle est nécessairement du bruit**. C'est le critère de qualité de la mesure, et il a
+servi à choisir le défaut. Mesuré sur le serveur de banc, même charge :
 
-| | fenêtre 20 | fenêtre 300 |
+| queue négative | cycles positifs | coût rendu |
 |---|---|---|
-| différence minimale par cycle | −1 527 250 ns | **−277 150 ns** |
-| cycles positifs | 14 / 30 | 19 / 30 |
-| coût rendu | 0 ns | **70 100 ns (1,77 %)** |
+| fenêtre 20 : −1 527 250 ns | 14 / 30 | 0 % |
+| fenêtre 300 : −1 167 200 ns | 11 / 20 | 1,85 % |
+| **fenêtre 512 : −67 900 ns** | **17 / 20** | **6,29 %** |
 
-Le profilage ne peut pas rendre un tick plus rapide : une différence négative est
-nécessairement du bruit. À vingt ticks par fenêtre, la moitié des cycles en rendait une —
-la médiane résumait un tirage à pile ou face. À trois cents, la queue négative est
-divisée par cinq et la mesure devient exploitable.
+Attention au sens de lecture : une médiane de différences **signées** est biaisée vers
+zéro quand le bruit domine. Les petits chiffres ci-dessus ne sont pas des coûts faibles,
+ce sont des **mesures ratées** — à vingt ticks par fenêtre, la mesure rend zéro quoi
+qu'il arrive, et le gouverneur ne se déclenche jamais.
 
-Le prix d'une fenêtre large est que **le profilage est éteint d'autant plus longtemps** :
-à `period = pause = 300`, il l'est la moitié du temps. Le défaut reste `20`, qui est ce
-sur quoi le reste du système a été observé.
+Le prix de la fenêtre par défaut est double, et assumé (voir
+[ADR-024](docs/decisions/ADR-024.md)) :
+
+- le profilage est éteint **20 % du temps** ;
+- une mesure demande `cycles × (période + pause)` ticks, soit **64 minutes de jeu**.
+  Pendant ce délai aucune ligne de base n'existe, et la profondeur de sondage ne peut
+  pas remonter au-delà de `LIGHT`.
+
+Ces valeurs se règlent : une campagne qui cherche à départager deux cadences descend
+`baseline_cycles` pour échanger de la précision contre du temps.
 
 ### Section `instrumentation`
 

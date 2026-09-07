@@ -78,13 +78,16 @@ public final class Configuration {
             OptionConfig.integerOption("profiler", "cpu_budget_pct", 2, 1, 50,
                     "Part d'un cœur accordée au profilage, en pourcent ; au-delà, la "
                             + "profondeur de sondage descend", false),
-            OptionConfig.integerOption("profiler", "baseline_period_ticks", 300, 20, 6_000,
+            OptionConfig.integerOption("profiler", "baseline_period_ticks", 2_048, 20, 6_000,
                     "Ticks entre deux mises en pause de mesure du coût (PARTIE 12.4)",
                     false),
-            OptionConfig.integerOption("profiler", "baseline_pause_ticks", 20, 5, 512,
+            OptionConfig.integerOption("profiler", "baseline_pause_ticks", 512, 5, 512,
                     "Durée d'une pause de mesure, en ticks. Fixe aussi la taille des "
                             + "deux fenêtres comparées : trop courte, la mesure ne "
                             + "distingue pas le coût du bruit", false),
+            OptionConfig.integerOption("profiler", "baseline_cycles", 30, 3, 64,
+                    "Cycles agrégés avant qu'une mesure de coût soit rendue. Une mesure "
+                            + "coûte cycles × (période + pause) ticks", false),
             OptionConfig.booleanOption("instrumentation", "early_arm", false,
                     "Armer le sondage dès la construction du mod plutôt qu'au setup "
                             + "commun. Élargit fortement la couverture, au prix d'un coût "
@@ -388,6 +391,7 @@ public final class Configuration {
         table.put("max_native_mb", getLong("memory.max_native_mb"));
         table.put("telemetry_enabled", getBoolean("telemetry.enabled"));
         table.put("panic_threshold", getLong("runtime.panic_threshold"));
+        table.put("profiler_baseline_cycles", getLong("profiler.baseline_cycles"));
         table.put("profiler_baseline_period_ticks", getLong("profiler.baseline_period_ticks"));
         table.put("profiler_baseline_pause_ticks", getLong("profiler.baseline_pause_ticks"));
         table.put("profiler_max_workloads", getLong("profiler.max_workloads"));
