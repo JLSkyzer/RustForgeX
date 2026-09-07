@@ -79,12 +79,29 @@ pub const BASELINE_CYCLES: u32 = 30;
 /// Plafond de cycles agreges, qui borne la taille des tableaux de travail.
 const MAX_CYCLES: usize = 64;
 
-/// Taille des deux fenetres comparees.
+/// Taille maximale des deux fenetres comparees.
 ///
 /// Autant d'echantillons de chaque cote : comparer vingt ticks a deux cents rendrait
 /// les deux medianes incomparables, la seconde lissant une charge que la premiere
-/// subit.
-const WINDOW: usize = BASELINE_PAUSE_TICKS as usize;
+/// subit. La taille effective vaut la duree de pause demandee, bornee par ce plafond.
+///
+/// # Pourquoi ce plafond a ete releve de 20 a 512
+///
+/// Mesure du 2026-09-07, fenetres de vingt ticks, trente cycles : differences par cycle
+/// entre **-1 527 250 ns et +1 257 700 ns**, et **14 cycles positifs sur 30**. Le
+/// profilage ne peut pas rendre un tick plus rapide : la moitie des cycles rendait une
+/// valeur physiquement impossible. La mediane ne resumait pas un cout, elle resumait un
+/// tirage a pile ou face.
+///
+/// L'arithmetique explique entierement ce bruit. Avec un ecart-type tick a tick de
+/// l'ordre de cinq millisecondes, l'erreur type d'une mediane sur vingt echantillons
+/// vaut environ 1,1 ms, et celle de leur difference environ 1,6 ms — exactement ce qui
+/// a ete observe, pour un signal cherche de 250 us.
+///
+/// Le meme calcul dit ce qu'il faut : a trois cents echantillons par fenetre, l'erreur
+/// type de la difference tombe vers 0,4 ms, et la mediane de trente cycles vers 0,12 ms
+/// — sous le signal. Ce plafond rend cette cadence atteignable ; il ne l'impose pas.
+const WINDOW: usize = 512;
 
 /// Resultat d'une mesure de ligne de base.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +185,12 @@ pub struct BaselineSampler {
 
     /// Anneau des dernieres durees de tick actives.
     active: [u64; WINDOW],
+    /// Taille effective des deux fenetres, en ticks.
+    ///
+    /// Vaut la duree de pause demandee, bornee par [`WINDOW`] qui n'est que la capacite
+    /// des tableaux. Les deux etaient confondues tant que la pause valait vingt ticks ;
+    /// les separer est ce qui permet de comparer trois cents ticks a trois cents.
+    window: usize,
     active_len: usize,
     active_next: usize,
 
@@ -225,6 +248,7 @@ impl BaselineSampler {
             ticks_until_pause: period,
             pause_left: 0,
             active: [0; WINDOW],
+            window: pause as usize,
             active_len: 0,
             active_next: 0,
             paused: [0; WINDOW],
@@ -257,8 +281,8 @@ impl BaselineSampler {
         match self.phase {
             Phase::Active => {
                 self.active[self.active_next] = tick_ns;
-                self.active_next = (self.active_next + 1) % WINDOW;
-                self.active_len = (self.active_len + 1).min(WINDOW);
+                self.active_next = (self.active_next + 1) % self.window;
+                self.active_len = (self.active_len + 1).min(self.window);
 
                 self.ticks_until_pause = self.ticks_until_pause.saturating_sub(1);
                 if self.ticks_until_pause == 0 {
@@ -271,7 +295,7 @@ impl BaselineSampler {
                 BaselineEvent::None
             }
             Phase::Paused => {
-                if self.paused_len < WINDOW {
+                if self.paused_len < self.window {
                     self.paused[self.paused_len] = tick_ns;
                     self.paused_len += 1;
                 }
@@ -308,8 +332,8 @@ impl BaselineSampler {
     /// comparaison de trois ticks contre vingt ne dit rien, et un chiffre faux est pire
     /// que pas de chiffre (R-770 exige un chiffre **mesure**).
     fn close_cycle(&mut self) {
-        if self.active_len < WINDOW
-            || self.paused_len < self.pause_ticks as usize
+        if self.active_len < self.window
+            || self.paused_len < self.window
             || self.cycles_done >= MAX_CYCLES
         {
             return;

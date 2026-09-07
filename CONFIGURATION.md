@@ -54,6 +54,35 @@ java -Drustforgex.general.enabled=false -jar ...
 > Le coût réellement mesuré s'affiche dans `/rfx status`, ligne « Coût mesuré » : il
 > vient de la mise en pause périodique de la PARTIE 12.4, et non d'une estimation.
 
+### Cadence de la mesure de coût (PARTIE 12.4)
+
+| Clé | Type | Défaut | Plage | Rechargeable | Description |
+|---|---|---|---|---|---|
+| `profiler.baseline_period_ticks` | entier | `300` | `20` .. `6000` | non | Ticks entre deux mises en pause de mesure |
+| `profiler.baseline_pause_ticks` | entier | `20` | `5` .. `512` | non | Durée d'une pause, et taille des deux fenêtres comparées |
+
+Le coût de RUSTFORGE-X est mesuré en éteignant périodiquement le sondage et en
+comparant la médiane des ticks actifs à celle des ticks en pause. `baseline_pause_ticks`
+fixe la taille des deux fenêtres, et décide donc si cette comparaison mesure quelque
+chose.
+
+Mesuré sur le serveur de banc, 30 cycles, même charge :
+
+| | fenêtre 20 | fenêtre 300 |
+|---|---|---|
+| différence minimale par cycle | −1 527 250 ns | **−277 150 ns** |
+| cycles positifs | 14 / 30 | 19 / 30 |
+| coût rendu | 0 ns | **70 100 ns (1,77 %)** |
+
+Le profilage ne peut pas rendre un tick plus rapide : une différence négative est
+nécessairement du bruit. À vingt ticks par fenêtre, la moitié des cycles en rendait une —
+la médiane résumait un tirage à pile ou face. À trois cents, la queue négative est
+divisée par cinq et la mesure devient exploitable.
+
+Le prix d'une fenêtre large est que **le profilage est éteint d'autant plus longtemps** :
+à `period = pause = 300`, il l'est la moitié du temps. Le défaut reste `20`, qui est ce
+sur quoi le reste du système a été observé.
+
 ### Section `instrumentation`
 
 | Clé | Type | Défaut | Plage | Rechargeable | Description |

@@ -85,6 +85,8 @@ impl Runtime {
         let profiler_config = ProfilerConfig {
             max_workloads: config.profiler_max_workloads as usize,
             cpu_budget_pct: config.profiler_cpu_budget_pct as f32,
+            baseline_period_ticks: u64::from(config.profiler_baseline_period_ticks),
+            baseline_pause_ticks: config.profiler_baseline_pause_ticks,
         };
         Self {
             config,

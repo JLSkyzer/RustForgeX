@@ -90,6 +90,17 @@ pub struct RuntimeConfig {
     /// entier (H-07).
     #[serde(default = "default_cpu_budget_pct")]
     pub profiler_cpu_budget_pct: u32,
+    /// `profiler.baseline_period_ticks` : ticks entre deux mises en pause (PARTIE 12.4).
+    #[serde(default = "default_baseline_period_ticks")]
+    pub profiler_baseline_period_ticks: u32,
+    /// `profiler.baseline_pause_ticks` : duree d'une pause de mesure, en ticks.
+    ///
+    /// Fixe aussi la taille des deux fenetres comparees, et decide donc si la mesure
+    /// mesure quelque chose : a vingt ticks l'erreur type de la difference vaut environ
+    /// 1,6 ms pour un signal de 250 us, et quatorze cycles sur trente rendent une valeur
+    /// negative — physiquement impossible pour un cout.
+    #[serde(default = "default_baseline_pause_ticks")]
+    pub profiler_baseline_pause_ticks: u32,
 }
 
 /// Plafond d'unites de travail par defaut (PARTIE 5.5).
@@ -100,6 +111,16 @@ fn default_max_workloads() -> u32 {
 /// Part d'un cœur accordee au profilage par defaut, en pourcent (H-07).
 fn default_cpu_budget_pct() -> u32 {
     2
+}
+
+/// Ticks entre deux mises en pause par defaut (PARTIE 12.4).
+fn default_baseline_period_ticks() -> u32 {
+    300
+}
+
+/// Duree d'une pause de mesure par defaut, en ticks.
+fn default_baseline_pause_ticks() -> u32 {
+    20
 }
 
 impl Default for RuntimeConfig {
@@ -114,6 +135,8 @@ impl Default for RuntimeConfig {
             panic_threshold: 3,
             profiler_max_workloads: default_max_workloads(),
             profiler_cpu_budget_pct: default_cpu_budget_pct(),
+            profiler_baseline_period_ticks: default_baseline_period_ticks(),
+            profiler_baseline_pause_ticks: default_baseline_pause_ticks(),
         }
     }
 }

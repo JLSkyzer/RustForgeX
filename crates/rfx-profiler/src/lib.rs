@@ -68,6 +68,16 @@ pub struct ProfilerConfig {
     pub max_workloads: usize,
     /// Part d'un cœur accordee au profilage, en pourcentage.
     pub cpu_budget_pct: f32,
+    /// Ticks entre deux mises en pause de mesure (PARTIE 12.4).
+    pub baseline_period_ticks: u64,
+    /// Duree d'une pause de mesure, en ticks, qui fixe aussi la taille des fenetres.
+    ///
+    /// C'est le reglage qui decide si la ligne de base mesure quelque chose. A vingt
+    /// ticks, l'erreur type de la difference vaut environ 1,6 ms pour un signal de
+    /// 250 us : la mediane resume alors du bruit, et quatorze cycles sur trente rendent
+    /// une valeur negative, physiquement impossible. Le prix d'une fenetre large est
+    /// que le profilage est eteint d'autant plus longtemps.
+    pub baseline_pause_ticks: u32,
 }
 
 impl Default for ProfilerConfig {
@@ -75,6 +85,8 @@ impl Default for ProfilerConfig {
         Self {
             max_workloads: DEFAULT_MAX_WORKLOADS,
             cpu_budget_pct: DEFAULT_CPU_BUDGET_PCT,
+            baseline_period_ticks: baseline::BASELINE_PERIOD_TICKS,
+            baseline_pause_ticks: baseline::BASELINE_PAUSE_TICKS,
         }
     }
 }
@@ -126,7 +138,11 @@ impl Profiler {
         Self {
             store: WorkloadStore::new(config.max_workloads),
             overhead: OverheadMeter::new(config.cpu_budget_pct),
-            baseline: BaselineSampler::new(),
+            baseline: BaselineSampler::with_cadence(
+                config.baseline_period_ticks,
+                config.baseline_pause_ticks,
+                baseline::BASELINE_CYCLES,
+            ),
             records_dropped_paused: 0,
             config,
             level: ProfilerLevel::Off,
