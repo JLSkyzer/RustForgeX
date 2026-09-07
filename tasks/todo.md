@@ -525,9 +525,28 @@ donc ouvert.
       campagne en cours donnera
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 - [ ] JAR installable et jouable, client et serveur dédié.
-      **Le client n'a jamais été lancé une seule fois.** Le filtre de cibles s'y comporte
-      différemment — `dedicatedServer=false` n'écarte pas les classes qui référencent le
-      client — et c'est le risque de casse le moins couvert du jalon
+      **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
+      (`runClient`) :
+
+      ```
+      [Render thread] RUSTFORGE-X actif (75 ms) : Runtime natif prêt
+      [Render thread] Transformateur armé
+      [main]          Cibles énumérées : 6865 classes en 195 ms
+      [Worker-Main-7] 3 mods inventoriés en 6 ms
+      ```
+
+      Écran-titre atteint, **zéro erreur**, aucun `NoClassDefFoundError`, aucune
+      exception sur le fil de rendu. La sécurité de côté (section 4.3) tient, et C-41
+      fonctionne aussi côté client. 3 553 classes perdues avant l'armement, contre
+      32 712 sur le serveur de banc
+- [ ] **Le test client reste faible et la case reste ouverte.** L'environnement de
+      développement ne charge que **trois mods** : la ligne d'énumération dit
+      `0 écartées, 0 référençant un type absent`. Le risque signalé n'est donc **pas
+      exercé** — côté client, `dedicatedServer=false` n'écarte plus les classes qui
+      référencent `net.minecraft.client.*`, et sur un vrai modpack ce sont des dizaines
+      de milliers de classes supplémentaires qui deviennent candidates
+- [ ] La vraie épreuve est une instance CurseForge cliente avec son modpack. Elle touche
+      les installations de l'utilisateur : à faire avec son accord explicite, pas d'office
 
 ---
 
