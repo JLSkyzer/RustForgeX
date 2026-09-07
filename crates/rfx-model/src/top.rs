@@ -116,84 +116,119 @@ impl TopWorkloads {
     pub const SCHEMA: u32 = 1;
 }
 
+/// Verifie qu'un blob CBOR tient dans le sous-ensemble que Java sait lire.
+///
+/// # Pourquoi cette fonction n'est pas un test
+///
+/// Le lecteur de `dev.rustforgex.bridge.CborReader` est volontairement minimal :
+/// entiers positifs et negatifs, chaines d'octets et de texte, tableaux, tables, et du
+/// type majeur 7 les seuls booleens. Tout le reste leve, et **le blob entier devient
+/// illisible** — pas seulement le champ fautif.
+///
+/// Trois defauts de cette famille ont ete trouves en production le meme jour : un `f64`
+/// dans le classement, un `u64` au-dela de `2^63` pour un identifiant, et une
+/// difference signee dans le statut. Chacun rendait muet tout un pan du mod, sans
+/// message, et aucun test ne les a vus. Ce controle vit donc **hors des tests**, pour
+/// que n'importe quel crate puisse verifier son propre modele.
+///
+/// # Erreurs
+///
+/// Rend le motif du refus, formule pour dire quoi corriger.
+pub fn assert_java_readable(blob: &[u8]) -> Result<(), String> {
+    let mut cursor = 0_usize;
+    walk_java_readable(blob, &mut cursor)?;
+    if cursor != blob.len() {
+        return Err(format!(
+            "{} octets non consommes en fin de blob",
+            blob.len() - cursor
+        ));
+    }
+    Ok(())
+}
+
+/// Parcourt une valeur CBOR en refusant tout ce que Java refuserait.
+fn walk_java_readable(blob: &[u8], cursor: &mut usize) -> Result<(), String> {
+    if *cursor >= blob.len() {
+        return Err("blob tronque".to_owned());
+    }
+    let initial = blob[*cursor];
+    *cursor += 1;
+    let major = initial >> 5;
+    let info = initial & 0x1f;
+
+    if major == 7 {
+        if info == 20 || info == 21 {
+            return Ok(());
+        }
+        return Err(format!(
+            "type majeur 7 avec info {info} : Java ne lit que les booleens, jamais un              reel. Exprimer la valeur en entier, comme `overhead_pct_x100`."
+        ));
+    }
+
+    let argument = match info {
+        0..=23 => u64::from(info),
+        24 => read_be(blob, cursor, 1)?,
+        25 => read_be(blob, cursor, 2)?,
+        26 => read_be(blob, cursor, 4)?,
+        27 => read_be(blob, cursor, 8)?,
+        other => return Err(format!("argument CBOR non supporte par Java : {other}")),
+    };
+
+    match major {
+        0 | 1 => {
+            if argument > i64::MAX as u64 {
+                return Err(format!(
+                    "entier {argument} au-dela de 2^63 : Java n'a pas de type non signe                      et refusera tout le blob. Le transmettre en texte, comme                      `work_id_hex`."
+                ));
+            }
+            Ok(())
+        }
+        2 | 3 => {
+            let len = usize::try_from(argument).map_err(|_| "longueur hors bornes")?;
+            *cursor += len;
+            if *cursor > blob.len() {
+                return Err("chaine debordant du blob".to_owned());
+            }
+            Ok(())
+        }
+        4 => {
+            for _ in 0..argument {
+                walk_java_readable(blob, cursor)?;
+            }
+            Ok(())
+        }
+        5 => {
+            for _ in 0..argument {
+                walk_java_readable(blob, cursor)?; // cle
+                walk_java_readable(blob, cursor)?; // valeur
+            }
+            Ok(())
+        }
+        other => Err(format!("type majeur CBOR non supporte par Java : {other}")),
+    }
+}
+
+fn read_be(blob: &[u8], cursor: &mut usize, width: usize) -> Result<u64, String> {
+    if *cursor + width > blob.len() {
+        return Err("argument tronque".to_owned());
+    }
+    let mut value = 0_u64;
+    for _ in 0..width {
+        value = (value << 8) | u64::from(blob[*cursor]);
+        *cursor += 1;
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Types majeurs CBOR que le lecteur Java sait decoder.
-    ///
-    /// Le decodeur de `dev.rustforgex.bridge.CborReader` est volontairement minimal :
-    /// entiers positifs et negatifs, chaines d'octets et de texte, tableaux, tables, et
-    /// du type majeur 7 les seuls booleens. Tout le reste — reels compris — leve.
-    ///
-    /// Ce n'est pas une lacune a combler : un decodeur qui traverse une frontiere de
-    /// confiance a d'autant moins de defauts possibles qu'il accepte moins de choses.
-    fn assert_java_readable(blob: &[u8]) {
-        let mut cursor = 0_usize;
-        walk(blob, &mut cursor);
-        assert_eq!(cursor, blob.len(), "octets non consommes en fin de blob");
-    }
-
-    /// Parcourt une valeur CBOR en echouant sur tout ce que Java refuserait.
-    fn walk(blob: &[u8], cursor: &mut usize) {
-        assert!(*cursor < blob.len(), "blob tronque");
-        let initial = blob[*cursor];
-        *cursor += 1;
-        let major = initial >> 5;
-        let info = initial & 0x1f;
-
-        assert!(
-            major != 7 || info == 20 || info == 21,
-            "type majeur 7 avec info {info} : Java ne lit que les booleens, jamais un \
-             reel. Exprimer la valeur en entier, comme `overhead_pct_x100`."
-        );
-        if major == 7 {
-            return;
+    /// Raccourci de test : echoue en nommant le motif du refus.
+    fn assert_readable(blob: &[u8]) {
+        if let Err(reason) = super::assert_java_readable(blob) {
+            panic!("{reason}");
         }
-
-        let argument = match info {
-            0..=23 => u64::from(info),
-            24 => read_be(blob, cursor, 1),
-            25 => read_be(blob, cursor, 2),
-            26 => read_be(blob, cursor, 4),
-            27 => read_be(blob, cursor, 8),
-            other => panic!("argument CBOR non supporte par Java : {other}"),
-        };
-
-        match major {
-            0 => assert!(
-                argument <= i64::MAX as u64,
-                "entier non signe {argument} au-dela de 2^63 : Java n'a pas de type non                  signe et refusera tout le blob. Le transmettre en texte, comme                  `work_id_hex`."
-            ),
-            1 => {}
-            2 | 3 => {
-                let len = usize::try_from(argument).expect("longueur");
-                *cursor += len;
-                assert!(*cursor <= blob.len(), "chaine debordant du blob");
-            }
-            4 => {
-                for _ in 0..argument {
-                    walk(blob, cursor);
-                }
-            }
-            5 => {
-                for _ in 0..argument {
-                    walk(blob, cursor); // cle
-                    walk(blob, cursor); // valeur
-                }
-            }
-            other => panic!("type majeur CBOR non supporte par Java : {other}"),
-        }
-    }
-
-    fn read_be(blob: &[u8], cursor: &mut usize, width: usize) -> u64 {
-        assert!(*cursor + width <= blob.len(), "argument tronque");
-        let mut value = 0_u64;
-        for _ in 0..width {
-            value = (value << 8) | u64::from(blob[*cursor]);
-            *cursor += 1;
-        }
-        value
     }
 
     /// Le classement doit rester dans le sous-ensemble CBOR que Java sait lire.
@@ -226,7 +261,7 @@ mod tests {
         };
 
         let blob = crate::to_cbor(&top).expect("serialisation");
-        assert_java_readable(&blob);
+        assert_readable(&blob);
     }
 
     /// Le garde-fou doit attraper le defaut qu'il pretend prevenir.
@@ -241,7 +276,7 @@ mod tests {
     fn the_guard_catches_an_unsigned_integer_java_cannot_read() {
         // 0x1b suivi de huit octets : entier non signe sur soixante-quatre bits.
         let blob = [0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-        assert_java_readable(&blob);
+        assert_readable(&blob);
     }
 
     /// Le classement vide traverse aussi : c'est le cas le plus frequent au demarrage.
@@ -251,6 +286,6 @@ mod tests {
     #[test]
     fn an_empty_ranking_also_crosses() {
         let blob = crate::to_cbor(&TopWorkloads::default()).expect("serialisation");
-        assert_java_readable(&blob);
+        assert_readable(&blob);
     }
 }

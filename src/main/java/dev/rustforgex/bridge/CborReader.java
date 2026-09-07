@@ -69,6 +69,15 @@ public final class CborReader {
         switch (majorType) {
             case 0:
                 return readArgument(info);
+            case 1: {
+                // Entier negatif : CBOR encode -1 - n. Une difference signee en est un,
+                // et c'est une valeur legitime — contrairement aux reels, qui restent
+                // refuses. Java a des entiers signes : la correspondance est exacte.
+                // `readArgument` refuse deja ce qui ne tient pas dans un long signe,
+                // donc la magnitude est dans [0, Long.MAX_VALUE] et la negation ne
+                // deborde pas.
+                return -1L - readArgument(info);
+            }
             case 3: {
                 long length = readArgument(info);
                 return new String(readBytes(length), StandardCharsets.UTF_8);

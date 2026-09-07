@@ -28,7 +28,7 @@ pub use maturity::Maturity;
 pub use status::{
     ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, TickStatus,
 };
-pub use top::{CostSource, TopEntry, TopWorkloads};
+pub use top::{assert_java_readable, CostSource, TopEntry, TopWorkloads};
 pub use workid::{Side, WorkDescriptor, WorkId};
 
 /// Version du schema de serialisation des blobs CBOR echanges avec Java.

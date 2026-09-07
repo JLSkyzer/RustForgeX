@@ -349,6 +349,16 @@ public final class MacroRecorder {
                 .append(",\n");
         state.append("      \"cycles\": ")
                 .append(longValue(profiler, "baseline_cycles")).append(",\n");
+        // La dispersion des cycles, sans laquelle la médiane ne dit pas si elle résume
+        // un signal ou du bruit. Le profilage ne peut pas rendre un tick plus rapide :
+        // une proportion de cycles positifs proche de la moitié signale que la mesure
+        // ne mesure rien.
+        state.append("      \"delta_min_ns\": ")
+                .append(longValue(profiler, "baseline_delta_min_ns")).append(",\n");
+        state.append("      \"delta_max_ns\": ")
+                .append(longValue(profiler, "baseline_delta_max_ns")).append(",\n");
+        state.append("      \"positive_cycles\": ")
+                .append(longValue(profiler, "baseline_positive_cycles")).append(",\n");
         state.append("      \"tick\": ")
                 .append(longValue(profiler, "baseline_tick")).append("\n");
         state.append("    }");

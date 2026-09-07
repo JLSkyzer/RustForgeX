@@ -102,6 +102,22 @@ pub struct BaselineMeasurement {
     pub overhead_ns: u64,
     /// Nombre de cycles agreges dans cette mesure.
     pub cycles: u32,
+    /// Plus petite difference par cycle, signee, en nanosecondes.
+    ///
+    /// Publiee avec [`Self::delta_max_ns`] et [`Self::positive_cycles`] parce qu'une
+    /// mediane seule ne dit pas si elle resume un signal ou du bruit. Sur cinq
+    /// executions d'une meme configuration, la mesure a rendu 0, 1,4, 1,74, 2,43, 3,01
+    /// et 5,5 % — sans qu'aucun chiffre publie ne permette de savoir d'ou venait
+    /// l'ecart. Ces trois-la le disent.
+    pub delta_min_ns: i64,
+    /// Plus grande difference par cycle, signee, en nanosecondes.
+    pub delta_max_ns: i64,
+    /// Cycles dont la difference est strictement positive.
+    ///
+    /// Sur un signal reel, la quasi-totalite des cycles doit etre positive : le
+    /// profilage ne peut pas rendre un tick plus rapide. Une proportion proche de la
+    /// moitie signale que le bruit domine, et que la mediane ne mesure rien.
+    pub positive_cycles: u32,
     /// Tick auquel la mesure s'est achevee.
     pub tick: u64,
 }
@@ -312,13 +328,17 @@ impl BaselineSampler {
     /// Resume les cycles accumules en une mesure.
     fn conclude(&self, tick: u64) -> BaselineMeasurement {
         let count = self.cycles_done;
-        let delta = median_signed(&self.deltas[..count]);
+        let deltas = &self.deltas[..count];
+        let delta = median_signed(deltas);
         BaselineMeasurement {
             active_median_ns: median(&self.active_medians[..count]),
             paused_median_ns: median(&self.paused_medians[..count]),
             // Bornee ici, et ici seulement.
             overhead_ns: if delta > 0 { delta as u64 } else { 0 },
             cycles: count as u32,
+            delta_min_ns: deltas.iter().copied().min().unwrap_or(0),
+            delta_max_ns: deltas.iter().copied().max().unwrap_or(0),
+            positive_cycles: deltas.iter().filter(|d| **d > 0).count() as u32,
             tick,
         }
     }

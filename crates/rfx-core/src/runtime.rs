@@ -658,6 +658,36 @@ mod tests {
         );
     }
 
+    /// Le statut doit rester lisible par Java, champ signe compris.
+    ///
+    /// Troisieme defaut de cette famille en une journee. Celui-ci : trois differences
+    /// signees ajoutees a `ProfilerStatus` pour diagnostiquer le bruit de la ligne de
+    /// base. `CborReader` n'avait aucun `case 1` — les entiers negatifs n'etaient pas
+    /// supportes du tout — et le blob ENTIER devenait illisible. Le fichier de campagne
+    /// perdait d'un coup le niveau du profileur et la ligne de base, sans message.
+    ///
+    /// Le statut porte des valeurs qui n'existent qu'a l'execution : ce test le
+    /// remplit avec une mesure de ligne de base et une unite de travail, sinon il ne
+    /// verifierait que la carcasse.
+    #[test]
+    fn the_status_stays_readable_by_java() {
+        let _guard = test_lock();
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+        rt.register_workload(rfx_model::WorkId(1));
+        rt.record_panic(Instant::now());
+        for tick in 1..=400 {
+            rt.tick_begin(tick, Side::Server, Instant::now());
+            rt.tick_end(Instant::now());
+        }
+
+        let blob = rfx_model::to_cbor(&rt.status()).expect("serialisation");
+
+        if let Err(reason) = rfx_model::assert_java_readable(&blob) {
+            panic!("le statut n'est pas lisible par Java : {reason}");
+        }
+    }
+
     #[test]
     fn status_reflects_state_and_panics() {
         let mut rt = Runtime::new(RuntimeConfig::default());

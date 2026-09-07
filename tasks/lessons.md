@@ -476,3 +476,28 @@ j'espérais.
 **Règle** : avant de cocher une case sur une observation, se demander combien
 d'exécutions la soutiennent. Une seule ne ferme rien, surtout quand elle confirme ce
 qu'on souhaitait. Écrire « observé une fois » plutôt que « expliqué ».
+
+### 2026-09-07 | Trois fois le même défaut de frontière en une journée | Un vérificateur de contrat, pas trois corrections
+
+Trois valeurs ont rendu illisible **tout un blob CBOR**, jamais seulement leur champ :
+
+| valeur | ce qui devenait muet |
+|---|---|
+| `f64` dans le classement | `/rfx top` en entier |
+| `u64` ≥ 2^63 pour le `work_id` | une invocation sur deux |
+| `i64` dans le statut | statut, niveau du profileur, ligne de base |
+
+À chaque fois j'ai corrigé l'instance et écrit un garde-fou un peu meilleur ; à chaque
+fois le suivant est passé au travers. Le garde-fou du premier vérifiait la forme, pas le
+domaine — le deuxième est passé. Le deuxième vivait dans les tests de `rfx-model` — le
+troisième, dans `rfx-core`, n'y avait pas accès.
+
+**Règle** : quand un même défaut revient une troisième fois, cesser de corriger
+l'instance. Le contrat d'interopérabilité devient une **fonction publique** que tout
+module peut appeler sur son propre modèle, avec un message d'erreur qui dit quoi
+corriger. Et l'appliquer aux modèles **déjà en service**, pas seulement au dernier écrit
+— c'est là que dormait celui-ci.
+
+Corollaire : un décodeur minimal est une bonne chose, mais sa minimalité est un
+**contrat**, pas un détail d'implémentation. Il doit être testé des deux côtés — ce que
+Rust produit, et ce que Java accepte.

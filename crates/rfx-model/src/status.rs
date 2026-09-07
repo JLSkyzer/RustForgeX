@@ -107,6 +107,19 @@ pub struct ProfilerStatus {
     pub baseline_overhead_pct_x100: u64,
     /// Cycles appaires agreges dans la derniere mesure de ligne de base.
     pub baseline_cycles: u64,
+    /// Plus petite difference par cycle de la derniere mesure, signee, en nanosecondes.
+    ///
+    /// Publiee avec `baseline_delta_max_ns` et `baseline_positive_cycles` : une mediane
+    /// seule ne dit pas si elle resume un signal ou du bruit.
+    pub baseline_delta_min_ns: i64,
+    /// Plus grande difference par cycle de la derniere mesure, signee, en nanosecondes.
+    pub baseline_delta_max_ns: i64,
+    /// Cycles a difference strictement positive dans la derniere mesure.
+    ///
+    /// Le profilage ne peut pas rendre un tick plus rapide : sur un signal reel, la
+    /// quasi-totalite des cycles doit etre positive. Une proportion proche de la moitie
+    /// signale que le bruit domine.
+    pub baseline_positive_cycles: u64,
     /// Tick auquel la derniere mesure de ligne de base s'est achevee.
     pub baseline_tick: u64,
     /// Ticks restants avant la prochaine pause de mesure.
