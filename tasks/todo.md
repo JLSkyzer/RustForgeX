@@ -159,6 +159,31 @@ condition posée pour brancher le transformateur est levée.
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
+- [ ] **Le bruit de la ligne de base est MESURÉ, et la méthode ne peut pas marcher.**
+      Relevé du 2026-09-07, 30 cycles, charge `mobs`, sondes armées, profileur `DEEP` :
+
+      | | |
+      |---|---|
+      | différence minimale par cycle | **−1 527 250 ns** |
+      | différence maximale par cycle | **+1 257 700 ns** |
+      | cycles positifs | **14 sur 30** |
+      | médiane retenue | 0 ns |
+
+      Le signal cherché vaut ~250 000 ns. Le bruit par cycle vaut ±1 500 000 ns, soit
+      **six fois le signal**, et le signe est celui d'un tirage à pile ou face — 14 sur
+      30 quand le hasard pur en donnerait 15. Or le profilage ne peut pas rendre un tick
+      plus rapide : la moitié des cycles rend une valeur physiquement impossible.
+      Ce n'est donc pas de la dérive entre cycles, c'est du bruit **intra-cycle**.
+- [ ] Conséquence chiffrée : pour résoudre 250 µs dans un bruit d'écart-type ~1,5 ms, il
+      faudrait environ **350 cycles**, soit 112 000 ticks — une heure et demie de jeu par
+      mesure. La cadence 300/20 de la PARTIE 12.4 ne peut pas y arriver, quel que soit
+      le nombre de cycles raisonnable
+- [ ] Piste à instruire demain : **apparier des ticks adjacents** plutôt que deux blocs
+      de vingt séparés d'une seconde. Deux ticks consécutifs se ressemblent bien plus
+      que deux blocs distants ; l'appariement annule la part lente de la variance, qui
+      est probablement l'essentiel. Coût à évaluer : basculer le niveau des sondes à
+      chaque tick suppose de retransmettre la table, ce qui coûte et fausserait la
+      mesure. À mesurer avant de décider
 - [ ] **CASE ROUVERTE — les zéros de la ligne de base ne sont PAS expliqués.** Cochée
       le 2026-09-07 sur la foi d'**une seule exécution**, décochée deux heures plus tard
       par la suivante. Les sondes mortes étaient *une* cause, pas *la* cause :
