@@ -97,6 +97,12 @@ public final class MacroRecorder {
     private int seen;
     private int recorded;
     private boolean loadApplied;
+
+    /** Commandes de charge restant à exécuter, ou {@code null} s'il n'y en a pas. */
+    private java.util.Deque<String> pendingLoad;
+
+    /** Commandes de charge effectivement exécutées. */
+    private int loadCommands;
     private long tickStartNs;
     private long windowStartNs;
     private long gcCountAtStart;
@@ -163,7 +169,13 @@ public final class MacroRecorder {
         // fenêtre mesurée, et le serveur a ensuite tout l'échauffement pour se stabiliser.
         if (!loadApplied && seen == LOAD_AT_TICK) {
             loadApplied = true;
-            applyLoadProfile();
+            pendingLoad = queueLoadProfile();
+        }
+        if (pendingLoad != null && !pendingLoad.isEmpty()) {
+            // Étalé sur plusieurs ticks : huit mille commandes d'un bloc feraient durer
+            // un tick des dizaines de secondes, et le chien de garde du serveur y
+            // verrait un blocage.
+            pumpLoadProfile();
         }
 
         if (seen <= warmupTicks) {
@@ -200,21 +212,37 @@ public final class MacroRecorder {
      * <p>Ne lève jamais : un profil qui échoue laisse un serveur au repos, ce que le
      * fichier d'exécution dira, plutôt qu'un benchmark interrompu.
      */
-    private static void applyLoadProfile() {
+    private java.util.Deque<String> queueLoadProfile() {
         String profile = LoadProfile.requested();
         if (LoadProfile.NONE.equals(profile)) {
-            return;
+            return null;
         }
+        java.util.List<String> commands = LoadProfile.commandsFor(profile);
+        if (commands.isEmpty()) {
+            return null;
+        }
+        LOGGER.info("Profil de charge « {} » : {} commandes, étalées sur {} par tick.",
+                profile, commands.size(), LoadProfile.COMMANDS_PER_TICK);
+        return new java.util.ArrayDeque<>(commands);
+    }
+
+    /** Exécute la tranche de commandes du tick courant. */
+    private void pumpLoadProfile() {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
-                LOGGER.warn("Profil de charge « {} » ignoré : aucun serveur courant.", profile);
+                LOGGER.warn("Profil de charge ignoré : aucun serveur courant.");
+                pendingLoad = null;
                 return;
             }
-            LoadProfile.apply(server, profile);
+            loadCommands += LoadProfile.pump(server, pendingLoad);
+            if (pendingLoad.isEmpty()) {
+                LOGGER.info("Profil de charge appliqué : {} commandes exécutées.", loadCommands);
+            }
         } catch (RuntimeException | LinkageError e) {
-            LOGGER.warn("Profil de charge « {} » non appliqué. La mesure décrira un "
-                    + "serveur au repos.", profile, e);
+            LOGGER.warn("Profil de charge interrompu. La mesure décrira un serveur moins "
+                    + "chargé que demandé.", e);
+            pendingLoad = null;
         }
     }
 

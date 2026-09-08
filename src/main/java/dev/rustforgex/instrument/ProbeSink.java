@@ -63,9 +63,31 @@ public final class ProbeSink {
         int position;
         long dropped;
 
-        ThreadState(int threadId, ByteBuffer buffer) {
+        /**
+         * Passages comptés par sonde, indexés par identifiant.
+         *
+         * <p>Alloué une fois, à l'attachement du thread : R-320 interdit toute
+         * allocation dans le chemin chaud, et c'en est un.
+         */
+        final int[] counts;
+
+        /**
+         * Identifiants touchés depuis la dernière vidange.
+         *
+         * <p>Sans cette liste, vider les compteurs demanderait de parcourir les
+         * milliers d'entrées de {@link #counts} à chaque tick, alors qu'une poignée
+         * seulement est appelée. Elle est alimentée au passage de zéro à un, ce qui
+         * garantit qu'un identifiant n'y figure qu'une fois.
+         */
+        final int[] touched;
+
+        int touchedLen;
+
+        ThreadState(int threadId, ByteBuffer buffer, int probeCapacity) {
             this.threadId = threadId;
             this.buffer = buffer;
+            this.counts = new int[probeCapacity];
+            this.touched = new int[probeCapacity];
         }
     }
 
@@ -87,6 +109,16 @@ public final class ProbeSink {
      * n'ont de sens que pour le runtime natif auquel ce puits est rattaché. Un
      * compteur de classe lierait entre eux des puits qui n'ont rien à voir.
      */
+    /**
+     * Nombre de sondes que les tableaux de comptage doivent couvrir.
+     *
+     * <p>Renseigné par {@code RfxProbes} à chaque table de niveaux reçue, et lu une
+     * seule fois par thread, à son attachement. Un thread attaché avant l'arrivée de
+     * nouvelles sondes garde ses tableaux : les identifiants au-delà retombent sur
+     * l'enregistrement direct, ce qui reste correct.
+     */
+    private volatile int probeCapacity;
+
     private final AtomicInteger nextThreadId = new AtomicInteger();
     private final AtomicLong recordsWritten = new AtomicLong();
     private final AtomicLong recordsDropped = new AtomicLong();
@@ -115,6 +147,66 @@ public final class ProbeSink {
      * @param value durée, taille d'allocation, ou autre valeur selon la nature
      * @return {@code true} si l'enregistrement a été écrit
      */
+    /**
+     * Compte un passage sans traverser la frontière (R-700).
+     *
+     * <p>C'est le chemin du niveau {@code COUNTER}, celui de toutes les sondes tant que
+     * le profileur est à {@code LIGHT}. Il écrivait auparavant un enregistrement de
+     * trente-deux octets par appel, pour transporter un « plus un » — alors que R-700
+     * exige de grouper. Le comptage franchissait donc la frontière élément par élément,
+     * ce que le reste du tampon évite soigneusement.
+     *
+     * <p>Ici : une lecture de tableau, une incrémentation, une comparaison. La vidange
+     * a lieu une fois par tick, et son coût est proportionnel au nombre de sondes
+     * <strong>touchées</strong>, non au nombre d'<strong>appels</strong>.
+     *
+     * @param probeId identifiant local de la sonde
+     * @return {@code true} si le passage a été compté
+     */
+    public boolean count(int probeId) {
+        ThreadState current = state.get();
+        if (current == null) {
+            current = attach();
+            if (current == null) {
+                return false;
+            }
+        }
+        int[] counts = current.counts;
+        if (probeId < 0 || probeId >= counts.length) {
+            // Sonde enregistrée après l'attachement de ce thread : agrandir le tableau
+            // ici serait une allocation dans le chemin chaud. L'enregistrement direct
+            // reste correct, simplement plus coûteux, et le prochain thread attaché
+            // aura la bonne taille.
+            return record(probeId, KIND_ENTER, (short) 0, 0L, 1L);
+        }
+        if (counts[probeId]++ == 0) {
+            current.touched[current.touchedLen++] = probeId;
+        }
+        return true;
+    }
+
+    /**
+     * Reverse les compteurs dans le tampon, un enregistrement par sonde touchée.
+     *
+     * <p>Chaque enregistrement porte dans sa valeur le nombre de passages, là où il en
+     * fallait un par passage. C'est le lot que R-700 demande.
+     *
+     * @return le nombre de sondes reversées
+     */
+    private int drainCounts(ThreadState current) {
+        int drained = current.touchedLen;
+        for (int i = 0; i < drained; i++) {
+            int probeId = current.touched[i];
+            int passes = current.counts[probeId];
+            current.counts[probeId] = 0;
+            if (passes > 0) {
+                record(probeId, KIND_ENTER, (short) 0, 0L, passes);
+            }
+        }
+        current.touchedLen = 0;
+        return drained;
+    }
+
     public boolean record(int probeId, byte kind, short contextHash, long timestampNs, long value) {
         ThreadState current = state.get();
         if (current == null) {
@@ -155,7 +247,14 @@ public final class ProbeSink {
      */
     public int flush() {
         ThreadState current = state.get();
-        if (current == null || current.position == 0) {
+        if (current == null) {
+            return 0;
+        }
+        // Les compteurs d'abord : ils deviennent des enregistrements du tampon, qui est
+        // vidé juste après. Les laisser pour le tick suivant retarderait la mesure d'un
+        // tick entier sans rien économiser.
+        drainCounts(current);
+        if (current.position == 0) {
             return 0;
         }
         int used = current.position;
@@ -189,9 +288,24 @@ public final class ProbeSink {
         // pas nécessairement, il faut donc l'imposer.
         buffer.order(ByteOrder.LITTLE_ENDIAN);
 
-        ThreadState created = new ThreadState(threadId, buffer);
+        ThreadState created = new ThreadState(threadId, buffer, probeCapacity);
         state.set(created);
         return created;
+    }
+
+    /**
+     * Annonce le nombre de sondes à couvrir par les compteurs.
+     *
+     * <p>À appeler quand la table des niveaux change. Les threads déjà attachés
+     * conservent leurs tableaux — les redimensionner supposerait d'allouer depuis un
+     * autre thread que le leur, sur des tableaux qu'ils lisent sans verrou.
+     *
+     * @param probes nombre d'identifiants de sonde attribués
+     */
+    public void announceProbeCapacity(int probes) {
+        if (probes > probeCapacity) {
+            probeCapacity = probes;
+        }
     }
 
     /** @return le nombre d'enregistrements écrits depuis le démarrage */

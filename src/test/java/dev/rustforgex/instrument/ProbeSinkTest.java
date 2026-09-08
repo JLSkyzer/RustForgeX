@@ -57,6 +57,90 @@ class ProbeSinkTest {
 
     }
 
+    /**
+     * R-700 : mille appels ne font pas mille traversées.
+     *
+     * <p>Le niveau {@code COUNTER} écrivait un enregistrement de trente-deux octets par
+     * appel pour transporter un « plus un ». C'est exactement ce que R-700 interdit, et
+     * c'était le chemin de toutes les sondes tant que le profileur reste à
+     * {@code LIGHT}.
+     */
+    @Test
+    @DisplayName("R-700 : mille passages comptés donnent un seul enregistrement")
+    void athousandCountedPassesGiveASingleRecord() {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(64);
+
+        for (int i = 0; i < 1_000; i++) {
+            assertTrue(sink.count(7));
+        }
+        assertEquals(0, sink.recordsWritten(), "compter ne doit rien écrire avant la vidange");
+
+        sink.flush();
+
+        assertEquals(1, sink.recordsWritten(), "un lot, pas mille enregistrements");
+        ByteBuffer buffer = bridge.buffers.get(0);
+        assertEquals(7, buffer.getInt(0), "probe_id");
+        assertEquals(ProbeSink.KIND_ENTER, buffer.get(4), "kind");
+        assertEquals(1_000L, buffer.getLong(16), "les mille passages sont dans la valeur");
+    }
+
+    @Test
+    @DisplayName("Chaque sonde touchée donne son propre lot, une seule fois")
+    void eachTouchedProbeGivesItsOwnBatchOnce() {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(64);
+
+        sink.count(3);
+        sink.count(9);
+        sink.count(3);
+
+        sink.flush();
+
+        assertEquals(2, sink.recordsWritten(), "deux sondes touchées, deux enregistrements");
+        ByteBuffer buffer = bridge.buffers.get(0);
+        assertEquals(3, buffer.getInt(0));
+        assertEquals(2L, buffer.getLong(16), "la sonde 3 a été vue deux fois");
+        assertEquals(9, buffer.getInt(ProbeSink.RECORD_SIZE));
+        assertEquals(1L, buffer.getLong(ProbeSink.RECORD_SIZE + 16));
+    }
+
+    @Test
+    @DisplayName("Une seconde vidange ne réémet pas les compteurs déjà reversés")
+    void asecondFlushDoesNotResendDrainedCounters() {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(64);
+
+        sink.count(1);
+        sink.flush();
+        sink.flush();
+
+        assertEquals(1, sink.recordsWritten(), "un compteur reversé ne l'est pas deux fois");
+    }
+
+    /**
+     * Une sonde enregistrée après l'attachement du thread dépasse la capacité de ses
+     * tableaux. Agrandir ceux-ci serait une allocation dans le chemin chaud (R-320) :
+     * l'enregistrement direct reste correct, simplement plus coûteux.
+     */
+    @Test
+    @DisplayName("Une sonde hors capacité est enregistrée directement, jamais perdue")
+    void aprobeBeyondCapacityIsRecordedDirectly() {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(4);
+
+        assertTrue(sink.count(99));
+
+        assertEquals(1, sink.recordsWritten(), "le passage doit être écrit tout de suite");
+        ByteBuffer buffer = bridge.buffers.get(0);
+        assertEquals(99, buffer.getInt(0));
+        assertEquals(1L, buffer.getLong(16));
+    }
+
     @Test
     @DisplayName("Un enregistrement est écrit à la disposition exacte de la PARTIE 6.4")
     void aRecordMatchesTheSpecifiedLayout() {

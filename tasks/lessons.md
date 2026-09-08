@@ -546,3 +546,20 @@ nanosecondes (PARTIE 15) par appel de chaque méthode sondée, jetées aussitôt
   et le commentaire Rust affirmaient tous deux l'absence de lecture d'horloge, et
   l'appel était entre les deux ;
 - une valeur qu'on calcule déjà ne se recalcule pas trois lignes plus bas.
+
+### 2026-09-09 | Le coût est passé sous la résolution de son propre instrument | Une mesure qui ne détecte plus rien n'est pas une mesure à zéro
+
+Deux corrections trouvées par lecture — l'horloge lue pour un champ que personne ne lit,
+puis le comptage qui franchissait la frontière un appel à la fois au lieu d'un lot par
+tick — ont fait passer le relevé de **248 900 ns à 7 550 ns**.
+
+Mais les cycles positifs sont tombés de 17/20 à 11/20, presque un tirage à pile ou face,
+avec un plancher de bruit à 628 µs. Autrement dit **le signal est passé sous la
+résolution de la méthode**. Le chiffre de 7 550 ns ne dit pas « le coût vaut 7,5 µs » ; il
+dit « la médiane de différences bruitées se pose près de zéro », ce qui est exactement le
+comportement décrit par ADR-024.
+
+**Règle** : quand une optimisation fait tomber les indicateurs de qualité de la mesure en
+même temps que le chiffre, ne pas annoncer le chiffre. Annoncer la **borne** : le coût est
+désormais inférieur à ce que l'instrument sait distinguer. C'est une affirmation plus
+faible et plus vraie, et elle reste utile — elle dit que le sujet est clos.

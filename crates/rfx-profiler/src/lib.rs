@@ -227,8 +227,16 @@ impl Profiler {
 
         match record.kind() {
             RecordKind::Enter => {
-                // Niveau COUNTER : le passage est enregistre sans lecture d'horloge.
-                entry.calls_this_tick = entry.calls_this_tick.saturating_add(1);
+                // Niveau COUNTER : ni horloge, ni un enregistrement par appel. Java
+                // compte les passages dans un tableau par fil et les reverse une fois
+                // par tick, chaque enregistrement portant son total dans `value`
+                // (R-700). Un « plus un » ne vaut pas une traversee de frontiere.
+                //
+                // Zero est traite comme un : un producteur qui ne renseignerait pas la
+                // valeur decrit tout de meme un passage, et le perdre serait pire que
+                // le compter une fois.
+                let passes = record.value.max(1);
+                entry.calls_this_tick = entry.calls_this_tick.saturating_add(passes);
             }
             RecordKind::Exit => {
                 entry.calls_this_tick = entry.calls_this_tick.saturating_add(1);

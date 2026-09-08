@@ -174,4 +174,74 @@ class LoadProfileTest {
         }
         return -1;
     }
+
+    /**
+     * PARTIE 22 : le profil `heavy` demande 8 000 entités et 2 500 chunks.
+     *
+     * <p>Les profils précédents étaient tous en dessous de la ligne `vanilla` de la
+     * table — 200 entités et 256 chunks contre 200 et 400. Toutes les mesures faites
+     * jusqu'ici décrivaient donc un serveur au repos, ce qui compte directement pour un
+     * budget exprimé en pourcentage du MSPT.
+     */
+    @Test
+    @DisplayName("PARTIE 22 : le profil heavy invoque 8 000 entités")
+    void theHeavyProfileSummonsEightThousandEntities() {
+        long summons = LoadProfile.commandsFor(LoadProfile.HEAVY).stream()
+                .filter(c -> c.contains("summon"))
+                .count();
+
+        assertEquals(8_000, summons);
+    }
+
+    /**
+     * `/forceload add` refuse au-delà de 256 régions par commande. Une seule commande
+     * couvrant les 2 500 chunks échouerait **sans que rien ne le signale** : la charge
+     * manquerait et la mesure porterait sur un serveur vide en croyant le contraire.
+     */
+    @Test
+    @DisplayName("Aucune commande forceload ne dépasse la limite de 256 régions")
+    void noForceloadCommandExceedsTheLimit() {
+        for (String command : LoadProfile.commandsFor(LoadProfile.HEAVY)) {
+            if (!command.startsWith("forceload add")) {
+                continue;
+            }
+            String[] parts = command.split(" ");
+            int x1 = Integer.parseInt(parts[2]);
+            int z1 = Integer.parseInt(parts[3]);
+            int x2 = Integer.parseInt(parts[4]);
+            int z2 = Integer.parseInt(parts[5]);
+            long chunks = (long) (Math.abs(x2 - x1) / 16 + 1) * (Math.abs(z2 - z1) / 16 + 1);
+
+            assertTrue(chunks <= 256,
+                    command + " couvre " + chunks + " régions, la limite est 256");
+        }
+    }
+
+    @Test
+    @DisplayName("Le profil heavy charge au moins les 2 500 chunks demandés")
+    void theHeavyProfileLoadsTheRequestedChunks() {
+        long chunks = 0;
+        for (String command : LoadProfile.commandsFor(LoadProfile.HEAVY)) {
+            if (!command.startsWith("forceload add")) {
+                continue;
+            }
+            String[] parts = command.split(" ");
+            chunks += (long) (Math.abs(Integer.parseInt(parts[4]) - Integer.parseInt(parts[2])) / 16 + 1)
+                    * (Math.abs(Integer.parseInt(parts[5]) - Integer.parseInt(parts[3])) / 16 + 1);
+        }
+
+        assertTrue(chunks >= 2_500, "seulement " + chunks + " chunks chargés");
+    }
+
+    /**
+     * À huit mille entités sur la zone, l'entassement est inévitable. Sans désactiver
+     * le cramming, le serveur tuerait les entités entassées et ferait disparaître la
+     * charge qu'on vient d'installer.
+     */
+    @Test
+    @DisplayName("Le profil heavy désactive le cramming, sinon la charge s'évapore")
+    void theHeavyProfileDisablesCramming() {
+        assertTrue(LoadProfile.commandsFor(LoadProfile.HEAVY)
+                .contains("gamerule maxEntityCramming 0"));
+    }
 }

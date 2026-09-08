@@ -404,6 +404,48 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       accroche l'a produite. Un compteur qu'on ne sait pas interpréter ne sert à rien —
       c'est la même leçon que `CLASSES_SEEN` incrémenté du mauvais côté du retour
 
+### Étape H bis — Ramener le coût du sondage sous le budget
+
+État mesuré au 2026-09-09 : **~129 µs par tick** (deux mesures indépendantes à 2 %
+l'une de l'autre), contre un budget de 1,5 % du MSPT ≈ **63 µs**. Facteur deux à
+trouver.
+
+- [x] **L'horloge lue pour rien** : `System.nanoTime()` remplissait `timestamp_ns`, que
+      le natif ne lit jamais. 249 → ~129 µs
+- [ ] **Le niveau COUNTER viole R-700 — chantier principal.** Pour transporter un
+      simple « +1 », le chemin chaud écrit **32 octets** dans le tampon et lit **trois
+      champs `volatile`**. Or R-700 exige « par lot, jamais par élément » : le tampon
+      le respecte pour les mesures chronométrées, le comptage franchit la frontière un
+      élément à la fois
+
+      Conception retenue, par fil sondé :
+
+      ```java
+      int[] counts;   // indexé par identifiant de sonde
+      int[] touched;  // identifiants vus ce tick, pour ne pas balayer 2 649 entrées
+      int  touchedLen;
+      ```
+
+      Chemin chaud au niveau COUNTER : `if (counts[id]++ == 0) touched[len++] = id;`
+      — une lecture de tableau, une incrémentation, une comparaison. Ni `volatile`, ni
+      écriture de 32 octets, ni traversée par appel.
+
+      Vidange en fin de tick : parcourir `touched`, émettre **un** enregistrement
+      `ENTER` par sonde touchée avec `value = count`, remettre à zéro. Le coût devient
+      proportionnel au nombre de sondes **touchées**, pas au nombre d'**appels**
+- [ ] Côté natif : `RecordKind::Enter` fait `calls_this_tick += 1`. Il devra faire
+      `+= record.value`. Java écrira toujours une valeur ≥ 1
+- [ ] Le balayage naïf serait un piège : 2 649 entiers par fil et par tick coûteraient
+      plusieurs microsecondes pour rien quand une poignée de sondes seulement est
+      appelée. D'où `touched`, alimenté au passage de zéro à un
+- [ ] R-320 : les deux tableaux sont alloués une fois par fil, jamais dans le chemin
+      chaud. T-142 doit rester vert
+- [ ] Petits gains au passage : `sink` est lu deux fois par appel (`enter` puis
+      `record`), une suffit ; `probeId < 0` ne peut pas arriver, les identifiants
+      venant de constantes injectées dans le bytecode
+- [ ] Vérifier en jeu, puis **une** mesure de qualité comparable à la référence
+      (fenêtre 512, période 2048) avant d'annoncer un chiffre
+
 ### Étape I — C-36 Benchmark Harness
 
 **Niveau A — micro-benchmarks Rust** (autonome, mesure ce qui existe aujourd'hui)

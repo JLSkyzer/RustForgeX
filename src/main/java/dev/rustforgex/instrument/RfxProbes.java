@@ -70,6 +70,7 @@ public final class RfxProbes {
         // Le puits en dernier : tant qu'il est nul, les sondes ne font rien, et la
         // table est déjà en place quand elles commencent à s'exécuter.
         sink = newSink;
+        announceCapacity(table.length);
     }
 
     /**
@@ -125,6 +126,15 @@ public final class RfxProbes {
         byte[] table = newLevels.clone();
         refreshAnyArmed(table);
         levels = table;
+        announceCapacity(table.length);
+    }
+
+    /** Dit au puits combien de sondes ses compteurs doivent couvrir. */
+    private static void announceCapacity(int probes) {
+        ProbeSink current = sink;
+        if (current != null) {
+            current.announceProbeCapacity(probes);
+        }
     }
 
     /** Désinstalle le puits : les sondes redeviennent inertes. */
@@ -152,11 +162,14 @@ public final class RfxProbes {
             return 0L;
         }
         if (level == 1) {
-            // COUNTER : pas d'horloge, on n'enregistre que le passage — et cette fois
-            // c'est vrai. `record` lisait l'horloge pour horodater l'enregistrement,
-            // ce qui coûtait vingt à trente nanosecondes (PARTIE 15) à chaque appel de
-            // chaque méthode sondée, pour une valeur que personne ne lit.
-            record(probeId, ProbeSink.KIND_ENTER, 0L, NOT_TIMESTAMPED);
+            // COUNTER : ni horloge, ni traversée. Le passage est compté dans un tableau
+            // par fil, et les compteurs deviennent un lot d'enregistrements une fois
+            // par tick (R-700). Écrire trente-deux octets par appel pour transporter un
+            // « plus un » faisait exactement ce que R-700 interdit.
+            ProbeSink current = sink;
+            if (current != null) {
+                current.count(probeId);
+            }
             return 0L;
         }
         // TIMED et DEEP : l'horodatage sert de témoin d'entrée et de base de durée.
