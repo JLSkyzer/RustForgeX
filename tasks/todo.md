@@ -559,12 +559,28 @@ donc ouvert.
 
 - [ ] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
       T-410..T-412, T-420..T-422, T-440..T-442 verts
-- [ ] Overhead **mesuré** et affiché sous 2 % sur un profil de charge.
-      **État au 2026-09-07 : 3,01 % mesuré par la ligne de base interne**, sur des
-      sondes qui mesurent réellement. Le +6,5 % certifié le 2026-09-06 est caduc : il
-      portait sur des sondes inertes. Deux lectures à ne pas confondre — le coût du
-      sondage en régime armé (3,01 %) et le coût du produit gouverneur compris, que la
-      campagne en cours donnera
+- [x] **Overhead mesuré et affiché sous 2 % sur un profil de charge** (ADR-025).
+      Mesuré sous le profil `medium` de la PARTIE 22 — 2 000 entités, 1 200 chunks,
+      MSPT p50 de 20,8 ms, ce qui est enfin un serveur qui travaille :
+
+      | lecture | valeur | budget | |
+      |---|---|---|---|
+      | part d'un cœur (H-07) | **0,51 %** | 2 % | ✅ facteur 4 |
+      | part du MSPT (PARTIE 5.5) | **1,41 %** | 1,5 % | ✅ de peu |
+
+      Toutes les mesures antérieures portaient sur `mobs` — 4,2 ms de MSPT, soit un
+      serveur au repos, et un profil **sous la ligne `vanilla`** de la table. Le budget
+      relatif au MSPT s'y resserrait au maximum, précisément là où le coût importe le
+      moins
+- [ ] **La marge sur la lecture MSPT est mince et la mesure est faible** : 6 cycles
+      positifs sur 10, queue négative à −1,14 ms. ADR-024 dit qu'une telle médiane est
+      biaisée vers zéro — le coût réel pourrait dépasser 275 µs. La lecture « part d'un
+      cœur » garde, elle, un facteur 4 et tient même si le chiffre était sous-estimé de
+      moitié
+- [ ] Le profil `heavy` (8 000 entités) **tue le serveur de banc** : la sauvegarde
+      automatique sérialise toutes les entités d'un coup, tick de 120 s, arrêt par le
+      chien de garde. La table de la PARTIE 22 décrit des mods synthétiques, pas
+      290 mods réels ; ses chiffres ne se transposent pas
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle

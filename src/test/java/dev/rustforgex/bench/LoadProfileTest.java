@@ -244,4 +244,58 @@ class LoadProfileTest {
         assertTrue(LoadProfile.commandsFor(LoadProfile.HEAVY)
                 .contains("gamerule maxEntityCramming 0"));
     }
+
+    /**
+     * `heavy` a fait arrêter le serveur : la sauvegarde de 8 000 entités sur un modpack
+     * de 290 mods a produit un tick de 120 secondes, et le chien de garde de Minecraft
+     * a tué la JVM. `medium` est la ligne inférieure de la PARTIE 22.
+     */
+    @Test
+    @DisplayName("PARTIE 22 : le profil medium invoque 2 000 entités")
+    void theMediumProfileSummonsTwoThousandEntities() {
+        long summons = LoadProfile.commandsFor(LoadProfile.MEDIUM).stream()
+                .filter(c -> c.contains("summon"))
+                .count();
+
+        assertEquals(2_000, summons);
+    }
+
+    /**
+     * La sauvegarde automatique sérialise toutes les entités d'un coup. C'est elle qui
+     * a produit le tick de 120 secondes, et ce n'est pas le coût de tick qu'on mesure.
+     */
+    @Test
+    @DisplayName("Les profils à milliers d'entités coupent la sauvegarde automatique")
+    void heavyProfilesTurnAutosaveOff() {
+        assertTrue(LoadProfile.commandsFor(LoadProfile.MEDIUM).contains("save-off"));
+        assertTrue(LoadProfile.commandsFor(LoadProfile.HEAVY).contains("save-off"));
+    }
+
+    /**
+     * Les profils légers n'ont pas besoin de couper la sauvegarde, et la couper
+     * changerait ce qu'ils mesurent par rapport aux campagnes déjà archivées.
+     */
+    @Test
+    @DisplayName("Le profil mobs garde la sauvegarde, pour rester comparable aux campagnes passées")
+    void theMobsProfileKeepsAutosave() {
+        assertFalse(LoadProfile.commandsFor(LoadProfile.MOBS).contains("save-off"));
+    }
+
+    @Test
+    @DisplayName("Le profil medium charge au moins les 1 200 chunks demandés")
+    void theMediumProfileLoadsTheRequestedChunks() {
+        long chunks = 0;
+        for (String command : LoadProfile.commandsFor(LoadProfile.MEDIUM)) {
+            if (!command.startsWith("forceload add")) {
+                continue;
+            }
+            String[] parts = command.split(" ");
+            long wide = Math.abs(Integer.parseInt(parts[4]) - Integer.parseInt(parts[2])) / 16 + 1;
+            long tall = Math.abs(Integer.parseInt(parts[5]) - Integer.parseInt(parts[3])) / 16 + 1;
+            assertTrue(wide * tall <= 256, command + " dépasse la limite de 256 régions");
+            chunks += wide * tall;
+        }
+
+        assertTrue(chunks >= 1_200, "seulement " + chunks + " chunks chargés");
+    }
 }

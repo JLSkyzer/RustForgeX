@@ -78,6 +78,20 @@ public final class LoadProfile {
     public static final String HEAVY = "heavy";
 
     /**
+     * Le profil {@code medium} de la PARTIE 22 : 2 000 entités, 1 200 chunks.
+     *
+     * <p>Existe parce que {@link #HEAVY} s'est révélé hors de portée du banc. Sur un
+     * modpack de 290 mods, où chaque entité porte les données de plusieurs d'entre eux,
+     * la sauvegarde de 8 000 entités a produit un tick de <strong>120 secondes</strong>
+     * et le chien de garde de Minecraft a arrêté le serveur. La table de la PARTIE 22
+     * décrit des mods <em>synthétiques</em>, pas 290 mods réels : ses chiffres ne se
+     * transposent pas tels quels.
+     *
+     * <p>Quatre fois plus léger, et toujours dix fois le profil {@link #MOBS}.
+     */
+    public static final String MEDIUM = "medium";
+
+    /**
      * Côté du carré de régions maintenues chargées, en blocs.
      *
      * <p>{@code /forceload add} refuse au-delà de 256 régions par commande : un carré de
@@ -94,6 +108,12 @@ public final class LoadProfile {
 
     /** Chunks maintenus chargés par le profil {@link #HEAVY} (PARTIE 22). */
     static final int HEAVY_CHUNKS = 2_500;
+
+    /** Entités invoquées par le profil {@link #MEDIUM} (PARTIE 22). */
+    static final int MEDIUM_MOB_COUNT = 2_000;
+
+    /** Chunks maintenus chargés par le profil {@link #MEDIUM} (PARTIE 22). */
+    static final int MEDIUM_CHUNKS = 1_200;
 
     /**
      * Chunks par commande {@code /forceload add}.
@@ -138,7 +158,8 @@ public final class LoadProfile {
         if (profile == null || NONE.equals(profile)) {
             return List.of();
         }
-        if (!CHUNKS.equals(profile) && !MOBS.equals(profile) && !HEAVY.equals(profile)) {
+        if (!CHUNKS.equals(profile) && !MOBS.equals(profile)
+                && !MEDIUM.equals(profile) && !HEAVY.equals(profile)) {
             return List.of();
         }
 
@@ -159,21 +180,29 @@ public final class LoadProfile {
         // 3. Charger les régions AVANT d'y placer quoi que ce soit : une entité dans une
         //    région non chargée ne tick pas du tout, elle reste figée. L'ordre n'est pas
         //    un détail de présentation.
-        int half = FORCELOAD_SPAN / 2;
-        if (HEAVY.equals(profile)) {
-            appendHeavyForceload(commands);
+        int chunks = chunksFor(profile);
+        if (chunks > 0) {
+            appendForceload(commands, chunks);
         } else {
+            int half = FORCELOAD_SPAN / 2;
             commands.add(String.format(Locale.ROOT, "forceload add %d %d %d %d",
                     -half, -half, half - 1, half - 1));
         }
         commands.add("gamerule randomTickSpeed " + RANDOM_TICK_SPEED);
 
-        if (HEAVY.equals(profile)) {
-            // Le cramming tuerait les entités entassées avant qu'elles ne ticks : à
-            // huit mille sur la zone, l'entassement est inévitable et il ne doit pas
-            // faire disparaître la charge qu'on vient d'installer.
+        int mobs = mobsFor(profile);
+        if (mobs > 0) {
+            // Le cramming tuerait les entités entassées avant qu'elles ne ticks : à ces
+            // densités l'entassement est inévitable, et il ne doit pas faire disparaître
+            // la charge qu'on vient d'installer.
             commands.add("gamerule maxEntityCramming 0");
-            appendMobs(commands, HEAVY_MOB_COUNT, heavySpan());
+            // La sauvegarde automatique sérialise toutes les entités d'un coup. Avec des
+            // milliers d'entités sur un modpack lourd, elle produit un tick de plusieurs
+            // dizaines de secondes — c'est ainsi que le profil `heavy` a fait arrêter le
+            // serveur par son chien de garde, à 120 secondes pour un seul tick. Ce n'est
+            // pas le coût de tick qu'on mesure, et un monde de banc n'a rien à sauver.
+            commands.add("save-off");
+            appendMobs(commands, mobs, spanFor(chunks));
         } else if (MOBS.equals(profile)) {
             // 4. Des entités qui pensent : IA, recherche de chemin, collisions. Elles
             //    sont réparties sur la zone chargée, et marquées persistantes pour ne
@@ -183,25 +212,36 @@ public final class LoadProfile {
         return List.copyOf(commands);
     }
 
-    /**
-     * Côté du carré chargé par {@link #HEAVY}, en blocs.
-     *
-     * <p>2 500 chunks font un carré de 50 sur 50, soit 800 blocs de côté.
-     */
-    static int heavySpan() {
-        int side = (int) Math.round(Math.sqrt(HEAVY_CHUNKS));
-        return side * 16;
+    /** @return les chunks demandés par le profil, ou {@code 0} pour la zone par défaut */
+    static int chunksFor(String profile) {
+        if (HEAVY.equals(profile)) {
+            return HEAVY_CHUNKS;
+        }
+        return MEDIUM.equals(profile) ? MEDIUM_CHUNKS : 0;
+    }
+
+    /** @return les entités demandées par les profils calibrés sur la PARTIE 22 */
+    static int mobsFor(String profile) {
+        if (HEAVY.equals(profile)) {
+            return HEAVY_MOB_COUNT;
+        }
+        return MEDIUM.equals(profile) ? MEDIUM_MOB_COUNT : 0;
+    }
+
+    /** Côté, en blocs, du carré couvrant `chunks` chunks. */
+    static int spanFor(int chunks) {
+        return (int) Math.round(Math.sqrt(chunks)) * 16;
     }
 
     /**
-     * Charge les 2 500 chunks par bandes de 256 au plus.
+     * Charge les chunks demandés par bandes de 256 au plus.
      *
      * <p>Une seule commande couvrant tout le carré serait refusée sans que rien ne le
      * signale au benchmark : la charge manquerait, et la mesure porterait sur un serveur
      * vide en croyant mesurer un serveur chargé.
      */
-    private static void appendHeavyForceload(List<String> commands) {
-        int side = (int) Math.round(Math.sqrt(HEAVY_CHUNKS));
+    private static void appendForceload(List<String> commands, int chunks) {
+        int side = (int) Math.round(Math.sqrt(chunks));
         int halfChunks = side / 2;
         // Une bande de `rows` rangées de `side` chunks tient sous la limite par commande.
         int rows = Math.max(1, FORCELOAD_PER_COMMAND / side);
