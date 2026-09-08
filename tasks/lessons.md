@@ -524,3 +524,25 @@ corriger une erreur alors que j'en ajoutais une.
   suffi à retourner l'interprétation ;
 - se méfier d'un estimateur robuste appliqué à un signal noyé : la médiane ne protège
   pas du biais, elle protège des valeurs aberrantes.
+
+### 2026-09-08 | L'horloge était lue pour remplir un champ que personne ne lit | Vérifier qui consomme, pas seulement qui produit
+
+`RfxProbes.record()` appelait `System.nanoTime()` pour horodater chaque enregistrement
+de sonde. Or `timestamp_ns` n'est lu **nulle part** côté natif : `ingest` ne consulte
+que l'identifiant, le genre et la valeur. Le code Rust le dit même explicitement —
+« niveau COUNTER : le passage est enregistré sans lecture d'horloge » — et le
+commentaire Java disait la même chose. **Les deux étaient faux.**
+
+Pire, `exit()` lisait l'horloge deux fois par appel chronométré : une pour la durée,
+une seconde à l'intérieur de `record` pour l'horodatage.
+
+Au niveau `LIGHT`, toutes les sondes sont à `COUNTER` : c'était donc vingt à trente
+nanosecondes (PARTIE 15) par appel de chaque méthode sondée, jetées aussitôt.
+
+**Règles** :
+- un champ d'un format publié n'est pas forcément lu. Avant de payer pour le remplir
+  sur un chemin chaud, chercher son **consommateur** — pas sa définition ;
+- deux commentaires concordants ne valent pas une vérification. Ici le commentaire Java
+  et le commentaire Rust affirmaient tous deux l'absence de lecture d'horloge, et
+  l'appel était entre les deux ;
+- une valeur qu'on calcule déjà ne se recalcule pas trois lignes plus bas.

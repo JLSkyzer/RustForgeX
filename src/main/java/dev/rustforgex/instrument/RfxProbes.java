@@ -152,8 +152,11 @@ public final class RfxProbes {
             return 0L;
         }
         if (level == 1) {
-            // COUNTER : pas d'horloge, on n'enregistre que le passage.
-            record(probeId, ProbeSink.KIND_ENTER, 0L);
+            // COUNTER : pas d'horloge, on n'enregistre que le passage — et cette fois
+            // c'est vrai. `record` lisait l'horloge pour horodater l'enregistrement,
+            // ce qui coûtait vingt à trente nanosecondes (PARTIE 15) à chaque appel de
+            // chaque méthode sondée, pour une valeur que personne ne lit.
+            record(probeId, ProbeSink.KIND_ENTER, 0L, NOT_TIMESTAMPED);
             return 0L;
         }
         // TIMED et DEEP : l'horodatage sert de témoin d'entrée et de base de durée.
@@ -171,20 +174,40 @@ public final class RfxProbes {
             // Sonde éteinte, en mode compteur, ou puits absent : rien à faire.
             return;
         }
-        long elapsed = System.nanoTime() - entryNanos;
+        long now = System.nanoTime();
+        long elapsed = now - entryNanos;
         // Une horloge non monotone rendrait une durée négative : on la jette plutôt
         // que de polluer l'histogramme (FM-12).
-        record(probeId, ProbeSink.KIND_EXIT, elapsed < 0 ? 0L : elapsed);
+        //
+        // `now` sert deux fois : à la durée et à l'horodatage. L'horloge était lue une
+        // seconde fois à l'intérieur de `record`, soit deux lectures par appel
+        // chronométré là où une suffit.
+        record(probeId, ProbeSink.KIND_EXIT, elapsed < 0 ? 0L : elapsed, now);
     }
 
+    /**
+     * Horodatage des enregistrements qui n'en portent pas.
+     *
+     * <p>Le format IF-03 réserve huit octets à un horodatage (PARTIE 6.4), mais
+     * <strong>aucun consommateur ne le lit</strong> : le profileur ne consulte que
+     * l'identifiant de sonde, le genre et la valeur. Le remplir demandait un appel à
+     * {@code System.nanoTime()} par enregistrement — vingt à trente nanosecondes que la
+     * PARTIE 15 chiffre elle-même — sur le chemin le plus chaud du jeu, pour rien.
+     *
+     * <p>Zéro veut donc dire « non horodaté », et non « horodaté à l'instant zéro ». Le
+     * champ reste au format, qui est un contrat publié ; c'est sa valeur qui cesse
+     * d'être payée quand elle ne sert pas.
+     */
+    public static final long NOT_TIMESTAMPED = 0L;
+
     /** Écrit un enregistrement, en absorbant toute défaillance. */
-    private static void record(int probeId, byte kind, long value) {
+    private static void record(int probeId, byte kind, long value, long timestampNs) {
         ProbeSink current = sink;
         if (current == null) {
             return;
         }
         try {
-            current.record(probeId, kind, (short) 0, System.nanoTime(), value);
+            current.record(probeId, kind, (short) 0, timestampNs, value);
         } catch (RuntimeException | LinkageError e) {
             // Le chemin le plus chaud du jeu ne remonte jamais d'exception. Un défaut
             // du profilage doit se voir dans les compteurs, pas dans une partie qui
