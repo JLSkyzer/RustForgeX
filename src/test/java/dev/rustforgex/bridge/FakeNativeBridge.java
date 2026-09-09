@@ -71,6 +71,12 @@ public class FakeNativeBridge implements NativeBridge {
         return null;
     }
 
+    /** Aucun profileur derrière ce double : la demande est refusée, pas ignorée. */
+    @Override
+    public int profilerRequestDepth(long handle, int levelCode, int ticks) {
+        return -1001;
+    }
+
     @Override
     public int panicTest(long handle) {
         return -3001;

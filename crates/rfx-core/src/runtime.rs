@@ -357,6 +357,21 @@ impl Runtime {
         self.panics
     }
 
+    /// Ouvre une session de diagnostic a la demande de l'operateur (C-35, C-38).
+    ///
+    /// @param level_code code de profondeur, tel que `ProbeLevel::code`
+    /// @param ticks duree de la session, en ticks
+    /// @return `true` si le code de profondeur est reconnu
+    pub fn request_probe_depth(&mut self, level_code: u8, ticks: u64) -> bool {
+        match rfx_profiler::level::ProbeLevel::from_code(level_code) {
+            Some(level) => {
+                self.profiler.request_depth(level, ticks);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Classement des unites de travail les plus couteuses (C-35, `/rfx top`).
     ///
     /// Lecture pure : ne modifie rien, ne remet aucun compteur a zero. Deux appels

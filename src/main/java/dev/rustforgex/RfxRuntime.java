@@ -48,6 +48,15 @@ public final class RfxRuntime {
 
     private static final org.slf4j.Logger LOGGER = LogUtils.getLogger();
 
+    /**
+     * Code du niveau de sonde le plus profond, tel que le natif le décode.
+     *
+     * <p>Trois : {@code OFF}, {@code COUNTER}, {@code TIMED}, {@code DEEP}. Une session
+     * de diagnostic demande le maximum — l'opérateur veut des durées par appel, c'est
+     * tout l'objet de sa demande.
+     */
+    private static final int DEEP_PROBE_LEVEL = 3;
+
     private static volatile RfxRuntime instance;
 
     private final Configuration configuration;
@@ -326,6 +335,33 @@ public final class RfxRuntime {
                     blob.length, e.toString());
             return null;
         }
+    }
+
+    /**
+     * Ouvre une session de diagnostic à la demande de l'opérateur (C-35).
+     *
+     * <p>Le plafond automatique vaut {@code COUNTER} tant que le profileur est à
+     * {@code LIGHT}, et il n'en sort qu'après une ligne de base — soixante-quatre
+     * minutes à la cadence par défaut (ADR-024). Aucune sonde n'est donc chronométrée
+     * pendant la première heure, et {@code /rfx top} ne peut rendre que de
+     * l'échantillonnage.
+     *
+     * <p>Cette porte ne désarme rien : le gouverneur reste maître à la baisse et annule
+     * la session dès que le budget est dépassé.
+     *
+     * @param seconds durée demandée, en secondes
+     * @return {@code true} si la session est ouverte
+     */
+    public boolean requestProfilingDepth(int seconds) {
+        if (!active() || seconds <= 0) {
+            return false;
+        }
+        // Vingt ticks par seconde : le nominal du serveur. Une session demandée en
+        // secondes se compte en ticks, et un serveur qui rame la verra durer plus
+        // longtemps en temps réel — ce qui est le bon comportement, puisque c'est en
+        // ticks que le profilage travaille.
+        int ticks = seconds * 20;
+        return bridge.profilerRequestDepth(report.handle(), DEEP_PROBE_LEVEL, ticks) == 0;
     }
 
     /**

@@ -77,6 +77,16 @@ public interface NativeBridge {
     byte[] profilerTop(long handle, int limit);
 
     /**
+     * Ouvre une session de diagnostic à la demande de l'opérateur (C-35).
+     *
+     * @param handle handle du runtime
+     * @param levelCode profondeur demandée
+     * @param ticks durée de la session, en ticks
+     * @return {@code 0} en cas de succès
+     */
+    int profilerRequestDepth(long handle, int levelCode, int ticks);
+
+    /**
      * @param handle handle du runtime
      * @return {@code -3001} si le confinement des panics fonctionne
      */
@@ -203,6 +213,11 @@ public interface NativeBridge {
             @Override
             public byte[] profilerTop(long handle, int limit) {
                 return RfxNative.profilerTop(handle, limit);
+            }
+
+            @Override
+            public int profilerRequestDepth(long handle, int levelCode, int ticks) {
+                return RfxNative.profilerRequestDepth(handle, levelCode, ticks);
             }
 
             @Override

@@ -114,6 +114,16 @@ public final class RfxNative {
     public static native byte[] profilerTop(long handle, int limit);
 
     /**
+     * Ouvre une session de diagnostic à la demande de l'opérateur (C-35).
+     *
+     * @param handle handle du runtime
+     * @param levelCode profondeur demandée, selon le codage des niveaux de sonde
+     * @param ticks durée de la session, en ticks
+     * @return {@code 0} en cas de succès, un code de l'annexe A.2 sinon
+     */
+    public static native int profilerRequestDepth(long handle, int levelCode, int ticks);
+
+    /**
      * Ouvre la fenêtre de tick (IF-02).
      *
      * <p>Toujours appelée depuis le thread autoritatif. Si le tick précédent n'a pas

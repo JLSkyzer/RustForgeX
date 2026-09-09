@@ -64,6 +64,17 @@ public final class RfxCommands {
                                                     IntegerArgumentType.getInteger(context, "count"));
                                             return 1;
                                         })))
+                        .then(Commands.literal("profile")
+                                .executes(context -> {
+                                    requestProfiling(context.getSource(), DEFAULT_PROFILE_SECONDS);
+                                    return 1;
+                                })
+                                .then(Commands.argument("seconds", IntegerArgumentType.integer(5, 600))
+                                        .executes(context -> {
+                                            requestProfiling(context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "seconds"));
+                                            return 1;
+                                        })))
                         .then(Commands.literal("report")
                                 .executes(context -> {
                                     writeReport(context.getSource());
@@ -95,6 +106,25 @@ public final class RfxCommands {
             source.sendFailure(Component.translatable(
                     REPORT_PREFIX + "failed", Component.literal(e.toString())));
         }
+    }
+
+    /** Durée par défaut d'une session de diagnostic, en secondes. */
+    private static final int DEFAULT_PROFILE_SECONDS = 60;
+
+    /**
+     * Ouvre une session de chronométrage, à la demande explicite de l'opérateur.
+     *
+     * <p>Le message dit ce que ça coûte : demander de la profondeur, c'est accepter que
+     * le mod pèse davantage pendant ce temps. Le taire serait le pire des services.
+     */
+    private static void requestProfiling(CommandSourceStack source, int seconds) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime == null || !runtime.requestProfilingDepth(seconds)) {
+            source.sendFailure(Component.translatable(TopReport.KEY_PREFIX + "profile_refused"));
+            return;
+        }
+        source.sendSuccess(() -> Component.translatable(
+                TopReport.KEY_PREFIX + "profile_started", seconds), false);
     }
 
     /** Envoie le classement des unités les plus coûteuses (C-35). */

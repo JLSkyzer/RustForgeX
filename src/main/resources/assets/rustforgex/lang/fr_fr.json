@@ -50,5 +50,7 @@
   "rustforgex.top.unavailable": "§7Aucun classement disponible : le profileur ne tourne pas.",
   "rustforgex.top.summary": "§6Unités les plus coûteuses§r : %s mesurées sur %s suivies — tick %s",
   "rustforgex.top.nothing_measured": "§7Rien de mesuré pour l'instant : aucune sonde n'a rapporté et aucun échantillon de pile n'a abouti.",
-  "rustforgex.top.entry": "  §8%s.§r §b%s§r %s §e%s§r §8(%s, %s, %s appels/tick, %s)"
+  "rustforgex.top.entry": "  §8%s.§r §b%s§r %s §e%s§r §8(%s, %s, %s appels/tick, %s)",
+  "rustforgex.top.profile_started": "§aChronométrage pendant %s s§r. Les sondes mesurent maintenant la durée de chaque appel ; RUSTFORGE-X coûte davantage pendant ce temps. Lancez ensuite §e/rfx top§r.",
+  "rustforgex.top.profile_refused": "§cChronométrage impossible§r : le runtime natif n'est pas actif."
 }

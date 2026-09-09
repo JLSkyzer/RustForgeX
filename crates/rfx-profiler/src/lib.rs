@@ -122,6 +122,10 @@ pub struct Profiler {
     records_dropped_paused: u64,
     /// Duree du dernier tick cloture, transmise avec le classement (C-35).
     last_tick_ns: u64,
+    /// Profondeur demandee par l'operateur pendant une session de diagnostic.
+    requested_cap: ProbeLevel,
+    /// Tick auquel la session de diagnostic expire ; `0` s'il n'y en a pas.
+    requested_until_tick: u64,
     tick: u64,
     comfortable_streak: u32,
     records_ingested: u64,
@@ -150,6 +154,8 @@ impl Profiler {
             ),
             records_dropped_paused: 0,
             last_tick_ns: 0,
+            requested_cap: ProbeLevel::Off,
+            requested_until_tick: 0,
             config,
             level: ProfilerLevel::Off,
             tick: 0,
@@ -377,6 +383,9 @@ impl Profiler {
         match verdict {
             OverheadVerdict::OverBudget => {
                 self.comfortable_streak = 0;
+                // Une session de diagnostic ne survit pas a un depassement de budget :
+                // l'operateur a demande de la profondeur, pas de degrader le jeu.
+                self.clear_requested_depth();
                 if self.level != ProfilerLevel::Off {
                     self.set_level(self.level.reduce());
                 }
@@ -414,10 +423,57 @@ impl Profiler {
     /// fin de la pause puisqu'elle se deduit de la chaleur.
     fn probe_cap(&self) -> ProbeLevel {
         if self.baseline.is_paused() {
-            ProbeLevel::Off
-        } else {
-            self.level.max_probe_level()
+            return ProbeLevel::Off;
         }
+        let automatic = self.level.max_probe_level();
+        // Une demande d'operateur releve le plafond, elle ne l'abaisse jamais : le
+        // gouverneur reste maitre a la baisse, et une session de diagnostic ne peut pas
+        // empecher le profileur de se proteger.
+        if self.tick < self.requested_until_tick {
+            return automatic.max(self.requested_cap);
+        }
+        automatic
+    }
+
+    /// Ouvre une session de diagnostic a la demande de l'operateur (C-35, C-38).
+    ///
+    /// # Pourquoi cette porte existe
+    ///
+    /// Le plafond automatique vaut `COUNTER` tant que le profileur est a `LIGHT`, et il
+    /// n'en sort qu'apres une ligne de base — laquelle demande soixante-quatre minutes a
+    /// la cadence par defaut (ADR-024). Aucune sonde n'est donc chronometree pendant la
+    /// premiere heure, et `/rfx top` ne peut rendre que de l'echantillonnage.
+    ///
+    /// Lever le garde-fou automatique serait une faute : ADR-020 l'a pose parce que les
+    /// compteurs ne voient pas le cout des appels injectes, et le profileur atteignait
+    /// `DEEP` en vingt-cinq secondes alors qu'il coutait 32 %. Mais un operateur qui
+    /// demande un diagnostic **sait** qu'il paie, et pour une duree qu'il choisit.
+    ///
+    /// La demande expire seule, et le gouverneur l'annule si le budget est depasse : on
+    /// ne peut pas s'en servir pour desarmer la protection.
+    ///
+    /// @param level profondeur demandee
+    /// @param ticks duree de la session, en ticks
+    pub fn request_depth(&mut self, level: ProbeLevel, ticks: u64) {
+        self.requested_cap = level;
+        self.requested_until_tick = self.tick.saturating_add(ticks);
+        // Les niveaux sont recalcules au prochain `end_tick` ; les marquer sales ici
+        // fait partir la table sans attendre qu'une chaleur change.
+        self.levels_dirty = true;
+    }
+
+    /// Annule la session de diagnostic en cours, s'il y en a une.
+    pub fn clear_requested_depth(&mut self) {
+        if self.requested_until_tick != 0 {
+            self.requested_until_tick = 0;
+            self.levels_dirty = true;
+        }
+    }
+
+    /// Ticks restants a la session de diagnostic, ou `0` s'il n'y en a pas.
+    #[must_use]
+    pub fn requested_depth_ticks_left(&self) -> u64 {
+        self.requested_until_tick.saturating_sub(self.tick)
     }
 
     /// Aligne la profondeur de chaque sonde sur la chaleur, sous le plafond global.
@@ -478,6 +534,15 @@ impl Profiler {
         let mut top = self.store.top(limit);
         top.tick_ns = self.last_tick_ns;
         top
+    }
+
+    /// Table des unites de travail, en modification.
+    ///
+    /// Reservee aux tests et au reglage interne : le profiler est seul juge de la
+    /// profondeur des sondes, et la modifier de l'exterieur contournerait le plafond.
+    #[cfg(test)]
+    fn store_mut(&mut self) -> &mut WorkloadStore {
+        &mut self.store
     }
 
     /// Table des unites de travail.
@@ -593,10 +658,107 @@ mod tests {
         }
     }
 
+    /// Rend une unite CRITICAL comme la production le fait : par echantillons de pile.
+    ///
+    /// Forcer `dynamics.heat` directement ne servirait a rien — la consolidation le
+    /// recalcule a chaque tick depuis le cout observe, et une unite sans mesure
+    /// retombe froide.
+    fn make_critical(profiler: &mut Profiler, probe: u32) {
+        let entry = profiler.store_mut().get_mut(probe).expect("entree");
+        // Au-dela de HOT_MAX_NS : deux millisecondes par tick.
+        entry.sampled_ns_per_tick.update(2_000_000.0);
+        entry.dynamics.heat = Heat::Critical;
+    }
+
     fn started() -> Profiler {
         let mut profiler = Profiler::default();
         profiler.start();
         profiler
+    }
+
+    /// Une unite chaude reste a COUNTER tant que le profileur est a LIGHT.
+    ///
+    /// C'est le verrou que la session de diagnostic ouvre : le plafond automatique vaut
+    /// COUNTER a LIGHT, et le profileur n'en sort qu'apres une ligne de base — soixante-
+    /// quatre minutes a la cadence par defaut (ADR-024). Aucune sonde n'est donc
+    /// chronometree pendant la premiere heure de jeu.
+    #[test]
+    fn a_hot_workload_stays_at_counter_while_the_profiler_is_light() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+
+        profiler.end_tick(cheap_tick());
+
+        assert_eq!(profiler.level(), ProfilerLevel::Light);
+        assert_eq!(
+            profiler.store().get(probe).expect("entree").level,
+            ProbeLevel::Counter,
+            "sans demande, meme une unite CRITICAL reste au comptage"
+        );
+    }
+
+    /// La demande d'operateur ouvre le plafond, pour la duree qu'il a choisie.
+    #[test]
+    fn an_operator_request_raises_the_cap_for_its_duration() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+
+        profiler.request_depth(ProbeLevel::Deep, 100);
+        profiler.end_tick(cheap_tick());
+
+        assert_eq!(
+            profiler.store().get(probe).expect("entree").level,
+            ProbeLevel::Deep,
+            "la demande doit permettre le chronometrage"
+        );
+    }
+
+    /// Elle expire seule : une session de diagnostic ne s'oublie pas.
+    #[test]
+    fn an_operator_request_expires_on_its_own() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+
+        profiler.request_depth(ProbeLevel::Deep, 3);
+        for _ in 0..10 {
+            profiler.end_tick(cheap_tick());
+        }
+
+        assert_eq!(profiler.requested_depth_ticks_left(), 0);
+        assert_eq!(
+            profiler.store().get(probe).expect("entree").level,
+            ProbeLevel::Counter,
+            "passe le delai, le plafond automatique reprend la main"
+        );
+    }
+
+    /// Et elle ne peut pas desarmer la protection : un depassement de budget l'annule.
+    ///
+    /// Sans cela, `/rfx profile` deviendrait un moyen de neutraliser le gouverneur, ce
+    /// qu'ADR-020 interdit — l'operateur demande de la profondeur, pas de degrader le
+    /// jeu.
+    #[test]
+    fn a_budget_overrun_cancels_the_operator_request() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+        profiler.request_depth(ProbeLevel::Deep, 10_000);
+
+        // Des ticks dont le profilage devore le budget. Il en faut plusieurs : le
+        // compteur d'overhead refuse de trancher avant d'avoir vu assez de ticks, et
+        // c'est heureux — un verdict rendu sur une seule observation serait du bruit.
+        for _ in 0..200 {
+            profiler.end_tick(TickCost {
+                profiling_ns: 5_000_000,
+                tick_ns: 10_000_000,
+                period_ns: 50_000_000,
+            });
+        }
+
+        assert_eq!(profiler.requested_depth_ticks_left(), 0, "la demande doit sauter");
     }
 
     #[test]

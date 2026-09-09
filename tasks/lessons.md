@@ -579,3 +579,17 @@ qu'un mode d'échec déclare sain tout ce qui échoue autrement.**
 **Règle** : pour juger qu'une chaîne d'outils est verte, se fier au **code de sortie**,
 pas à l'absence d'un motif dans la sortie. Et quand on filtre malgré tout, inclure les
 erreurs de compilation — `^error`, `-->` — au même titre que les échecs de test.
+
+### 2026-09-09 | Forcer `heat` dans un test ne prouve rien | Produire l'état comme la production le produit
+
+Pour vérifier qu'une unité chaude peut être chronométrée, j'ai écrit
+`entry.dynamics.heat = Heat::Critical`. Le test échouait sans que le code soit en cause :
+la consolidation **recalcule la chaleur à chaque tick** depuis le coût observé, et une
+unité sans mesure retombe froide immédiatement.
+
+Le test ne testait donc pas ce qu'il annonçait — il vérifiait qu'un champ écrasé une
+milliseconde plus tard avait un effet.
+
+**Règle** : pour amener un composant dans un état, emprunter le chemin que la production
+emprunte. Écrire l'état final à la main ne vérifie que la ligne qu'on vient d'écrire, et
+masque les recalculs qui, eux, décident vraiment.

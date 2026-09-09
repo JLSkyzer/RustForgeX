@@ -252,6 +252,30 @@ pub unsafe extern "C" fn rfx_status(
     })
 }
 
+/// Ouvre une session de diagnostic a la demande de l'operateur (C-35).
+///
+/// Le plafond automatique vaut `COUNTER` tant que le profileur est a `LIGHT`, et il n'en
+/// sort qu'apres une ligne de base — soixante-quatre minutes a la cadence par defaut.
+/// Aucune sonde n'est donc chronometree pendant la premiere heure. Cette porte permet a
+/// un operateur d'obtenir des durees tout de suite, pour la duree qu'il choisit.
+///
+/// Elle ne desarme rien : le gouverneur reste maitre a la baisse et annule la session
+/// des que le budget est depasse.
+///
+/// # Safety
+///
+/// Aucun pointeur n'est deref
+#[no_mangle]
+pub extern "C" fn rfx_profiler_request_depth(handle: u64, level_code: u8, ticks: u64) -> i32 {
+    guard_with_handle(handle, || {
+        match runtime::with(handle, |rt| rt.request_probe_depth(level_code, ticks)) {
+            Ok(true) => OK,
+            Ok(false) => ErrorCode::InvalidArgument.ffi_code(),
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
 /// Ecrit le classement des unites les plus couteuses dans `out`, en CBOR (C-35).
 ///
 /// Meme protocole en deux temps que [`rfx_status`] : appeler d'abord avec `cap == 0`
