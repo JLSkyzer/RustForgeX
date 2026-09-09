@@ -88,14 +88,21 @@ class ConfigurationTest {
     }
 
     /**
-     * ADR-022 : l'armement anticipé quintuple la surface sondée, donc probablement le
-     * coût de tick, qui n'est pas mesuré. Le défaut doit rester l'ordonnancement sur
-     * lequel les campagnes ont conclu — un défaut qui bascule sans mesure invaliderait
-     * silencieusement tout ce qui a été certifié.
+     * ADR-026 : l'armement anticipé reste refusé, cette fois sur une mesure valide.
+     *
+     * <p>Il a été basculé à {@code true} le 2026-09-09, sur le raisonnement que le coût
+     * par sonde ayant été divisé par trente, le multiplier par cinq ne le ramènerait pas
+     * au niveau d'origine. La mesure a infirmé ce raisonnement : le coût suit le nombre
+     * de sondes armées, à <strong>105 ns par sonde et par tick</strong>, et cinq fois
+     * plus de sondes coûtent bien cinq fois plus — 4,78 % du MSPT contre un budget de
+     * 1,5 %.
+     *
+     * <p>Le réglage reste atteignable sans éditer le fichier : une campagne doit pouvoir
+     * comparer les deux ordonnancements.
      */
     @Test
-    @DisplayName("ADR-022 : l'armement anticipé n'est pas le défaut")
-    void earlyArmingIsNotTheDefault(@TempDir Path root) {
+    @DisplayName("ADR-026 : l'armement anticipé n'est pas le défaut, et reste activable")
+    void earlyArmingIsNotTheDefaultAndStaysReachable(@TempDir Path root) {
         assertFalse(Configuration.defaults().getBoolean("instrumentation.early_arm"));
 
         Configuration overridden = Configuration.load(
@@ -103,7 +110,7 @@ class ConfigurationTest {
                 key -> "rustforgex.instrumentation.early_arm".equals(key) ? "true" : null);
 
         assertTrue(overridden.getBoolean("instrumentation.early_arm"),
-                "la campagne doit pouvoir demander l'armement anticipé sans éditer le fichier");
+                "une campagne doit pouvoir comparer les deux ordonnancements");
     }
 
     @Test

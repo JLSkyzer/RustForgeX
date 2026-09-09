@@ -593,3 +593,28 @@ milliseconde plus tard avait un effet.
 **Règle** : pour amener un composant dans un état, emprunter le chemin que la production
 emprunte. Écrire l'état final à la main ne vérifie que la ligne qu'on vient d'écrire, et
 masque les recalculs qui, eux, décident vraiment.
+
+### 2026-09-09 | J'ai comparé une réduction de coût unitaire à une multiplication de total | Deux facteurs d'un produit ne se compensent pas par décret
+
+ADR-022 refusait l'armement anticipé parce qu'il multiplie par cinq le nombre de sondes.
+Le coût par sonde ayant depuis été divisé par trente, j'ai conclu : *« multiplier par
+cinq un coût trente fois moindre ne redonne pas le coût d'origine »*, et j'ai basculé le
+défaut.
+
+La mesure a donné **4,78 % du MSPT contre 1,41 %** — exactement le rapport des nombres de
+sondes. Le coût par sonde est le même dans les deux configurations : **104 ns** contre
+**111 ns**. La réduction unitaire était réelle, mais elle s'applique aux deux côtés de la
+comparaison ; elle ne finance pas la multiplication du nombre.
+
+J'ai raisonné comme si un facteur pouvait en annuler un autre parce qu'ils étaient du
+même ordre de grandeur, alors qu'ils portent sur des dimensions indépendantes du même
+produit.
+
+**Règles** :
+- avant de conclure qu'une amélioration en finance une autre, écrire le produit et
+  vérifier lequel des facteurs chacune touche ;
+- une décision renversée doit l'être par une mesure, jamais par un raisonnement — j'avais
+  écrit l'ADR avant la vérification et j'ai eu raison de ne pas le commiter ;
+- une mesure qui infirme une hypothèse vaut plus qu'une qui la confirme : celle-ci a
+  produit un chiffre durable, 105 ns par sonde armée et par tick, qui convertit une
+  décision binaire en budget.

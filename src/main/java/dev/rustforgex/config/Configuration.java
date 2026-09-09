@@ -90,8 +90,9 @@ public final class Configuration {
                             + "coûte cycles × (période + pause) ticks", false),
             OptionConfig.booleanOption("instrumentation", "early_arm", false,
                     "Armer le sondage dès la construction du mod plutôt qu'au setup "
-                            + "commun. Élargit fortement la couverture, au prix d'un coût "
-                            + "de tick non encore mesuré", false));
+                            + "commun. Multiplie par cinq la surface observée — et par "
+                            + "cinq le coût, mesuré à 105 ns par sonde armée et par tick "
+                            + "(ADR-026). Hors budget par défaut", false));
 
     private final Map<String, Object> values;
     private final List<String> warnings;
