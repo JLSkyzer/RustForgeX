@@ -40,6 +40,7 @@ class TopReportTest {
         t.put("schema", 1L);
         t.put("tracked", tracked);
         t.put("measured", measured);
+        t.put("tick_ns", 20_000_000L);
         t.put("entries", List.of(entries));
         return t;
     }
@@ -118,5 +119,31 @@ class TopReportTest {
         List<Component> lines = TopReport.lines(top(5, 1, entry(42, 7_000, "Probe")), null);
 
         assertTrue(flatten(lines).contains("sonde#42"));
+    }
+
+    /**
+     * Ce qu'un administrateur de serveur veut savoir en premier n'est pas quelle classe
+     * coûte, mais **quel mod**. C'est sur le mod qu'il agira.
+     */
+    @Test
+    @DisplayName("Le mod propriétaire et la part du tick sont affichés")
+    void theOwningModAndTickShareAreShown() {
+        List<Component> lines = TopReport.lines(top(10, 1, entry(0, 2_000_000, "Probe")), null);
+
+        String text = flatten(lines);
+        assertTrue(text.contains("10.0 %"), "2 ms sur un tick de 20 ms font 10 % : " + text);
+    }
+
+    /**
+     * R-660 : sans tick connu, la part n'est pas calculable. Choisir un total plausible
+     * reviendrait à publier un chiffre que personne n'a mesuré.
+     */
+    @Test
+    @DisplayName("Sans durée de tick, la part est marquée absente et non estimée")
+    void withoutATickDurationTheShareIsMarkedAbsent() {
+        Map<String, Object> t = top(10, 1, entry(0, 2_000_000, "Probe"));
+        t.put("tick_ns", 0L);
+
+        assertTrue(flatten(TopReport.lines(t, null)).contains("—"));
     }
 }

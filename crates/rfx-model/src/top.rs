@@ -107,6 +107,15 @@ pub struct TopWorkloads {
     /// Compare a `tracked`, ce nombre dit si le classement est representatif ou si
     /// presque rien n'a ete observe.
     pub measured: u64,
+    /// Duree du dernier tick observe, en nanosecondes.
+    ///
+    /// Transmise avec le classement pour que l'afficheur puisse rendre une **part du
+    /// tick** plutot que des microsecondes brutes. « 268 us » ne dit rien a qui exploite
+    /// un serveur ; « 6 % du tick » dit quoi faire.
+    ///
+    /// Zero signifie qu'aucun tick n'a encore ete cloture : l'afficheur doit alors
+    /// s'abstenir de calculer une part, et non diviser par zero ni inventer un total.
+    pub tick_ns: u64,
     /// Les entrees, de la plus couteuse a la moins couteuse.
     pub entries: Vec<TopEntry>,
 }
@@ -241,6 +250,7 @@ mod tests {
     fn the_ranking_stays_within_what_java_can_read() {
         let top = TopWorkloads {
             schema: TopWorkloads::SCHEMA,
+            tick_ns: 20_821_000,
             tracked: 2_600,
             measured: 12,
             entries: vec![TopEntry {

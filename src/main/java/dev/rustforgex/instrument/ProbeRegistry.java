@@ -89,6 +89,17 @@ public final class ProbeRegistry implements ProbeIdSource {
             Collections.synchronizedList(new ArrayList<>(4096));
 
     /**
+     * Mod propriétaire de chaque sonde, indexé par identifiant.
+     *
+     * <p>Retenu ici pour la même raison que le nom : le natif ne garde que le
+     * {@code WorkId}. Et c'est l'information la plus utile de tout le classement — qui
+     * exploite un serveur veut savoir <strong>quel mod</strong> lui coûte, pas quelle
+     * classe.
+     */
+    private final List<String> ownersByProbeId =
+            Collections.synchronizedList(new ArrayList<>(4096));
+
+    /**
      * @param bridge pont vers le runtime natif
      * @param handle handle du runtime, déjà initialisé
      * @param owners résolveur du mod propriétaire
@@ -124,7 +135,7 @@ public final class ProbeRegistry implements ProbeIdSource {
             if (probeId >= 0) {
                 granted.incrementAndGet();
                 frameIndex.declare(classInternalName, methodName, probeId);
-                rememberName(probeId, classInternalName, methodName);
+                rememberName(probeId, classInternalName, methodName, owner);
                 return probeId;
             }
             // -1 : plafond d'unités suivies atteint, la méthode n'est pas sondée.
@@ -169,11 +180,26 @@ public final class ProbeRegistry implements ProbeIdSource {
      * @return {@code classe#methode}, ou {@code null} si cet identifiant est inconnu
      */
     public String nameOf(int probeId) {
+        return at(namesByProbeId, probeId);
+    }
+
+    /**
+     * Retrouve le mod propriétaire d'une sonde.
+     *
+     * @param probeId identifiant rendu par le natif
+     * @return l'identifiant du mod, ou {@code null} si cette sonde est inconnue
+     */
+    public String ownerOf(int probeId) {
+        return at(ownersByProbeId, probeId);
+    }
+
+    /** Lecture bornée d'une des listes indexées par identifiant de sonde. */
+    private static String at(List<String> list, int probeId) {
         if (probeId < 0) {
             return null;
         }
-        synchronized (namesByProbeId) {
-            return probeId < namesByProbeId.size() ? namesByProbeId.get(probeId) : null;
+        synchronized (list) {
+            return probeId < list.size() ? list.get(probeId) : null;
         }
     }
 
@@ -185,13 +211,20 @@ public final class ProbeRegistry implements ProbeIdSource {
      * que simplement allongée. Un trou vaut mieux qu'un décalage — un décalage
      * attribuerait un coût à la mauvaise méthode, ce qui est pire que ne rien dire.
      */
-    private void rememberName(int probeId, String classInternalName, String methodName) {
+    private void rememberName(int probeId, String classInternalName, String methodName,
+            String owner) {
         String name = classInternalName.replace('/', '.') + '#' + methodName;
-        synchronized (namesByProbeId) {
-            while (namesByProbeId.size() <= probeId) {
-                namesByProbeId.add(null);
+        put(namesByProbeId, probeId, name);
+        put(ownersByProbeId, probeId, owner);
+    }
+
+    /** Écrit à la position de l'identifiant, en comblant les trous éventuels. */
+    private static void put(List<String> list, int probeId, String value) {
+        synchronized (list) {
+            while (list.size() <= probeId) {
+                list.add(null);
             }
-            namesByProbeId.set(probeId, name);
+            list.set(probeId, value);
         }
     }
 

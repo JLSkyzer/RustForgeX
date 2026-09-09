@@ -120,6 +120,8 @@ pub struct Profiler {
     overhead: OverheadMeter,
     baseline: BaselineSampler,
     records_dropped_paused: u64,
+    /// Duree du dernier tick cloture, transmise avec le classement (C-35).
+    last_tick_ns: u64,
     tick: u64,
     comfortable_streak: u32,
     records_ingested: u64,
@@ -147,6 +149,7 @@ impl Profiler {
                 config.baseline_cycles,
             ),
             records_dropped_paused: 0,
+            last_tick_ns: 0,
             config,
             level: ProfilerLevel::Off,
             tick: 0,
@@ -276,6 +279,9 @@ impl Profiler {
     pub fn end_tick(&mut self, cost: TickCost) -> TickReport {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
+        // Retenue pour le classement : sans elle, `/rfx top` ne peut rendre que des
+        // microsecondes, la ou une part du tick dit quoi faire.
+        self.last_tick_ns = cost.tick_ns;
 
         // Pendant une pause de mesure, le profiler ne fait rien : ni consolidation, ni
         // integration au budget. C'est le sens meme d'une ligne de base — le tick doit
@@ -454,6 +460,24 @@ impl Profiler {
     #[must_use]
     pub fn level(&self) -> ProfilerLevel {
         self.level
+    }
+
+    /// Duree du dernier tick cloture, en nanosecondes ; `0` avant le premier.
+    #[must_use]
+    pub fn last_tick_ns(&self) -> u64 {
+        self.last_tick_ns
+    }
+
+    /// Classement des unites les plus couteuses, duree de tick comprise (C-35).
+    ///
+    /// Passe par le profiler et non directement par la table : lui seul connait la
+    /// duree du dernier tick, sans laquelle l'afficheur ne peut rendre qu'un nombre de
+    /// microsecondes — inexploitable pour qui administre un serveur.
+    #[must_use]
+    pub fn top(&self, limit: usize) -> rfx_model::TopWorkloads {
+        let mut top = self.store.top(limit);
+        top.tick_ns = self.last_tick_ns;
+        top
     }
 
     /// Table des unites de travail.

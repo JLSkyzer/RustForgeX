@@ -1,6 +1,7 @@
 package dev.rustforgex.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import dev.rustforgex.RfxRuntime;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -52,9 +53,17 @@ public final class RfxCommands {
                                 }))
                         .then(Commands.literal("top")
                                 .executes(context -> {
-                                    showTop(context.getSource());
+                                    showTop(context.getSource(), TopReport.DEFAULT_LIMIT);
                                     return 1;
-                                }))
+                                })
+                                // Le nombre d'unités est réglable : quinze suffisent pour
+                                // repérer un coupable, pas pour comprendre une répartition.
+                                .then(Commands.argument("count", IntegerArgumentType.integer(1, 100))
+                                        .executes(context -> {
+                                            showTop(context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "count"));
+                                            return 1;
+                                        })))
                         .then(Commands.literal("report")
                                 .executes(context -> {
                                     writeReport(context.getSource());
@@ -89,11 +98,11 @@ public final class RfxCommands {
     }
 
     /** Envoie le classement des unités les plus coûteuses (C-35). */
-    private static void showTop(CommandSourceStack source) {
+    private static void showTop(CommandSourceStack source, int count) {
         RfxRuntime runtime = RfxRuntime.instance();
         List<Component> lines = runtime == null
                 ? List.of(Component.translatable(TopReport.KEY_PREFIX + "unavailable"))
-                : TopReport.lines(runtime.topWorkloads(TopReport.DEFAULT_LIMIT),
+                : TopReport.lines(runtime.topWorkloads(count),
                         runtime.instrumentation() == null
                                 ? null : runtime.instrumentation().registry());
 

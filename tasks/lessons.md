@@ -563,3 +563,19 @@ comportement décrit par ADR-024.
 même temps que le chiffre, ne pas annoncer le chiffre. Annoncer la **borne** : le coût est
 désormais inférieur à ce que l'instrument sait distinguer. C'est une affirmation plus
 faible et plus vraie, et elle reste utile — elle dit que le sujet est clos.
+
+### 2026-09-09 | « rust ok » annoncé alors que la compilation des tests échouait | Un filtre ne voit que le mode d'échec qu'il cherche
+
+J'ai vérifié la santé du Rust par `cargo test | grep -c FAILED`, obtenu zéro, et annoncé
+« rust ok ». Or une **erreur de compilation n'est pas un `FAILED`** : l'ajout d'un champ
+`tick_ns` cassait la construction d'un `TopWorkloads` dans un test de `rfx-model`, et le
+filtre ne pouvait pas le voir. Le message a même été imprimé dans la sortie du run, juste
+au-dessus de l'erreur qu'il contredisait.
+
+C'est la même famille que `CLASSES_SEEN` incrémenté du mauvais côté du retour, et que le
+compteur d'accroches qui confond dépassement et pause GC : **un contrôle qui ne cherche
+qu'un mode d'échec déclare sain tout ce qui échoue autrement.**
+
+**Règle** : pour juger qu'une chaîne d'outils est verte, se fier au **code de sortie**,
+pas à l'absence d'un motif dans la sortie. Et quand on filtre malgré tout, inclure les
+erreurs de compilation — `^error`, `-->` — au même titre que les échecs de test.

@@ -48,7 +48,7 @@
   "rustforgex.report.written": "§aReport written§r: %s",
   "rustforgex.report.failed": "§cCould not write the report§r: %s",
   "rustforgex.top.unavailable": "§7No ranking available: the profiler is not running.",
-  "rustforgex.top.summary": "§6Costliest workloads§r: %s measured out of %s tracked",
+  "rustforgex.top.summary": "§6Costliest workloads§r: %s measured out of %s tracked — tick %s",
   "rustforgex.top.nothing_measured": "§7Nothing measured yet: no probe has reported and no stack sample has landed.",
-  "rustforgex.top.entry": "  §8%s.§r %s §e%s§r §8(%s, %s calls/tick, %s)"
+  "rustforgex.top.entry": "  §8%s.§r §b%s§r %s §e%s§r §8(%s, %s, %s calls/tick, %s)"
 }

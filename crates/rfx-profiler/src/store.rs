@@ -282,6 +282,8 @@ impl WorkloadStore {
 
         TopWorkloads {
             schema: TopWorkloads::SCHEMA,
+            // Renseignee par le profiler, seul a connaitre la duree du tick.
+            tick_ns: 0,
             tracked: tracked as u64,
             measured: measured as u64,
             entries: ranked

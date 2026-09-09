@@ -368,7 +368,7 @@ impl Runtime {
     /// quelque chose a voir.
     #[must_use]
     pub fn top_workloads(&self, limit: usize) -> rfx_model::TopWorkloads {
-        self.profiler.store().top(limit)
+        self.profiler.top(limit)
     }
 
     /// Construit le blob de statut publie vers Java (`/rfx status`).

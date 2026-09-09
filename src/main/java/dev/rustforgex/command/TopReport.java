@@ -54,8 +54,10 @@ public final class TopReport {
 
         long tracked = longOf(top, "tracked");
         long measured = longOf(top, "measured");
+        long tickNs = longOf(top, "tick_ns");
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.translatable(KEY_PREFIX + "summary", measured, tracked));
+        lines.add(Component.translatable(KEY_PREFIX + "summary", measured, tracked,
+                Component.literal(milliseconds(tickNs))));
 
         if (measured == 0) {
             // Aligner des unités à zéro donnerait à croire qu'on a mesuré et trouvé
@@ -79,25 +81,54 @@ public final class TopReport {
                     // signale que toutes les suivantes n'en ont pas non plus.
                     break;
                 }
-                lines.add(describe(++rank, entry, registry));
+                lines.add(describe(++rank, entry, registry, tickNs));
             }
         }
         return List.copyOf(lines);
     }
 
-    /** Décrit une unité de travail en une ligne. */
-    private static Component describe(int rank, Map<String, Object> entry, ProbeRegistry registry) {
+    /**
+     * Décrit une unité de travail en une ligne.
+     *
+     * <p>Le mod propriétaire vient en premier : qui exploite un serveur veut savoir quel
+     * mod lui coûte, et agira sur ce mod — pas sur une classe. La part du tick vient
+     * ensuite, parce que « 6 % du tick » dit quoi faire là où « 268 µs » ne dit rien.
+     */
+    private static Component describe(int rank, Map<String, Object> entry,
+            ProbeRegistry registry, long tickNs) {
         int probeId = (int) longOf(entry, "probe_id");
         String name = registry == null ? null : registry.nameOf(probeId);
+        String owner = registry == null ? null : registry.ownerOf(probeId);
+        long cost = longOf(entry, "cost_ns_per_tick");
 
         return Component.translatable(KEY_PREFIX + "entry",
                 rank,
+                Component.literal(owner == null ? "?" : owner),
                 Component.literal(name == null ? "sonde#" + probeId : name),
-                Component.literal(microseconds(longOf(entry, "cost_ns_per_tick"))),
+                Component.literal(share(cost, tickNs)),
+                Component.literal(microseconds(cost)),
                 Component.literal(source(entry)),
                 Component.literal(String.format(Locale.ROOT, "%.1f",
                         longOf(entry, "calls_per_tick_x100") / 100.0)),
                 Component.literal(stringOf(entry, "heat")));
+    }
+
+    /**
+     * Part du tick prise par une unité.
+     *
+     * <p>Rendue vide tant qu'aucun tick n'a été clôturé : diviser par zéro ou choisir un
+     * total plausible reviendrait à publier un chiffre que personne n'a mesuré (R-660).
+     */
+    private static String share(long costNs, long tickNs) {
+        if (tickNs == 0) {
+            return "—";
+        }
+        return String.format(Locale.ROOT, "%.1f %%", costNs * 100.0 / tickNs);
+    }
+
+    /** Nanosecondes en millisecondes, ou une marque si le tick n'est pas connu. */
+    private static String milliseconds(long nanos) {
+        return nanos == 0 ? "—" : String.format(Locale.ROOT, "%.1f ms", nanos / 1_000_000.0);
     }
 
     /**
