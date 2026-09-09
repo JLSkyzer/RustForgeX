@@ -618,3 +618,27 @@ produit.
 - une mesure qui infirme une hypothèse vaut plus qu'une qui la confirme : celle-ci a
   produit un chiffre durable, 105 ns par sonde armée et par tick, qui convertit une
   décision binaire en budget.
+
+### 2026-09-10 | ADR-021 choisissait un seuil sans savoir combien de méthodes il écarte | Un paramètre choisi par raisonnement doit devenir balayable
+
+ADR-021 a porté le seuil de sondage de 12 à 64 instructions sur une intuition juste — une
+méthode courte est appelée bien plus souvent, donc sa sonde coûte plus qu'elle n'apprend.
+Mais l'ADR ne disait pas combien de méthodes ce seuil écarte, ni ce que coûterait l'autre
+choix. Un an de code plus tard, personne n'aurait pu le rouvrir sans tout refaire.
+
+Le recensement dit **14 113 méthodes écartées** que R-311 autoriserait, soit 84,5 % de
+cette population. Le balayage dit **14,58 % du MSPT** au seuil 12 contre un budget de
+1,5 %. Et il donne le chiffre que l'intuition ne pouvait pas donner : les méthodes
+écartées coûtent **412 ns par sonde et par tick** contre **104 ns** pour celles qu'on
+garde — quatre fois plus chacune.
+
+**Règles** :
+- quand une décision fixe une constante, exposer cette constante avant d'écrire l'ADR :
+  un seuil configurable se balaye en deux exécutions, un seuil en dur se re-débat ;
+- le releveur le mieux mesuré du projet est celui où le coût explose — 9 cycles positifs
+  sur 10. Quand on cherche à valider une hypothèse coûteuse, la configuration *mauvaise*
+  se mesure mieux que la bonne, et c'est elle qui tranche ;
+- trois mesures indépendantes désignent maintenant la même impasse : on ne peut pas
+  acheter de la couverture en armant plus de sondes. Une conclusion répétée trois fois
+  n'est plus une hypothèse, c'est une contrainte de conception — il faut arrêter de la
+  retester et changer de mécanisme.
