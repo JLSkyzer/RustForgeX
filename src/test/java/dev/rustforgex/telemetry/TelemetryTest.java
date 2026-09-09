@@ -237,7 +237,8 @@ class TelemetryTest {
         MetricSet set = Telemetry.collect(complete,
                 new Telemetry.InstrumentationCounts(true, 1, 1, 1, 0, 1, 0),
                 new Telemetry.DiscoveryCounts(1, 1, 1, 1),
-                new Telemetry.EventCounts(1, 1, 1, 0));
+                new Telemetry.EventCounts(1, 1, 1, 0),
+                new Telemetry.SamplingCounts(1, 1, 1, 0, 1, 1, 0));
 
         Path catalogue = Path.of("").toAbsolutePath().resolve("BENCHMARKS.md");
         assertTrue(java.nio.file.Files.isRegularFile(catalogue),
@@ -250,7 +251,7 @@ class TelemetryTest {
                     "R-562 : « " + metric.name() + " » n'est pas documentée dans "
                             + "BENCHMARKS.md");
         }
-        assertTrue(set.size() >= 25, "relevé trop maigre pour vérifier le catalogue : "
+        assertTrue(set.size() >= 33, "relevé trop maigre pour vérifier le catalogue : "
                 + set.size() + " séries");
     }
 

@@ -102,6 +102,28 @@ donc ce que `methods_probed` vaut réellement comme couverture.
 chaudes. Il ne prononce donc pas l'acceptance de la PARTIE 5.39, qui parle des classes
 chaudes ; il montre seulement que l'attribution fonctionne.
 
+### `rfx.sampling` — échantillonnage de piles (C-05)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.sampling.samples_taken` | counter | — | Piles prélevées sur le fil autoritatif (R-322) |
+| `rfx.sampling.samples_queued` | counter | — | Échantillons attribués à une sonde et mis en file |
+| `rfx.sampling.samples_unattributed` | counter | — | Échantillons qu'aucune sonde connue ne couvrait |
+| `rfx.sampling.samples_dropped` | counter | — | Échantillons perdus, le fil autoritatif ne drainant plus |
+| `rfx.discovery.unknown_frames` | counter | — | Méthodes distinctes vues s'exécuter sans sonde |
+| `rfx.discovery.unknown_samples` | counter | — | Échantillons ayant désigné une de ces méthodes |
+| `rfx.discovery.unknown_frames_dropped` | counter | — | Méthodes distinctes non apprises, recensement plein |
+| `rfx.discovery.unknown_frame_ratio` | ratio | % | Part du fil autoritatif passée hors sonde — *conditionnelle* |
+
+`unknown_frame_ratio` est la **mesure du trou de couverture**, et la seule série qui la
+donne. ADR-027 a établi qu'élargir le sondage ne l'améliore pas : le budget finance
+quelques milliers de sondes, et c'est déjà ce qu'on arme. Cette part dit ce qui reste
+dehors, et le classement de `/rfx discover` dit *qui* — sans dépenser une sonde de plus.
+
+La part porte sur le **temps du fil autoritatif**, pas sur celui du tick :
+l'échantillonneur prélève aussi entre deux ticks. Les deux ne se confondent pas, et le
+rapport de comparaison n'est pas connu.
+
 ### `rfx.events` — observation du bus (C-06)
 
 | métrique | type | unité | sémantique |

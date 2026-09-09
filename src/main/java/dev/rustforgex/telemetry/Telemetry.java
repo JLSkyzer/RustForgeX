@@ -44,6 +44,25 @@ public final class Telemetry {
             InstrumentationCounts instrumentation,
             DiscoveryCounts discovery,
             EventCounts events) {
+        return collect(nativeStatus, instrumentation, discovery, events, null);
+    }
+
+    /**
+     * Relève les métriques, échantillonnage de piles compris.
+     *
+     * @param nativeStatus statut natif décodé, ou {@code null} s'il est indisponible
+     * @param instrumentation vue de C-04, ou {@code null}
+     * @param discovery inventaire de C-41, ou {@code null}
+     * @param events table de distribution de C-06, ou {@code null}
+     * @param sampling compteurs de C-05, ou {@code null} si l'échantillonneur dort
+     * @return le recueil, jamais {@code null}
+     */
+    public static MetricSet collect(
+            Map<String, Object> nativeStatus,
+            InstrumentationCounts instrumentation,
+            DiscoveryCounts discovery,
+            EventCounts events,
+            SamplingCounts sampling) {
         MetricSet set = new MetricSet();
         appendTick(set, mapOf(nativeStatus, "tick"));
         appendProbes(set, mapOf(nativeStatus, "probes"));
@@ -51,6 +70,7 @@ public final class Telemetry {
         appendInstrumentation(set, instrumentation);
         appendDiscovery(set, discovery);
         appendEvents(set, events);
+        appendSampling(set, sampling);
         return set;
     }
 
@@ -90,6 +110,22 @@ public final class Telemetry {
      * @param abandoned chronométrages abandonnés
      */
     public record EventCounts(long dispatched, int knownTypes, long timed, long abandoned) {
+    }
+
+    /**
+     * Compteurs de C-05 : échantillonnage de piles et découverte des trames inconnues.
+     *
+     * @param samplesTaken piles prélevées sur le fil autoritatif
+     * @param samplesQueued échantillons attribués à une sonde et mis en file
+     * @param samplesUnattributed échantillons qu'aucune sonde ne couvrait
+     * @param samplesDropped échantillons perdus, le fil autoritatif ne drainant plus
+     * @param unknownFrames méthodes distinctes vues s'exécuter sans sonde
+     * @param unknownSamples échantillons ayant désigné une de ces méthodes
+     * @param unknownDropped méthodes distinctes non apprises, le recensement étant plein
+     */
+    public record SamplingCounts(long samplesTaken, long samplesQueued,
+            long samplesUnattributed, long samplesDropped, int unknownFrames,
+            long unknownSamples, long unknownDropped) {
     }
 
     private static void appendTick(MetricSet set, Map<String, Object> tick) {
@@ -211,6 +247,44 @@ public final class Telemetry {
                 "Distributions chronométrées, une sur soixante-quatre."));
         set.add(Metric.counter("rfx.events.abandoned", counts.abandoned(),
                 "Chronométrages abandonnés, distribution imbriquée trop profonde."));
+    }
+
+    /**
+     * Échantillonnage de piles et découverte (C-05).
+     *
+     * <p>Le ratio de découverte est ce qui compte : il dit quelle part du temps du fil
+     * autoritatif s'exécute dans des méthodes qu'aucune sonde ne couvre. C'est la mesure
+     * du trou de couverture, celle qu'aucun compteur ne donnait avant.
+     */
+    private static void appendSampling(MetricSet set, SamplingCounts counts) {
+        if (counts == null) {
+            return;
+        }
+        set.add(Metric.counter("rfx.sampling.samples_taken", counts.samplesTaken(),
+                "Piles prélevées sur le fil autoritatif (R-322)."));
+        set.add(Metric.counter("rfx.sampling.samples_queued", counts.samplesQueued(),
+                "Échantillons attribués à une sonde et mis en file."));
+        set.add(Metric.counter("rfx.sampling.samples_unattributed",
+                counts.samplesUnattributed(),
+                "Échantillons qu'aucune sonde connue ne couvrait."));
+        set.add(Metric.counter("rfx.sampling.samples_dropped", counts.samplesDropped(),
+                "Échantillons perdus, le fil autoritatif ne drainant plus."));
+        set.add(Metric.counter("rfx.discovery.unknown_frames", counts.unknownFrames(),
+                "Méthodes distinctes vues s'exécuter sans porter de sonde (C-05)."));
+        set.add(Metric.counter("rfx.discovery.unknown_samples", counts.unknownSamples(),
+                "Échantillons ayant désigné une méthode chaude non sondée."));
+        set.add(Metric.counter("rfx.discovery.unknown_frames_dropped",
+                counts.unknownDropped(),
+                "Méthodes distinctes non apprises, le recensement étant plein."));
+
+        // Sans prélèvement, il n'y a pas de part à publier : zéro voudrait dire « tout
+        // est sondé », ce qui est l'inverse de « on n'a pas regardé » (R-660).
+        set.addIfMeasured(counts.samplesTaken() > 0, () -> Metric.ratio(
+                "rfx.discovery.unknown_frame_ratio",
+                counts.unknownSamples() * 100.0 / counts.samplesTaken(),
+                "Part du temps du fil autoritatif passée dans une méthode candidate au "
+                        + "sondage mais non sondée. C'est la mesure du trou de "
+                        + "couverture (ADR-027)."));
     }
 
     private static long longOf(Map<String, Object> table, String key) {

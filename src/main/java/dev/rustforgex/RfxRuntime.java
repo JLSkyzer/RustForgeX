@@ -4,6 +4,7 @@ import dev.rustforgex.bootstrap.Bootstrap;
 import com.mojang.logging.LogUtils;
 import dev.rustforgex.bridge.CborReader;
 import dev.rustforgex.bridge.NativeBridge;
+import dev.rustforgex.command.DiscoveryReport;
 import dev.rustforgex.command.StatusReport;
 import dev.rustforgex.config.Configuration;
 import dev.rustforgex.forge.EventDispatchTable;
@@ -18,9 +19,12 @@ import dev.rustforgex.telemetry.MetricsJson;
 import dev.rustforgex.telemetry.Telemetry;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
+import dev.rustforgex.instrument.ModOwnerResolver;
 import dev.rustforgex.instrument.ProbeRegistry;
 import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.instrument.ProbeSink;
+import dev.rustforgex.instrument.StackSampler;
+import dev.rustforgex.instrument.UnknownFrameIndex;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
@@ -294,7 +298,78 @@ public final class RfxRuntime {
                         discovery.knownPackages(), discovery.durationMs()),
                 events == null ? null : new Telemetry.EventCounts(
                         events.dispatched(), events.knownTypes(),
-                        events.timed(), events.abandoned()));
+                        events.timed(), events.abandoned()),
+                samplingCounts());
+    }
+
+    /** @return les compteurs de l'échantillonneur, ou {@code null} s'il n'a pas démarré */
+    private Telemetry.SamplingCounts samplingCounts() {
+        StackSampler sampler = tickCycle == null ? null : tickCycle.sampler();
+        if (sampler == null) {
+            return null;
+        }
+        UnknownFrameIndex unknown = sampler.discovery();
+        return new Telemetry.SamplingCounts(
+                sampler.samplesTaken(), sampler.samplesQueued(),
+                sampler.samplesUnattributed(), sampler.samplesDropped(),
+                unknown.distinct(), unknown.recorded(), unknown.distinctDropped());
+    }
+
+    /**
+     * Recensement des méthodes chaudes qu'aucune sonde ne couvre (C-05,
+     * {@code /rfx discover}).
+     *
+     * <p>Aucun appel natif : le recensement est tenu côté Java par l'échantillonneur de
+     * piles, qui prélevait déjà ces trames sans les consigner. C'est ce qui le rend
+     * gratuit en sondes — et donc utilisable là où en ajouter ne l'est plus (ADR-027).
+     *
+     * <p>Trie et alloue : à n'appeler ni dans un tick ni dans une boucle (INV-14).
+     *
+     * @param limit nombre maximal de méthodes
+     * @return le recensement, ou {@code null} si l'échantillonneur n'a jamais démarré
+     */
+    public DiscoveryReport.Census unknownFrames(int limit) {
+        UnknownFrameIndex index = discoveryIndex();
+        if (index == null) {
+            return null;
+        }
+        Instrumentation instr = instrumentation;
+        ProbeRegistry registry = instr == null ? null : instr.registry();
+
+        List<DiscoveryReport.Row> rows = new java.util.ArrayList<>();
+        for (UnknownFrameIndex.Sighting sighting : index.top(limit)) {
+            // Le mod propriétaire se résout par le nom de classe : ces méthodes n'ont
+            // pas de sonde, donc pas d'identifiant par où passer.
+            String owner = registry == null
+                    ? ModOwnerResolver.UNKNOWN
+                    : registry.ownerOfClass(sighting.className().replace('.', '/'));
+            rows.add(new DiscoveryReport.Row(owner, sighting.label(), sighting.samples()));
+        }
+        return new DiscoveryReport.Census(
+                tickCycle.sampler().samplesTaken(), index.recorded(),
+                index.distinct(), index.distinctDropped(), List.copyOf(rows));
+    }
+
+    /**
+     * Vide le recensement des trames inconnues.
+     *
+     * @return {@code false} si l'échantillonneur n'a jamais démarré
+     */
+    public boolean resetDiscovery() {
+        UnknownFrameIndex index = discoveryIndex();
+        if (index == null) {
+            return false;
+        }
+        index.reset();
+        return true;
+    }
+
+    /** @return le recensement de l'échantillonneur, ou {@code null} s'il n'a pas démarré */
+    private UnknownFrameIndex discoveryIndex() {
+        if (tickCycle == null || tickCycle.sampler() == null) {
+            return null;
+        }
+        return tickCycle.sampler().discovery();
     }
 
     /**

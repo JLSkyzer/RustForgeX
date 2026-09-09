@@ -75,6 +75,25 @@ public final class RfxCommands {
                                                     IntegerArgumentType.getInteger(context, "seconds"));
                                             return 1;
                                         })))
+                        .then(Commands.literal("discover")
+                                .executes(context -> {
+                                    showDiscovery(context.getSource(),
+                                            DiscoveryReport.DEFAULT_LIMIT);
+                                    return 1;
+                                })
+                                // Repartir de zéro : un recensement cumulé depuis le
+                                // démarrage mélange le chargement du monde et le jeu.
+                                .then(Commands.literal("reset")
+                                        .executes(context -> {
+                                            resetDiscovery(context.getSource());
+                                            return 1;
+                                        }))
+                                .then(Commands.argument("count", IntegerArgumentType.integer(1, 100))
+                                        .executes(context -> {
+                                            showDiscovery(context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "count"));
+                                            return 1;
+                                        })))
                         .then(Commands.literal("report")
                                 .executes(context -> {
                                     writeReport(context.getSource());
@@ -125,6 +144,34 @@ public final class RfxCommands {
         }
         source.sendSuccess(() -> Component.translatable(
                 TopReport.KEY_PREFIX + "profile_started", seconds), false);
+    }
+
+    /**
+     * Envoie le recensement des méthodes chaudes non sondées (C-05).
+     *
+     * <p>C'est la question d'avant {@code /rfx top} : celui-ci dit ce qui coûte parmi ce
+     * qu'on mesure, celui-là dit ce qu'on ne mesure pas.
+     */
+    private static void showDiscovery(CommandSourceStack source, int count) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        List<Component> lines = DiscoveryReport.lines(
+                runtime == null ? null : runtime.unknownFrames(count));
+
+        for (Component line : lines) {
+            source.sendSuccess(() -> line, false);
+        }
+    }
+
+    /** Vide le recensement, pour mesurer une situation précise plutôt qu'une moyenne. */
+    private static void resetDiscovery(CommandSourceStack source) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime == null || !runtime.resetDiscovery()) {
+            source.sendFailure(
+                    Component.translatable(DiscoveryReport.KEY_PREFIX + "unavailable"));
+            return;
+        }
+        source.sendSuccess(
+                () -> Component.translatable(DiscoveryReport.KEY_PREFIX + "reset"), false);
     }
 
     /** Envoie le classement des unités les plus coûteuses (C-35). */

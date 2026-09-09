@@ -193,6 +193,20 @@ public final class ProbeRegistry implements ProbeIdSource {
         return at(ownersByProbeId, probeId);
     }
 
+    /**
+     * Retrouve le mod propriétaire d'une classe, sondée ou non.
+     *
+     * <p>La découverte des trames inconnues (C-05) désigne des méthodes qui n'ont
+     * justement <strong>pas</strong> de sonde : il n'y a donc pas d'identifiant par où
+     * passer, et c'est le résolveur qu'il faut interroger directement.
+     *
+     * @param classInternalName nom interne, par exemple {@code net/minecraft/…/Mob}
+     * @return l'identifiant du mod, ou {@link ModOwnerResolver#UNKNOWN}
+     */
+    public String ownerOfClass(String classInternalName) {
+        return owners.ownerOf(classInternalName);
+    }
+
     /** Lecture bornée d'une des listes indexées par identifiant de sonde. */
     private static String at(List<String> list, int probeId) {
         if (probeId < 0) {

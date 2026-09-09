@@ -52,5 +52,12 @@
   "rustforgex.top.nothing_measured": "§7Rien de mesuré pour l'instant : aucune sonde n'a rapporté et aucun échantillon de pile n'a abouti.",
   "rustforgex.top.entry": "  §8%s.§r §b%s§r %s §e%s§r §8(%s, %s, %s appels/tick, %s)",
   "rustforgex.top.profile_started": "§aChronométrage pendant %s s§r. Les sondes mesurent maintenant la durée de chaque appel ; RUSTFORGE-X coûte davantage pendant ce temps. Lancez ensuite §e/rfx top§r.",
-  "rustforgex.top.profile_refused": "§cChronométrage impossible§r : le runtime natif n'est pas actif."
+  "rustforgex.top.profile_refused": "§cChronométrage impossible§r : le runtime natif n'est pas actif.",
+  "rustforgex.discover.unavailable": "§7Aucun recensement : l'échantillonnage de piles n'a jamais démarré.",
+  "rustforgex.discover.not_sampled": "§7Aucune pile prélevée pour l'instant : l'échantillonneur ne tourne que si au moins une sonde est armée.",
+  "rustforgex.discover.summary": "§6Méthodes chaudes non sondées§r : %s distinctes, sur %s prélèvements du fil autoritatif — %s en portaient une",
+  "rustforgex.discover.nothing": "§7Rien à découvrir : chaque prélèvement est tombé sur une méthode déjà sondée.",
+  "rustforgex.discover.entry": "  §8%s.§r §b%s§r §f%s§r §e%s§r §8(%s échantillons)",
+  "rustforgex.discover.truncated": "  §8Recensement plein : %s méthodes distinctes n'ont pas été apprises.",
+  "rustforgex.discover.reset": "§aRecensement vidé§r. Les prélèvements repartent de zéro."
 }

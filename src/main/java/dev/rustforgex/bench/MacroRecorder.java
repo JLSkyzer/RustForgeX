@@ -1,6 +1,7 @@
 package dev.rustforgex.bench;
 
 import dev.rustforgex.RfxRuntime;
+import dev.rustforgex.command.DiscoveryReport;
 import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
@@ -343,6 +344,7 @@ public final class MacroRecorder {
         appendProbeActivity(state);
         appendThreshold(state, runtime);
         appendProfilerLevel(state, runtime);
+        appendDiscovery(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
         state.append("\n");
@@ -433,6 +435,53 @@ public final class MacroRecorder {
                 .append(runtime.instrumentation().refusedByThreshold());
         state.append(",\n    \"refused_under_spec\": ")
                 .append(runtime.instrumentation().refusedUnderSpec());
+    }
+
+    /**
+     * Nombre de méthodes chaudes non sondées consignées dans le fichier de campagne.
+     *
+     * <p>Assez pour qu'une décision de sondage s'y lise, pas au point de rendre le
+     * fichier illisible : au-delà de quelques dizaines, la traîne ne se distingue plus
+     * du bruit d'échantillonnage.
+     */
+    private static final int DISCOVERY_ROWS = 40;
+
+    /**
+     * Consigne ce que l'échantillonneur a vu s'exécuter sans sonde (C-05, ADR-027).
+     *
+     * <p>C'est la mesure du <strong>trou de couverture</strong>. Trois campagnes ont
+     * établi qu'on ne le comble pas en armant plus de sondes ; celle-ci dit ce qui reste
+     * dehors, et lesquelles il faudrait choisir.
+     *
+     * <p>Le classement est écrit avec le nombre d'échantillons de chaque méthode, jamais
+     * la part seule : cent prélèvements par seconde font qu'une méthode vue trois fois
+     * est un indice, pas une mesure, et seul le décompte permet d'en juger (R-660).
+     */
+    private static void appendDiscovery(StringBuilder state, RfxRuntime runtime) {
+        DiscoveryReport.Census census = runtime.unknownFrames(DISCOVERY_ROWS);
+        if (census == null) {
+            return;
+        }
+        state.append(",\n    \"discovery\": {\n");
+        state.append("      \"samples_taken\": ").append(census.samplesTaken()).append(",\n");
+        state.append("      \"unknown_samples\": ").append(census.recorded()).append(",\n");
+        state.append("      \"unknown_frames\": ").append(census.distinct()).append(",\n");
+        state.append("      \"unknown_frames_dropped\": ")
+                .append(census.distinctDropped()).append(",\n");
+        state.append("      \"top\": [");
+        boolean first = true;
+        for (DiscoveryReport.Row row : census.rows()) {
+            if (row.samples() <= 0L) {
+                break;
+            }
+            state.append(first ? "\n" : ",\n");
+            first = false;
+            state.append("        {\"owner\": \"").append(escape(row.owner()))
+                    .append("\", \"method\": \"").append(escape(row.label()))
+                    .append("\", \"samples\": ").append(row.samples()).append('}');
+        }
+        state.append(first ? "]\n" : "\n      ]\n");
+        state.append("    }");
     }
 
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {

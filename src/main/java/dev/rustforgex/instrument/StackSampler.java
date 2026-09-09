@@ -48,6 +48,17 @@ import org.slf4j.LoggerFactory;
  * fixe et basse, une profondeur bornée, et surtout : ce coût entre dans la ligne de base
  * de la PARTIE 12.4. S'il fait bouger la mesure, il est trop cher, et cela se verra sans
  * qu'on ait à le supposer.
+ *
+ * <h2>Ce qu'il découvre en plus de ce qu'il attribue</h2>
+ *
+ * <p>Une pile porte deux informations, et il n'en exploitait qu'une. La première est
+ * l'attribution : à quelle sonde revient cette période. La seconde est la
+ * <strong>découverte</strong> : quelle méthode s'exécutait vraiment, sondée ou non.
+ *
+ * <p>Les deux ne coïncident pas. Quand une méthode non sondée s'exécute au-dessus d'une
+ * méthode sondée, la période est attribuée à la sonde du dessous — ce qui en fait un
+ * temps <em>inclusif</em>, pas propre — et la méthode réellement chaude reste invisible.
+ * C'est ce trou que {@link UnknownFrameIndex} comble, sans dépenser une sonde de plus.
  */
 public final class StackSampler {
 
@@ -79,6 +90,14 @@ public final class StackSampler {
 
     private final StackFrameIndex index;
     private final Thread target;
+
+    /**
+     * Recensement des méthodes chaudes non sondées, alimenté par le même prélèvement.
+     *
+     * <p>Détenu ici parce que ce fil en est l'unique producteur : lui donner un autre
+     * propriétaire multiplierait les chemins d'écriture sans rien simplifier.
+     */
+    private final UnknownFrameIndex discovery = new UnknownFrameIndex();
 
     /**
      * File à producteur unique et consommateur unique.
@@ -203,7 +222,7 @@ public final class StackSampler {
         StackTraceElement[] stack = target.getStackTrace();
         samplesTaken++;
 
-        int probeId = topmostKnownProbe(stack, index);
+        int probeId = topmostKnownProbe(stack, index, discovery);
         if (probeId < 0) {
             samplesUnattributed++;
             return;
@@ -233,19 +252,52 @@ public final class StackSampler {
      * @return l'identifiant, ou une valeur négative si aucune trame n'est attribuable
      */
     static int topmostKnownProbe(StackTraceElement[] stack, StackFrameIndex index) {
+        return topmostKnownProbe(stack, index, null);
+    }
+
+    /**
+     * Attribue la pile à une sonde, et consigne au passage ce qui n'en a pas.
+     *
+     * <p>Les deux se font en une seule traversée, et il n'y a pas d'autre choix
+     * raisonnable : la découverte doit s'arrêter exactement là où l'attribution
+     * s'arrête, sans quoi elle consignerait des appelants au lieu d'appelés.
+     *
+     * <p>La trame consignée est la plus haute qui soit à la fois <em>candidate au
+     * sondage</em> et <em>non sondée</em>. Elle l'est même quand une sonde finit par
+     * être trouvée plus bas : c'est précisément le cas intéressant, celui où la période
+     * est attribuée à une sonde qui n'exécutait pas ce temps-là.
+     *
+     * @param stack pile prélevée
+     * @param index correspondance trame vers sonde
+     * @param discovery recensement à alimenter, ou {@code null} pour ne rien consigner
+     * @return l'identifiant, ou une valeur négative si aucune trame n'est attribuable
+     */
+    static int topmostKnownProbe(StackTraceElement[] stack, StackFrameIndex index,
+            UnknownFrameIndex discovery) {
         int depth = Math.min(stack.length, MAX_DEPTH);
+        StackTraceElement candidate = null;
+        int probeId = StackFrameIndex.NO_PROBE;
         for (int i = 0; i < depth; i++) {
-            int probeId = index.probeFor(stack[i]);
-            if (probeId >= 0) {
-                return probeId;
+            StackTraceElement frame = stack[i];
+            int found = index.probeFor(frame);
+            if (found >= 0) {
+                probeId = found;
+                break;
             }
             // Une trame ambiguë n'est pas franchie : la méthode qui s'exécutait est
             // bien celle-là, et attribuer son temps à son appelant serait faux.
-            if (probeId == StackFrameIndex.AMBIGUOUS) {
-                return StackFrameIndex.AMBIGUOUS;
+            if (found == StackFrameIndex.AMBIGUOUS) {
+                probeId = StackFrameIndex.AMBIGUOUS;
+                break;
+            }
+            if (candidate == null && UnknownFrameIndex.isCandidate(frame)) {
+                candidate = frame;
             }
         }
-        return StackFrameIndex.NO_PROBE;
+        if (discovery != null && candidate != null) {
+            discovery.record(candidate);
+        }
+        return probeId;
     }
 
     /** @return {@code true} si le fil d'échantillonnage tourne */
@@ -276,5 +328,10 @@ public final class StackSampler {
     /** @return le nombre d'échantillons perdus faute de place dans la file */
     public long samplesDropped() {
         return samplesDropped;
+    }
+
+    /** @return le recensement des méthodes chaudes non sondées, jamais {@code null} */
+    public UnknownFrameIndex discovery() {
+        return discovery;
     }
 }

@@ -52,5 +52,12 @@
   "rustforgex.top.nothing_measured": "§7Nothing measured yet: no probe has reported and no stack sample has landed.",
   "rustforgex.top.entry": "  §8%s.§r §b%s§r %s §e%s§r §8(%s, %s, %s calls/tick, %s)",
   "rustforgex.top.profile_started": "§aTimed profiling for %s s§r. Probes now measure per-call durations; RUSTFORGE-X costs more during this time. Then run §e/rfx top§r.",
-  "rustforgex.top.profile_refused": "§cCould not start timed profiling§r: the native runtime is not active."
+  "rustforgex.top.profile_refused": "§cCould not start timed profiling§r: the native runtime is not active.",
+  "rustforgex.discover.unavailable": "§7No census: stack sampling never started.",
+  "rustforgex.discover.not_sampled": "§7No stack sampled yet: the sampler only runs while at least one probe is armed.",
+  "rustforgex.discover.summary": "§6Hot unprobed methods§r: %s distinct, out of %s samples of the authoritative thread — %s carried one",
+  "rustforgex.discover.nothing": "§7Nothing to discover: every sample landed on an already probed method.",
+  "rustforgex.discover.entry": "  §8%s.§r §b%s§r §f%s§r §e%s§r §8(%s samples)",
+  "rustforgex.discover.truncated": "  §8Census full: %s distinct methods were never learned.",
+  "rustforgex.discover.reset": "§aCensus cleared§r. Sampling starts over."
 }
