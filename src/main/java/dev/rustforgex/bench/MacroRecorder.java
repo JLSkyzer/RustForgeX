@@ -341,6 +341,7 @@ public final class MacroRecorder {
         state.append("    \"methods_probed\": ")
                 .append(runtime.instrumentation().methodsProbed());
         appendProbeActivity(state);
+        appendThreshold(state, runtime);
         appendProfilerLevel(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
@@ -416,6 +417,22 @@ public final class MacroRecorder {
         state.append(",\n    \"probes_armed\": ").append(RfxProbes.armedCount());
         state.append(",\n    \"probe_sink_installed\": ").append(RfxProbes.active());
         state.append(",\n    \"probe_records_failed\": ").append(RfxProbes.failedRecords());
+    }
+
+    /**
+     * Consigne le seuil de sondage et ce qu'il écarte (ADR-021).
+     *
+     * <p>Sans ces trois nombres, une campagne compare des surfaces sondées sans savoir
+     * quel réglage les a produites, ni combien de méthodes le seuil a refusées. Deux
+     * campagnes à seuils différents seraient indiscernables dans leurs fichiers.
+     */
+    private static void appendThreshold(StringBuilder state, RfxRuntime runtime) {
+        state.append(",\n    \"min_instructions\": ")
+                .append(runtime.instrumentation().minInstructions());
+        state.append(",\n    \"refused_by_threshold\": ")
+                .append(runtime.instrumentation().refusedByThreshold());
+        state.append(",\n    \"refused_under_spec\": ")
+                .append(runtime.instrumentation().refusedUnderSpec());
     }
 
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {

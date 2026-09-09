@@ -74,6 +74,38 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
      * réellement.
      */
     private static final AtomicLong CLASSES_MISSED = new AtomicLong();
+
+    /** Méthodes écartées par le seuil retenu, alors que R-311 les autoriserait. */
+    private static final AtomicLong REFUSED_BY_THRESHOLD = new AtomicLong();
+
+    /** Méthodes que le plancher normatif de R-311 refuse de toute façon. */
+    private static final AtomicLong REFUSED_UNDER_SPEC = new AtomicLong();
+
+    /** Méthodes écartées pour une autre raison : sans corps, constructeur, etc. */
+    private static final AtomicLong REFUSED_OTHER = new AtomicLong();
+
+    /**
+     * Seuil de sondage demandé, en instructions bytecode.
+     *
+     * <p>Lu une seule fois, au chargement de cette classe : il gouverne chaque
+     * transformation et ne peut pas changer en cours de partie sans rendre le parc de
+     * sondes incohérent.
+     */
+    private static final int MIN_INSTRUCTIONS = readMinInstructions();
+
+    /** Lit le seuil demandé, ou rend celui d'ADR-021 si la propriété est absente. */
+    private static int readMinInstructions() {
+        try {
+            String value = System.getProperty("rustforgex.instrumentation.min_instructions");
+            return value == null || value.isBlank()
+                    ? ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS
+                    : Integer.parseInt(value.trim());
+        } catch (NumberFormatException | SecurityException e) {
+            // Un réglage illisible ne doit pas changer le comportement en silence : on
+            // retombe sur le seuil décidé, qui est celui que les campagnes ont mesuré.
+            return ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS;
+        }
+    }
     private static final AtomicLong CLASSES_TRANSFORMED = new AtomicLong();
     private static final AtomicLong METHODS_PROBED = new AtomicLong();
     private static final AtomicLong TRANSFORM_FAILURES = new AtomicLong();
@@ -183,21 +215,22 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     /** Instrumente les méthodes éligibles de la classe. */
     private static void instrument(ClassNode classNode, ProbeIdSource source) {
         int probed = 0;
+        int threshold = minInstructions();
         for (MethodNode method : classNode.methods) {
             // Le seuil appliqué ici est celui d'ADR-021, bien au-dessus du plancher
             // normatif : une sonde posée sur une méthode courte coûte plus qu'elle
             // n'apprend, et c'est leur NOMBRE qui fait le surcoût mesuré.
-            if (ProbeEligibility.evaluate(classNode, method,
-                    ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS)
-                    != ProbeEligibility.Refusal.NONE) {
+            ProbeEligibility.Refusal refusal =
+                    ProbeEligibility.evaluate(classNode, method, threshold);
+            if (refusal != ProbeEligibility.Refusal.NONE) {
+                census(refusal, method);
                 continue;
             }
             int probeId = source.probeIdFor(classNode.name, method.name, method.desc);
             if (probeId == ProbeIdSource.NO_PROBE) {
                 continue;
             }
-            if (ProbeInjector.inject(classNode, method, probeId,
-                    ProbeEligibility.DEFAULT_MIN_INSTRUCTIONS)) {
+            if (ProbeInjector.inject(classNode, method, probeId, threshold)) {
                 probed++;
             }
         }
@@ -205,5 +238,62 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
             CLASSES_TRANSFORMED.incrementAndGet();
             METHODS_PROBED.addAndGet(probed);
         }
+    }
+
+    /**
+     * Compte les méthodes écartées, et par quelle bande de taille.
+     *
+     * <p>Le seuil d'ADR-021 écarte des méthodes, et jusqu'ici <strong>personne ne
+     * savait lesquelles ni combien</strong>. Décider d'un seuil sans connaître la
+     * population qu'il coupe, c'est le choisir par raisonnement — exactement ce que la
+     * todo reproche à ADR-021 depuis son écriture.
+     *
+     * <p>Les bandes séparent ce que le plancher normatif refuse de toute façon (moins
+     * de douze instructions, R-311) de ce que le seuil retenu écarte en plus.
+     */
+    private static void census(ProbeEligibility.Refusal refusal, MethodNode method) {
+        if (refusal != ProbeEligibility.Refusal.TOO_SHORT) {
+            REFUSED_OTHER.incrementAndGet();
+            return;
+        }
+        int size = ProbeEligibility.countRealInstructions(method);
+        if (size < ProbeEligibility.SPEC_MIN_INSTRUCTIONS) {
+            REFUSED_UNDER_SPEC.incrementAndGet();
+        } else {
+            REFUSED_BY_THRESHOLD.incrementAndGet();
+        }
+    }
+
+    /**
+     * Seuil de sondage effectif, en instructions bytecode.
+     *
+     * <p>Lu une fois dans une propriété système, et non dans le fichier de
+     * configuration : ce transformateur est enregistré par ModLauncher bien avant que
+     * le répertoire de jeu soit connu, et il transforme des classes avant que le mod
+     * n'existe. Une campagne le règle donc par
+     * {@code -Drustforgex.instrumentation.min_instructions=N}.
+     *
+     * <p>Ramené au plancher normatif de R-311 s'il est plus bas : le cahier des charges
+     * interdit de sonder sous douze instructions, et un réglage ne prime pas sur une
+     * exigence.
+     */
+    public static int minInstructions() {
+        int configured = MIN_INSTRUCTIONS;
+        return Math.max(configured, ProbeEligibility.SPEC_MIN_INSTRUCTIONS);
+    }
+
+    /** @return les méthodes écartées par le seuil retenu, au-dessus du plancher R-311 */
+    public static long refusedByThreshold() {
+        return REFUSED_BY_THRESHOLD.get();
+    }
+
+    /** @return les méthodes que R-311 refuse de toute façon */
+    public static long refusedUnderSpec() {
+        return REFUSED_UNDER_SPEC.get();
+    }
+
+    /** @return les méthodes écartées pour toute autre raison */
+    public static long refusedOther() {
+        return REFUSED_OTHER.get();
     }
 }

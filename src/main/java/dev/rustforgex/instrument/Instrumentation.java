@@ -132,6 +132,49 @@ public final class Instrumentation {
         }
     }
 
+    /**
+     * Seuil de sondage effectif, en instructions bytecode (ADR-021).
+     *
+     * @return le seuil, ou {@code 0} si le plugin de lancement est absent
+     */
+    public int minInstructions() {
+        return link(InstrumentationLink::minInstructions, 0);
+    }
+
+    /**
+     * Méthodes écartées par le seuil retenu, que R-311 aurait autorisées.
+     *
+     * <p>C'est la population que le choix d'ADR-021 coûte en couverture. Elle n'était
+     * comptée nulle part : le seuil a été porté de douze à soixante-quatre sans que
+     * personne sache ce qu'il écarte.
+     *
+     * @return le nombre de méthodes, ou {@code 0} sans plugin
+     */
+    public long refusedByThreshold() {
+        return link(InstrumentationLink::refusedByThreshold, 0L);
+    }
+
+    /**
+     * Méthodes que le plancher normatif de R-311 refuse de toute façon.
+     *
+     * @return le nombre de méthodes, ou {@code 0} sans plugin
+     */
+    public long refusedUnderSpec() {
+        return link(InstrumentationLink::refusedUnderSpec, 0L);
+    }
+
+    /** Lecture d'un compteur du plugin, sans échouer s'il est absent. */
+    private <T> T link(java.util.function.Supplier<T> reader, T absent) {
+        if (state == State.PLUGIN_MISSING) {
+            return absent;
+        }
+        try {
+            return reader.get();
+        } catch (NoClassDefFoundError e) {
+            return absent;
+        }
+    }
+
     /** @return le nombre de méthodes sondées, ou {@code 0} si non armé */
     public long methodsProbed() {
         return armed() ? InstrumentationLink.methodsProbed() : 0L;

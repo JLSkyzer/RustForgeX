@@ -68,6 +68,21 @@ final class InstrumentationLink {
         return RfxClassTransformer.methodsProbed();
     }
 
+    /** @return le seuil de sondage effectif, en instructions bytecode (ADR-021) */
+    static int minInstructions() {
+        return RfxClassTransformer.minInstructions();
+    }
+
+    /** @return les méthodes écartées par le seuil, alors que R-311 les autoriserait */
+    static long refusedByThreshold() {
+        return RfxClassTransformer.refusedByThreshold();
+    }
+
+    /** @return les méthodes que le plancher normatif de R-311 refuse de toute façon */
+    static long refusedUnderSpec() {
+        return RfxClassTransformer.refusedUnderSpec();
+    }
+
     /** @return le nombre d'échecs de transformation (FM-09) */
     static long transformFailures() {
         return RfxClassTransformer.transformFailures();

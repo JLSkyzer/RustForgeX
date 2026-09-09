@@ -268,8 +268,34 @@ condition posée pour brancher le transformateur est levée.
       2026-09-07 : `RfxProbes.install` n'était appelé que par les tests, et une table de
       niveaux vide se coinçait dans le cache natif. À reformuler une fois que les sondes
       auront tourné une campagne entière
-- [ ] Rendre le seuil configurable, pour le balayer dans une campagne au lieu de le
-      choisir par raisonnement
+- [x] **Seuil rendu configurable et balayé** (ADR-027).
+      `-Drustforgex.instrumentation.min_instructions=N`, ramené au plancher de R-311.
+      Par propriété système et non par le fichier : le transformateur est enregistré
+      avant que le répertoire de jeu soit connu
+
+      | | seuil 64 | seuil 12 |
+      |---|---|---|
+      | méthodes sondées | 2 580 | 16 729 |
+      | coût | sous détection | **14,58 % du MSPT** |
+      | cycles positifs | 5/10 | **9/10** |
+      | TPS | 19,17 | 16,87 |
+
+      **ADR-021 est confirmé, et son mécanisme chiffré** : les méthodes que le seuil
+      écarte coûtent **412 ns par sonde et par tick** contre **104 ns** pour celles
+      qu'il garde — quatre fois plus, parce qu'elles sont bien plus appelées
+- [x] Recensement des refus ajouté : le seuil écarte **14 113 méthodes** que R-311
+      autoriserait, soit 84,5 % de cette population. ADR-021 avait été écrit sans que
+      ce chiffre existe
+- [ ] **On ne peut pas acheter de la couverture en armant plus de sondes.** Trois
+      tentatives, même conclusion : armement anticipé (×5,1 sondes, part expliquée
+      0,3 → 0,4 %), seuil à 12 (×6,5 sondes, 14,58 % du MSPT). Le budget finance
+      ~2 850 sondes, et c'est ce qu'on arme déjà
+- [ ] **Prochain levier : faire consigner à l'échantillonneur les trames inconnues.**
+      Il tourne à 100 Hz et voit passer des méthodes qu'aucune sonde ne couvre, mais
+      `StackFrameIndex` ne connaît que les méthodes déjà sondées. Les enregistrer
+      donnerait la liste des méthodes chaudes non sondées **sans coûter une sonde** —
+      c'est le mécanisme de découverte qui manque, et ce que l'exception non
+      implémentée de R-311 réclame
 - [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
       d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
