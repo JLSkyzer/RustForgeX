@@ -290,12 +290,27 @@ condition posée pour brancher le transformateur est levée.
       tentatives, même conclusion : armement anticipé (×5,1 sondes, part expliquée
       0,3 → 0,4 %), seuil à 12 (×6,5 sondes, 14,58 % du MSPT). Le budget finance
       ~2 850 sondes, et c'est ce qu'on arme déjà
-- [ ] **Prochain levier : faire consigner à l'échantillonneur les trames inconnues.**
-      Il tourne à 100 Hz et voit passer des méthodes qu'aucune sonde ne couvre, mais
-      `StackFrameIndex` ne connaît que les méthodes déjà sondées. Les enregistrer
-      donnerait la liste des méthodes chaudes non sondées **sans coûter une sonde** —
-      c'est le mécanisme de découverte qui manque, et ce que l'exception non
-      implémentée de R-311 réclame
+- [x] **Découverte des trames inconnues livrée** (ADR-028). `UnknownFrameIndex`,
+      `/rfx discover [n]`, `/rfx discover reset`, `rfx.discovery.unknown_frame_ratio`,
+      bloc `discovery` du fichier de campagne. Coût vérifié en plan équilibré
+      `sans/avec/avec/sans` : à position égale, **−0,31 ms et −2,95 ms** — aucun coût
+      mesurable
+- [x] **Le trou de couverture n'était pas un défaut de couverture, mais de collecte.**
+      `ProbeSink.flush()` vide le tampon **du thread qui l'appelle**, et n'est appelée
+      qu'à la clôture du tick, donc par le seul fil autoritatif (`TickCycle:147`, site
+      d'appel unique). Sur 8 900 ticks : **1 thread vide, 17 ne vident pas**,
+      **151 959 516 passages** jamais remis et **39 914 830 enregistrements** perdus —
+      dimthread (un thread par dimension), `Worker-Main`, `Physics thread` de
+      Valkyrien Skies. Silencieusement, dans les deux cas
+- [ ] **PROCHAIN TRAVAIL — vidage multi-thread** (PARTIE 5.39 étape 5, RISK-05).
+      `probeBufferFlush` doit accepter un appel hors fil autoritatif, sans verrou dans
+      le chemin chaud (R-320), sans multiplier les traversées (R-700 : dix-huit threads
+      feraient déjà dix-huit traversées par tick), sans jamais muter l'état Minecraft
+      (INV-02). C'est là que se trouve la couverture qu'on cherchait depuis trois ADR
+- [ ] Le banc a une dispersion d'exécution à exécution d'environ **15 ms sur le MSPT
+      médian** (55,23 puis 71,03 ms pour la même configuration). Toute campagne qui
+      compare deux configurations doit les **apparier par position**, sinon elle ne
+      mesure que l'ordre des exécutions
 - [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
       d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
 - [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis

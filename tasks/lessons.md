@@ -642,3 +642,31 @@ garde — quatre fois plus chacune.
   acheter de la couverture en armant plus de sondes. Une conclusion répétée trois fois
   n'est plus une hypothèse, c'est une contrainte de conception — il faut arrêter de la
   retester et changer de mécanisme.
+
+### 2026-09-10 | J'ai relancé des builds Gradle pendant une campagne A/B, et le biais allait dans le sens de ma conclusion | Une mesure de coût exige que rien d'autre ne tourne, et l'ordre doit être équilibré
+
+Pour savoir si consigner les trames inconnues coûte quelque chose, j'ai lancé deux
+exécutions du serveur — recensement éteint, puis allumé — et pendant la **première**,
+j'ai enchaîné `compileJava`, `build` et `test`. La seconde a tourné sur une machine
+libre. Elle est sortie meilleure, et j'ai failli en conclure que le recensement était
+gratuit.
+
+C'est la deuxième fois : j'avais déjà lancé `/rfx profile 180` au milieu d'une mesure de
+couverture. La règle avait été écrite, elle n'a pas suffi — parce qu'elle disait « ne pas
+confondre deux expériences » et que je ne voyais pas un `gradlew build` comme une
+expérience.
+
+Un second défaut se lisait dans les mêmes chiffres : quatre exécutions de la nuit
+donnent 36,8 puis 45,8 puis 52,2 puis 50,4 ms de MSPT médian. La dérive suit **l'ordre
+des exécutions**, pas le code. Comparer une exécution de minuit à une exécution de deux
+heures du matin ne mesure donc rien.
+
+**Règles** :
+- pendant une campagne de mesure, **la machine ne fait rien d'autre** — y compris
+  compiler, y compris lancer les tests, y compris ce qui « ne dure que trente
+  secondes » ;
+- un A/B en deux exécutions successives ne survit pas à une dérive de la machine.
+  Ordonner **sans / avec / avec / sans** : la dérive porte alors autant sur les deux
+  configurations, et sa présence se lit dans l'écart entre les deux paires ;
+- quand un résultat va dans le sens qu'on espérait, chercher le biais **avant** de le
+  publier. C'est là qu'on regarde le moins.
