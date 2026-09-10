@@ -18,13 +18,28 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Chaque thread possède son propre tampon, obtenu du natif au premier usage et
  * conservé dans une variable de thread. Écrire un enregistrement revient donc à poser
  * trente-deux octets à la position courante : pas de verrou, pas d'allocation, pas de
- * partage entre threads. Le tampon est vidé une fois par tick, ce qui tient le budget
- * de moins de cinquante traversées de frontière par tick (R-700).
+ * partage entre threads.
  *
- * <p>Quand le tampon est plein, les enregistrements suivants sont <strong>comptés puis
- * jetés</strong> jusqu'au prochain vidage. Perdre des mesures est sans conséquence —
- * elles sont statistiques — alors que bloquer le thread du jeu pour les conserver
- * toutes en aurait beaucoup.
+ * <h2>Chaque thread vide le sien (ADR-029)</h2>
+ *
+ * <p>Le vidage n'a longtemps eu lieu qu'à la clôture du tick, donc sur le seul fil
+ * autoritatif, et ne concernait que le tampon de <em>ce</em> thread. Tout ce qui était
+ * sondé ailleurs s'accumulait dans un tampon que personne ne venait chercher : une
+ * campagne de 8 900 ticks a compté <strong>152 millions de passages</strong> jamais
+ * remis, sur dix-sept threads. La couverture manquante que trois ADR ont cherché à
+ * élargir n'était pas un défaut de sondage, mais de collecte.
+ *
+ * <p>Un thread sondé compare désormais son époque à {@link #tickEpoch} au début de
+ * chaque appel et, si le tick a changé, reverse ses compteurs et vide son tampon —
+ * <strong>sur son propre thread</strong>. Rien n'est partagé hormis cette époque, donc
+ * rien n'est à synchroniser. Le budget de R-700 tient : un thread traverse la frontière
+ * une fois par tick, et le comptage groupé fait qu'un tampon suffit largement.
+ *
+ * <p>Quand le tampon se remplit avant la fin du tick, il est vidé sur place plutôt que
+ * de perdre la suite. Un enregistrement n'est <strong>compté puis jeté</strong> que si
+ * le natif refuse même de consommer : perdre des mesures est sans conséquence — elles
+ * sont statistiques — alors que bloquer le thread du jeu pour les conserver toutes en
+ * aurait beaucoup.
  */
 public final class ProbeSink {
 
@@ -75,13 +90,19 @@ public final class ProbeSink {
         /** Vidages effectués par ce thread. Zéro signale un tampon qui ne part jamais. */
         long flushCount;
 
+        /** Époque du dernier reversement. Différente de celle du puits : à vider. */
+        long epoch = -1L;
+
+        /** Vidages déjà consommés dans l'époque courante, pour le budget de R-700. */
+        int flushesThisEpoch;
+
         /**
          * Passages comptés par sonde, indexés par identifiant.
          *
-         * <p>Alloué une fois, à l'attachement du thread : R-320 interdit toute
-         * allocation dans le chemin chaud, et c'en est un.
+         * <p>Alloué à l'attachement du thread, et réalloué seulement à la clôture d'une
+         * époque, jamais dans le chemin d'appel : R-320 interdit d'y allouer.
          */
-        final int[] counts;
+        int[] counts;
 
         /**
          * Identifiants touchés depuis la dernière vidange.
@@ -91,7 +112,7 @@ public final class ProbeSink {
          * seulement est appelée. Elle est alimentée au passage de zéro à un, ce qui
          * garantit qu'un identifiant n'y figure qu'une fois.
          */
-        final int[] touched;
+        int[] touched;
 
         int touchedLen;
 
@@ -142,10 +163,11 @@ public final class ProbeSink {
     /**
      * Nombre de sondes que les tableaux de comptage doivent couvrir.
      *
-     * <p>Renseigné par {@code RfxProbes} à chaque table de niveaux reçue, et lu une
-     * seule fois par thread, à son attachement. Un thread attaché avant l'arrivée de
-     * nouvelles sondes garde ses tableaux : les identifiants au-delà retombent sur
-     * l'enregistrement direct, ce qui reste correct.
+     * <p>Renseigné par {@code RfxProbes} à chaque table de niveaux reçue. Un thread
+     * attaché avant l'arrivée de nouvelles sondes rattrape la taille voulue à la
+     * clôture d'époque suivante, jamais dans le chemin d'appel (R-320). Tant qu'il ne
+     * l'a pas rattrapée, les identifiants au-delà retombent sur l'enregistrement
+     * direct : correct, mais trente-deux octets par appel au lieu d'un « plus un ».
      */
     private volatile int probeCapacity;
 
@@ -154,6 +176,47 @@ public final class ProbeSink {
     private final AtomicLong recordsDropped = new AtomicLong();
     private final AtomicLong flushes = new AtomicLong();
     private final AtomicLong refusedThreads = new AtomicLong();
+    private final AtomicLong flushBudgetExceeded = new AtomicLong();
+
+    /**
+     * Vidages qu'un thread peut s'accorder en cours de tick, en plus de sa clôture.
+     *
+     * <p>Vider un tampon plein plutôt que d'en perdre le contenu rend le nombre de
+     * traversées proportionnel au volume, et non plus au nombre de threads. R-700 vise
+     * moins de cinquante traversées par tick : avec la vingtaine de threads sondés
+     * qu'un modpack fait apparaître, la clôture en consomme déjà une vingtaine, et
+     * quatre vidages supplémentaires par thread suffiraient à faire dériver le compte.
+     *
+     * <p>Deux, donc, puis on retombe sur l'écart des enregistrements (R-709). Le cas se
+     * compte — {@link #flushBudgetExceeded()} — plutôt que de rester une hypothèse.
+     */
+    static final int MAX_FLUSHES_PER_EPOCH = 2;
+
+    /**
+     * Propriété qui rétablit le vidage par le seul fil autoritatif, {@code true} par
+     * défaut.
+     *
+     * <p>Elle existe pour une raison : mesurer ce que le vidage multi-thread coûte, en
+     * comparant deux exécutions dont c'est la seule différence. Dix-sept threads qui
+     * traversent la frontière une fois par tick, là où un seul le faisait, ne peuvent
+     * pas être déclarés gratuits par raisonnement — le natif est protégé par un verrou
+     * global, et c'est le fil autoritatif qui attendrait.
+     *
+     * <p>Éteinte, la collecte redevient celle d'avant ADR-029 : correcte pour le fil
+     * autoritatif, muette pour tous les autres.
+     */
+    public static final String PROPERTY_FLUSH_ALL = "rustforgex.instrumentation.flush_all_threads";
+
+    /** Lu une fois : le chemin sondé ne doit pas interroger les propriétés. */
+    private final boolean flushAllThreads = readFlushAllThreads();
+
+    private static boolean readFlushAllThreads() {
+        try {
+            return !"false".equalsIgnoreCase(System.getProperty(PROPERTY_FLUSH_ALL));
+        } catch (SecurityException e) {
+            return true;
+        }
+    }
 
     /**
      * Tous les états de thread créés, dans l'ordre d'attachement.
@@ -164,6 +227,36 @@ public final class ProbeSink {
      * par certains mods.
      */
     private final java.util.List<ThreadState> attached = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * Époque de tick, publiée par le fil autoritatif à chaque clôture.
+     *
+     * <p>C'est le seul signal qui traverse d'un thread à l'autre, et il est fait pour
+     * être lu, pas écrit : un {@code long} volatile que le fil autoritatif incrémente
+     * vingt fois par seconde et que tous les autres lisent. La ligne de cache reste
+     * partagée en lecture dans chaque cœur et n'est invalidée qu'à la clôture du tick.
+     *
+     * <h2>Pourquoi ce mécanisme plutôt qu'un vidage centralisé</h2>
+     *
+     * <p>La solution évidente — le fil autoritatif vide les tampons de tous les threads
+     * à la clôture du tick — demande de lire un tampon pendant qu'un autre thread y
+     * écrit. Il faudrait un tampon double ou un anneau à indices publiés, donc de la
+     * synchronisation dans le chemin chaud, pour un gain nul : chaque thread est déjà
+     * le mieux placé pour vider le sien.
+     *
+     * <p>Ici, <strong>aucun état n'est partagé entre threads</strong> hormis cette
+     * époque. Un thread sondé la compare à la sienne au début de chaque appel et, si
+     * elle a changé, reverse ses compteurs et vide son tampon — sur son propre thread,
+     * sans verrou, sans course.
+     *
+     * <h2>Ce que ce mécanisme ne rattrape pas</h2>
+     *
+     * <p>Un thread qui cesse définitivement d'exécuter du code sondé garde ses derniers
+     * compteurs : rien ne viendra plus les reverser. La perte vaut au plus un tick de
+     * travail d'un thread qui s'est tu, et la rattraper demanderait exactement la
+     * synchronisation qu'on vient d'éviter.
+     */
+    private volatile long tickEpoch;
 
     /**
      * @param bridge pont vers le runtime natif
@@ -211,6 +304,10 @@ public final class ProbeSink {
                 return false;
             }
         }
+        if (flushAllThreads && current.epoch != tickEpoch) {
+            closeEpoch(current);
+        }
+        // Après la clôture, qui a pu réallouer les tableaux.
         int[] counts = current.counts;
         if (probeId < 0 || probeId >= counts.length) {
             // Sonde enregistrée après l'attachement de ce thread : agrandir le tableau
@@ -255,14 +352,34 @@ public final class ProbeSink {
                 return false;
             }
         }
+        if (flushAllThreads && current.epoch != tickEpoch) {
+            closeEpoch(current);
+        }
 
         ByteBuffer buffer = current.buffer;
         int at = current.position;
         if (at + RECORD_SIZE > buffer.capacity()) {
-            // Tampon plein : on compte et on laisse tomber, jusqu'au prochain vidage.
-            current.dropped++;
-            recordsDropped.incrementAndGet();
-            return false;
+            // Tampon plein avant la fin du tick. Le vider maintenant coûte une
+            // traversée de plus ; le laisser plein coûte tous les enregistrements
+            // jusqu'à la clôture, et c'est ainsi que quarante millions se sont perdus.
+            if (current.flushesThisEpoch >= MAX_FLUSHES_PER_EPOCH) {
+                // Budget de traversées épuisé pour ce tick (R-700). Au-delà, écarter
+                // vaut mieux que faire déborder le budget de frontière : la mesure est
+                // statistique, la contrainte de frontière ne l'est pas.
+                flushBudgetExceeded.incrementAndGet();
+                current.dropped++;
+                recordsDropped.incrementAndGet();
+                return false;
+            }
+            current.flushesThisEpoch++;
+            flushBuffer(current);
+            at = current.position;
+            if (at + RECORD_SIZE > buffer.capacity()) {
+                // Tampon plus petit qu'un enregistrement : rien à tenter de plus.
+                current.dropped++;
+                recordsDropped.incrementAndGet();
+                return false;
+            }
         }
 
         buffer.putInt(at + OFFSET_PROBE_ID, probeId);
@@ -286,23 +403,86 @@ public final class ProbeSink {
      * @return le nombre d'octets remis au natif
      */
     public int flush() {
+        long epoch = tickEpoch + 1L;
         ThreadState current = state.get();
-        if (current == null) {
-            return 0;
+        int used = 0;
+        if (current != null) {
+            // L'epoque courante, pas la suivante : le reversement ecrit des
+            // enregistrements, qui repassent par la comparaison. Lui donner une epoque
+            // que le puits n'a pas encore publiee la rendrait fausse, et le thread se
+            // viderait au milieu de son propre reversement.
+            current.epoch = tickEpoch;
+            drainCounts(current);
+            used = flushBuffer(current);
+            current.flushesThisEpoch = 0;
         }
-        // Les compteurs d'abord : ils deviennent des enregistrements du tampon, qui est
-        // vidé juste après. Les laisser pour le tick suivant retarderait la mesure d'un
-        // tick entier sans rien économiser.
+        // Publiee apres avoir vide le sien : les autres threads observeront la nouvelle
+        // epoque a leur prochain appel sonde et videront le leur, chacun sur son propre
+        // thread. Publier avant les ferait tous converger vers le verrou du natif au
+        // moment precis ou le fil autoritatif en a besoin.
+        tickEpoch = epoch;
+        if (current != null) {
+            // Il vient de vider : lui faire refaire une cloture au prochain appel ne
+            // reverserait rien et compterait un vidage qui n'a pas eu lieu.
+            current.epoch = epoch;
+        }
+        return used;
+    }
+
+    /**
+     * Reverse les compteurs et vide le tampon du thread courant, sur ce thread.
+     *
+     * <p>Appelee depuis le chemin sonde, une fois par tick et par thread : c'est ce qui
+     * remplace le vidage unique du fil autoritatif. L'epoque est inscrite
+     * <strong>avant</strong> le reversement, parce que celui-ci ecrit des
+     * enregistrements et repasserait donc par la comparaison qui nous amene ici.
+     */
+    private void closeEpoch(ThreadState current) {
+        current.epoch = tickEpoch;
+        current.flushesThisEpoch = 0;
         drainCounts(current);
+        flushBuffer(current);
+        growCounts(current);
+    }
+
+    /**
+     * Agrandit les tableaux de comptage si des sondes sont apparues depuis
+     * l'attachement.
+     *
+     * <p>Un thread attache tot gardait ses tableaux a vie, et tout identifiant au-dela
+     * retombait sur l'ecriture directe — un enregistrement de trente-deux octets par
+     * appel, qui saturait le tampon. C'est de la que venaient onze millions
+     * d'enregistrements perdus par thread de dimension.
+     *
+     * <p>L'allocation a lieu ici et nulle part ailleurs : une fois par tick au plus,
+     * juste apres un reversement qui a remis les compteurs a zero, et jamais dans le
+     * chemin d'appel (R-320).
+     */
+    private void growCounts(ThreadState current) {
+        int wanted = probeCapacity;
+        if (wanted <= current.counts.length) {
+            return;
+        }
+        current.counts = new int[wanted];
+        current.touched = new int[wanted];
+        current.touchedLen = 0;
+    }
+
+    /**
+     * Remet au natif ce que le tampon du thread courant contient.
+     *
+     * @return le nombre d'octets remis
+     */
+    private int flushBuffer(ThreadState current) {
         if (current.position == 0) {
-            // Ce thread a bien vidé, même s'il n'avait rien à remettre : ne pas le
+            // Ce thread a bien vide, meme s'il n'avait rien a remettre : ne pas le
             // compter ferait passer un thread inactif pour un thread orphelin.
             current.flushCount++;
             return 0;
         }
         int used = current.position;
-        // Les enregistrements écartés faute de place sont signalés au natif en
-        // gonflant la longueur annoncée : c'est ainsi qu'il les compte perdus (R-709).
+        // Les enregistrements ecartes faute de place sont signales au natif en
+        // gonflant la longueur annoncee : c'est ainsi qu'il les compte perdus (R-709).
         int announced = used + (int) Math.min(current.dropped * RECORD_SIZE, Integer.MAX_VALUE - used);
 
         bridge.probeBufferFlush(handle, current.threadId, announced);
@@ -407,6 +587,13 @@ public final class ProbeSink {
     /** @return le nombre de vidages effectués */
     public long flushes() {
         return flushes.get();
+    }
+
+    /**
+     * @return le nombre d'enregistrements écartés faute de budget de traversée (R-700)
+     */
+    public long flushBudgetExceeded() {
+        return flushBudgetExceeded.get();
     }
 
     /** @return le nombre de threads que le natif a refusé de doter d'un tampon */
