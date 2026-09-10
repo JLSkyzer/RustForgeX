@@ -100,6 +100,33 @@ public final class StackSampler {
     private final UnknownFrameIndex discovery = new UnknownFrameIndex();
 
     /**
+     * Propriété qui éteint le recensement, {@code true} par défaut.
+     *
+     * <p>Elle n'existe que pour <strong>mesurer le coût du recensement lui-même</strong>,
+     * en comparant deux exécutions dont c'est la seule différence. Ce n'est pas un
+     * réglage d'exploitation, et c'est pourquoi elle ne figure pas dans
+     * {@code rustforgex.toml} : une option de configuration invite à être réglée, et
+     * personne n'a de raison de régler celle-ci.
+     *
+     * <p>Sans elle, affirmer que consigner les trames ne coûte rien resterait un
+     * raisonnement — le fil d'échantillonnage est distinct du fil autoritatif, donc
+     * <em>a priori</em> gratuit pour le tick. Un raisonnement de cette forme s'est déjà
+     * révélé faux dans ce projet.
+     */
+    public static final String PROPERTY_DISCOVER = "rustforgex.instrumentation.discover_frames";
+
+    /** Lu une fois : le fil de prélèvement ne doit pas interroger les propriétés. */
+    private final boolean discovering = readDiscovering();
+
+    private static boolean readDiscovering() {
+        try {
+            return !"false".equalsIgnoreCase(System.getProperty(PROPERTY_DISCOVER));
+        } catch (SecurityException e) {
+            return true;
+        }
+    }
+
+    /**
      * File à producteur unique et consommateur unique.
      *
      * <p>Le fil d'échantillonnage écrit la case puis publie {@code writeIndex}, qui est
@@ -222,7 +249,7 @@ public final class StackSampler {
         StackTraceElement[] stack = target.getStackTrace();
         samplesTaken++;
 
-        int probeId = topmostKnownProbe(stack, index, discovery);
+        int probeId = topmostKnownProbe(stack, index, discovering ? discovery : null);
         if (probeId < 0) {
             samplesUnattributed++;
             return;

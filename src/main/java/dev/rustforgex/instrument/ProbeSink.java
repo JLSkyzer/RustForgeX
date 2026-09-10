@@ -64,6 +64,18 @@ public final class ProbeSink {
         long dropped;
 
         /**
+         * Nom du thread à son attachement.
+         *
+         * <p>Retenu pour une seule raison : quand des enregistrements ne partent
+         * jamais, il faut pouvoir dire <strong>de quel thread</strong>. Un identifiant
+         * numérique ne le dit pas, et c'est le nom qui désigne le mod fautif.
+         */
+        final String threadName;
+
+        /** Vidages effectués par ce thread. Zéro signale un tampon qui ne part jamais. */
+        long flushCount;
+
+        /**
          * Passages comptés par sonde, indexés par identifiant.
          *
          * <p>Alloué une fois, à l'attachement du thread : R-320 interdit toute
@@ -83,11 +95,29 @@ public final class ProbeSink {
 
         int touchedLen;
 
-        ThreadState(int threadId, ByteBuffer buffer, int probeCapacity) {
+        ThreadState(int threadId, String threadName, ByteBuffer buffer, int probeCapacity) {
             this.threadId = threadId;
+            this.threadName = threadName;
             this.buffer = buffer;
             this.counts = new int[probeCapacity];
             this.touched = new int[probeCapacity];
+        }
+
+        /**
+         * Passages comptés et non encore reversés.
+         *
+         * <p>Lu depuis un autre thread que celui qui écrit : les valeurs peuvent être
+         * légèrement en retard. C'est un diagnostic d'ordre de grandeur, pas une
+         * mesure — et verrouiller le chemin chaud pour le rendre exact serait payer
+         * beaucoup pour ne rien apprendre de plus.
+         */
+        long pendingPasses() {
+            long total = 0;
+            int len = Math.min(touchedLen, touched.length);
+            for (int i = 0; i < len; i++) {
+                total += counts[touched[i]];
+            }
+            return total;
         }
     }
 
@@ -124,6 +154,16 @@ public final class ProbeSink {
     private final AtomicLong recordsDropped = new AtomicLong();
     private final AtomicLong flushes = new AtomicLong();
     private final AtomicLong refusedThreads = new AtomicLong();
+
+    /**
+     * Tous les états de thread créés, dans l'ordre d'attachement.
+     *
+     * <p>Une variable de thread ne s'énumère pas. Sans cette liste, il est impossible
+     * de répondre à la question « quels threads produisent des enregistrements que
+     * personne ne vide », qui est exactement celle que pose la parallélisation du tick
+     * par certains mods.
+     */
+    private final java.util.List<ThreadState> attached = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /**
      * @param bridge pont vers le runtime natif
@@ -255,6 +295,9 @@ public final class ProbeSink {
         // tick entier sans rien économiser.
         drainCounts(current);
         if (current.position == 0) {
+            // Ce thread a bien vidé, même s'il n'avait rien à remettre : ne pas le
+            // compter ferait passer un thread inactif pour un thread orphelin.
+            current.flushCount++;
             return 0;
         }
         int used = current.position;
@@ -263,11 +306,50 @@ public final class ProbeSink {
         int announced = used + (int) Math.min(current.dropped * RECORD_SIZE, Integer.MAX_VALUE - used);
 
         bridge.probeBufferFlush(handle, current.threadId, announced);
+        current.flushCount++;
         flushes.incrementAndGet();
 
         current.position = 0;
         current.dropped = 0;
         return used;
+    }
+
+    /**
+     * Ce qu'un thread sondé a produit, et ce qui en est parti.
+     *
+     * @param name nom du thread à son attachement
+     * @param flushes vidages effectués ; zéro signale un tampon que personne ne vide
+     * @param pendingPasses passages comptés et jamais reversés
+     * @param dropped enregistrements perdus, tampon plein faute de vidage
+     */
+    public record ThreadUsage(String name, long flushes, long pendingPasses, long dropped) {
+    }
+
+    /**
+     * Recense les threads qui ont écrit des enregistrements de sonde.
+     *
+     * <p>{@link #flush()} n'est appelée qu'à la clôture du tick, donc <strong>par le
+     * seul thread autoritatif</strong>, et ne vide que le tampon de ce thread : c'est
+     * la conception, et elle est correcte tant que le travail sondé s'exécute là.
+     * Plusieurs mods parallélisent le tick — et ce qu'ils exécutent ailleurs est alors
+     * compté dans un tampon que personne ne vient chercher.
+     *
+     * <p>Ce recensement rend ce cas visible au lieu de le laisser deviner : un thread à
+     * zéro vidage et à passages en attente est du travail sondé qui n'arrive jamais au
+     * profileur. Aucune sonde n'y aurait suffi — c'est un défaut de collecte, pas de
+     * couverture.
+     *
+     * <p>Alloue et parcourt : à n'appeler que depuis une commande ou un rapport.
+     *
+     * @return un état par thread attaché, dans l'ordre d'attachement
+     */
+    public java.util.List<ThreadUsage> threads() {
+        java.util.List<ThreadUsage> usage = new java.util.ArrayList<>(attached.size());
+        for (ThreadState current : attached) {
+            usage.add(new ThreadUsage(current.threadName, current.flushCount,
+                    current.pendingPasses(), current.dropped));
+        }
+        return java.util.List.copyOf(usage);
     }
 
     /**
@@ -288,8 +370,12 @@ public final class ProbeSink {
         // pas nécessairement, il faut donc l'imposer.
         buffer.order(ByteOrder.LITTLE_ENDIAN);
 
-        ThreadState created = new ThreadState(threadId, buffer, probeCapacity);
+        ThreadState created = new ThreadState(
+                threadId, Thread.currentThread().getName(), buffer, probeCapacity);
         state.set(created);
+        // Liste à copie sur écriture : un ajout par thread sondé, et des lectures qui
+        // n'ont lieu que dans un diagnostic. Le chemin chaud n'y touche jamais.
+        attached.add(created);
         return created;
     }
 

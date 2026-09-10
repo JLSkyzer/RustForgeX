@@ -276,4 +276,52 @@ class ProbeSinkTest {
                 .toList();
         assertEquals(List.of(100, 200), firstIds);
     }
+
+    /**
+     * {@code flush()} vide le tampon <strong>du thread qui l'appelle</strong>, et elle
+     * n'est appelée qu'à la clôture du tick, donc par le seul thread autoritatif. Tout
+     * ce qui est sondé ailleurs s'accumule dans un tampon que personne ne vient
+     * chercher : les passages restent comptés et n'arrivent jamais au profileur.
+     *
+     * <p>Ce n'est pas hypothétique — plusieurs mods parallélisent le tick. Ce test fixe
+     * le fait que le recensement le rend visible, au lieu de le laisser deviner.
+     */
+    @Test
+    @DisplayName("Un thread qui ne vide jamais est recensé, avec ce qu'il retient")
+    void athreadThatNeverFlushesIsCensusedWithWhatItHolds() throws InterruptedException {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(16);
+
+        // Le thread autoritatif : il compte, puis vide.
+        sink.count(3);
+        sink.flush();
+
+        // Un thread de travail : il compte, et ne vide pas — personne ne l'appelle.
+        Thread worker = new Thread(() -> {
+            sink.count(4);
+            sink.count(4);
+            sink.count(5);
+        }, "faux-thread-de-mod");
+        worker.start();
+        worker.join();
+
+        List<ProbeSink.ThreadUsage> threads = sink.threads();
+        assertEquals(2, threads.size(), "les deux threads ont écrit");
+
+        ProbeSink.ThreadUsage orphan = threads.stream()
+                .filter(usage -> "faux-thread-de-mod".equals(usage.name()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(0L, orphan.flushes(), "aucun vidage : c'est tout le problème");
+        assertEquals(3L, orphan.pendingPasses(),
+                "trois passages comptés que le profileur ne verra jamais");
+
+        ProbeSink.ThreadUsage authoritative = threads.stream()
+                .filter(usage -> !"faux-thread-de-mod".equals(usage.name()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(authoritative.flushes() > 0, "celui-là vide bien");
+        assertEquals(0L, authoritative.pendingPasses());
+    }
 }

@@ -2,6 +2,7 @@ package dev.rustforgex.bench;
 
 import dev.rustforgex.RfxRuntime;
 import dev.rustforgex.command.DiscoveryReport;
+import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
@@ -345,6 +346,7 @@ public final class MacroRecorder {
         appendThreshold(state, runtime);
         appendProfilerLevel(state, runtime);
         appendDiscovery(state, runtime);
+        appendProbeThreads(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
         state.append("\n");
@@ -482,6 +484,36 @@ public final class MacroRecorder {
         }
         state.append(first ? "]\n" : "\n      ]\n");
         state.append("    }");
+    }
+
+    /**
+     * Consigne quels threads ont produit des enregistrements de sonde, et lesquels
+     * partent réellement au profileur.
+     *
+     * <p>Le vidage a lieu à la clôture du tick, donc sur le seul thread autoritatif, et
+     * ne concerne que son propre tampon. Un thread à zéro vidage est du travail sondé
+     * qui n'arrive nulle part — et aucune campagne ne pouvait le voir jusqu'ici.
+     */
+    private static void appendProbeThreads(StringBuilder state, RfxRuntime runtime) {
+        ProbeSink sink = runtime.probeSink();
+        if (sink == null) {
+            return;
+        }
+        List<ProbeSink.ThreadUsage> threads = sink.threads();
+        if (threads.isEmpty()) {
+            return;
+        }
+        state.append(",\n    \"probe_threads\": [");
+        boolean first = true;
+        for (ProbeSink.ThreadUsage thread : threads) {
+            state.append(first ? "\n" : ",\n");
+            first = false;
+            state.append("      {\"name\": \"").append(escape(thread.name()))
+                    .append("\", \"flushes\": ").append(thread.flushes())
+                    .append(", \"pending_passes\": ").append(thread.pendingPasses())
+                    .append(", \"dropped\": ").append(thread.dropped()).append('}');
+        }
+        state.append("\n    ]");
     }
 
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {
