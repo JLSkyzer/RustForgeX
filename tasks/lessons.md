@@ -670,3 +670,31 @@ heures du matin ne mesure donc rien.
   configurations, et sa présence se lit dans l'écart entre les deux paires ;
 - quand un résultat va dans le sens qu'on espérait, chercher le biais **avant** de le
   publier. C'est là qu'on regarde le moins.
+
+### 2026-09-11 | Trois ADR ont cherché de la couverture là où elle ne pouvait pas être | Quand trois tentatives échouent de la même façon, le défaut est ailleurs que là où on cherche
+
+ADR-021 (le seuil), ADR-026 (l'armement anticipé) et ADR-027 (le balayage du seuil) ont
+tous trois essayé d'élargir la couverture en changeant **le nombre de sondes**. Tous
+trois ont conclu que ça ne marchait pas. Chacun a produit une mesure correcte et une
+conclusion juste — et aucun n'a demandé pourquoi le levier ne répondait pas.
+
+Le défaut était en aval : `flush()` ne vidait que le tampon du thread qui l'appelait, et
+seul le fil autoritatif l'appelait. Les sondes étaient posées, elles comptaient, et leur
+comptage était jeté — 152 millions de passages, dix-sept threads.
+
+Ce qui l'a révélé n'est pas une quatrième tentative du même genre, mais un instrument
+qui regardait **ce qu'on ne mesurait pas** : le classement des trames inconnues a mis en
+tête une attente sur un pool de threads, ce qui posait la question du sort des
+enregistrements produits sur ces threads-là.
+
+**Règles** :
+- trois échecs du même levier ne se traitent pas par un quatrième essai : c'est le
+  moment de mesurer **le chemin complet** entre la mesure et le résultat, maillon par
+  maillon ;
+- un compteur qui n'est jamais lu ne prouve rien. `dropped` existait, s'incrémentait, et
+  n'était annoncé au natif **qu'au vidage** — donc jamais, pour les threads qui ne
+  vidaient pas. Un compteur de pertes doit être publiable sans dépendre du chemin qu'il
+  surveille ;
+- une variable de thread ne s'énumère pas, donc rien ne peut interroger l'ensemble des
+  threads. Quand un état est par thread, prévoir dès le départ le moyen de le recenser,
+  sinon le défaut qui le concerne sera invisible par construction.

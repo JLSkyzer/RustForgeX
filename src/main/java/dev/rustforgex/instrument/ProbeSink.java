@@ -202,8 +202,10 @@ public final class ProbeSink {
      * pas être déclarés gratuits par raisonnement — le natif est protégé par un verrou
      * global, et c'est le fil autoritatif qui attendrait.
      *
-     * <p>Éteinte, la collecte redevient celle d'avant ADR-029 : correcte pour le fil
-     * autoritatif, muette pour tous les autres.
+     * <p>Éteinte, la collecte redevient exactement celle d'avant ADR-029 : correcte pour
+     * le fil autoritatif, muette pour tous les autres — le vidage d'un tampon plein est
+     * éteint avec le reste, sans quoi la propriété ne rétablirait pas ce qu'elle
+     * annonce, et la mesure comparerait deux choses dont aucune n'est l'ancienne.
      */
     public static final String PROPERTY_FLUSH_ALL = "rustforgex.instrumentation.flush_all_threads";
 
@@ -362,7 +364,7 @@ public final class ProbeSink {
             // Tampon plein avant la fin du tick. Le vider maintenant coûte une
             // traversée de plus ; le laisser plein coûte tous les enregistrements
             // jusqu'à la clôture, et c'est ainsi que quarante millions se sont perdus.
-            if (current.flushesThisEpoch >= MAX_FLUSHES_PER_EPOCH) {
+            if (!flushAllThreads || current.flushesThisEpoch >= MAX_FLUSHES_PER_EPOCH) {
                 // Budget de traversées épuisé pour ce tick (R-700). Au-delà, écarter
                 // vaut mieux que faire déborder le budget de frontière : la mesure est
                 // statistique, la contrainte de frontière ne l'est pas.

@@ -304,24 +304,36 @@ condition posée pour brancher le transformateur est levée.
       Valkyrien Skies. Silencieusement, dans les deux cas
 ### Vidage multi-thread — plan (ADR-029)
 
-- [ ] **Le fil autoritatif ne videra PAS les tampons des autres.** Lire le tampon d'un
+- [x] **Le fil autoritatif ne videra PAS les tampons des autres.** Lire le tampon d'un
       thread qui écrit dedans demanderait un tampon double ou un anneau, donc de la
       synchronisation dans le chemin chaud. Chaque thread videra **le sien**
-- [ ] **Déclencheur : une époque de tick.** `ProbeSink` publie un `long volatile`
+- [x] **Déclencheur : une époque de tick.** `ProbeSink` publie un `long volatile`
       incrémenté à la clôture de chaque tick. Un thread sondé compare son époque à
       celle-là au début de chaque appel — une lecture, une comparaison — et se vide
       lui-même quand elle a changé. Aucune course : chaque thread ne touche que son
       propre état
-- [ ] **Corriger la cause des 40 M d'enregistrements perdus** : `probeCapacity` grandit,
+- [x] **Corriger la cause des 40 M d'enregistrements perdus** : `probeCapacity` grandit,
       mais un thread attaché tôt garde ses petits tableaux à vie, et tout identifiant
       au-delà retombe sur l'écriture directe qui sature le tampon. Les réallouer à la
       clôture d'époque — une allocation par tick au plus, à un point contrôlé, jamais
       dans le chemin d'appel (R-320)
-- [ ] **Tampon plein : vider au lieu de perdre.** Le nombre de traversées devient
+- [x] **Tampon plein : vider au lieu de perdre.** Le nombre de traversées devient
       proportionnel au volume, non au nombre de threads. Le comptage étant groupé, un
       tampon de 2 048 enregistrements couvre largement un tick (R-700)
-- [ ] Vérifier ensuite que `probe_threads` montre des vidages **partout**, et remesurer
-      la part du tick expliquée par `/rfx top`
+- [x] **Vérifié en jeu** (ADR-029), plan équilibré, 4 exécutions de 8 000 ticks :
+
+      | | sans | avec |
+      |---|---|---|
+      | threads qui vident | 5 / 19 | **19 / 19** |
+      | passages en attente | 193 092 269 | **21 989** |
+      | enregistrements perdus | 47 820 126 | **0** |
+
+      Coût apparié par position : **−2,25 ms** et **−9,00 ms** — aucun surcoût mesurable.
+      Les 21 989 restants sont la valeur d'un tick en cours : on ne descend pas plus bas
+- [ ] **Reste à mesurer : la part du tick que `/rfx top` explique désormais.** Elle
+      demande une fenêtre de chronométrage (`/rfx profile`) — les niveaux `COUNTER` ne
+      produisent que des décomptes. Première campagne qui portera sur autre chose qu'un
+      thread sur dix-huit
 - [ ] ~~PROCHAIN TRAVAIL — vidage multi-thread~~ (PARTIE 5.39 étape 5, RISK-05).
       `probeBufferFlush` doit accepter un appel hors fil autoritatif, sans verrou dans
       le chemin chaud (R-320), sans multiplier les traversées (R-700 : dix-huit threads
