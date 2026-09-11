@@ -581,15 +581,33 @@ public final class MacroRecorder {
         List<?> entries = rawEntries instanceof List<?> list ? list : List.of();
 
         long explained = 0L;
+        long observed = 0L;
+        long callsX100 = 0L;
         for (Object element : entries) {
-            if (element instanceof Map<?, ?> entry) {
-                explained += longValue(castEntry(entry), "cost_ns_per_tick");
+            if (!(element instanceof Map<?, ?> raw)) {
+                continue;
+            }
+            Map<String, Object> entry = castEntry(raw);
+            explained += longValue(entry, "cost_ns_per_tick");
+            long calls = longValue(entry, "calls_per_tick_x100");
+            callsX100 += calls;
+            if (calls > 0L) {
+                observed++;
             }
         }
 
         state.append(",\n    \"top\": {\n");
         state.append("      \"tracked\": ").append(longValue(top, "tracked")).append(",\n");
         state.append("      \"measured\": ").append(longValue(top, "measured")).append(",\n");
+        // `observed` est la mesure de ce que la collecte ramasse, et elle ne depend pas
+        // du chronometrage : une unite est observee des qu'un appel lui est attribue,
+        // ce que le niveau COUNTER suffit a produire. `measured`, lui, exige des durees,
+        // donc une fenetre de chronometrage — que le gouverneur annule des que le budget
+        // est depasse (ADR-020). Les deux ne disent pas la meme chose, et confondre l'un
+        // avec l'autre ferait passer un garde-fou qui s'est declenche pour une absence
+        // de couverture.
+        state.append("      \"observed\": ").append(observed).append(",\n");
+        state.append("      \"calls_per_tick_x100\": ").append(callsX100).append(",\n");
         state.append("      \"tick_ns\": ").append(tickNs).append(",\n");
         state.append("      \"explained_ns\": ").append(explained).append(",\n");
         // Sans tick connu, la part n'est pas calculable : -1 le dit, la 0 le tairait
