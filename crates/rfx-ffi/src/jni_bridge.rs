@@ -232,7 +232,11 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_profilerRequestDepth
 ) -> jint {
     let level = u8::try_from(level_code).unwrap_or(u8::MAX);
     let ticks = u64::try_from(ticks).unwrap_or(0);
-    to_jint(crate::rfx_profiler_request_depth(handle as u64, level, ticks))
+    to_jint(crate::rfx_profiler_request_depth(
+        handle as u64,
+        level,
+        ticks,
+    ))
 }
 
 /// `RfxNative.profilerTop(long, int)` : classement CBOR, ou `null` en cas d'erreur.

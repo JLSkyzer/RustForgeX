@@ -126,6 +126,22 @@ pub struct ProfilerStatus {
     pub baseline_ticks_until_pause: u64,
     /// Enregistrements ecartes parce qu'arrives pendant une pause de mesure.
     pub records_dropped_paused: u64,
+    /// Duree demandee par la derniere session de diagnostic achevee, en ticks.
+    ///
+    /// Zero signifie qu'aucune session n'a encore eu lieu. Les deux champs qui suivent
+    /// sont alors sans signification (R-660).
+    pub profile_requested_ticks: u64,
+    /// Duree REELLEMENT obtenue par cette session, en ticks.
+    ///
+    /// Le gouverneur coupe une session des que le budget est depasse (ADR-020). Sans ce
+    /// champ, un operateur a qui l'on a promis soixante secondes de chronometrage lit
+    /// ensuite un classement vide, et rien ne lui dit que la fenetre a ete fermee au
+    /// bout de trois ticks (ADR-030).
+    pub profile_granted_ticks: u64,
+    /// `true` si cette session a ete coupee par le gouverneur, `false` si elle a expire.
+    pub profile_cancelled: bool,
+    /// Sessions de diagnostic coupees par le gouverneur depuis le demarrage.
+    pub profile_sessions_cancelled: u64,
 }
 
 /// Etat d'un composant, tel qu'affiche par `/rfx status`.

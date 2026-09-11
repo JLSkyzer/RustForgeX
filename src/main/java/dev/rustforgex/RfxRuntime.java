@@ -316,6 +316,31 @@ public final class RfxRuntime {
     }
 
     /**
+     * Ce que la dernière session de chronométrage a réellement duré (C-35).
+     *
+     * <p>Un appel natif, puis un décodage : à n'appeler ni dans un tick ni dans une
+     * boucle (INV-14).
+     *
+     * @return la dernière session, ou {@code null} si le statut est indisponible
+     */
+    public dev.rustforgex.command.TopReport.Session lastProfilingSession() {
+        Map<String, Object> profiler = profilerCounters();
+        if (profiler == null) {
+            return null;
+        }
+        return new dev.rustforgex.command.TopReport.Session(
+                longOf(profiler, "profile_requested_ticks"),
+                longOf(profiler, "profile_granted_ticks"),
+                Boolean.TRUE.equals(profiler.get("profile_cancelled")));
+    }
+
+    /** Lit un entier des tables décodées, ou zéro s'il est absent ou d'un autre type. */
+    private static long longOf(Map<String, Object> table, String key) {
+        Object value = table == null ? null : table.get(key);
+        return value instanceof Long number ? number : 0L;
+    }
+
+    /**
      * Recensement des méthodes chaudes qu'aucune sonde ne couvre (C-05,
      * {@code /rfx discover}).
      *

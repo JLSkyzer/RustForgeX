@@ -135,6 +135,51 @@ class TopReportTest {
     }
 
     /**
+     * ADR-030 : le gouverneur coupe une session de chronométrage dès que le budget est
+     * dépassé. Sans ce report, l'opérateur à qui {@code /rfx profile 60} a promis
+     * soixante secondes lit un classement vide et conclut à une absence de couverture.
+     * Une campagne entière l'a conclu à tort.
+     */
+    @Test
+    @DisplayName("ADR-030 : un chronométrage écourté est dit, avec ce qu'il a duré")
+    void acutShortProfilingSessionIsReportedWithWhatItLasted() {
+        List<Component> lines = TopReport.lines(
+                top(10, 1, entry(0, 2_000_000, "Probe")), null,
+                new TopReport.Session(1_200, 7, true));
+
+        String text = flatten(lines);
+        assertTrue(text.contains(TopReport.KEY_PREFIX + "profile_cancelled"), text);
+    }
+
+    /**
+     * R-660 à l'envers : quand rien n'a été mesuré, savoir que la fenêtre a été coupée
+     * est justement l'information la plus utile. C'est là qu'elle doit apparaître.
+     */
+    @Test
+    @DisplayName("Sans aucune mesure, la coupure est dite quand même")
+    void thecutIsReportedEvenWhenNothingWasMeasured() {
+        List<Component> lines = TopReport.lines(
+                top(2_600, 0, entry(0, 0, "None")), null,
+                new TopReport.Session(1_200, 7, true));
+
+        assertTrue(flatten(lines).contains(TopReport.KEY_PREFIX + "profile_cancelled"));
+    }
+
+    /**
+     * Une session allée à son terme est le cas normal : l'annoncer à chaque fois
+     * noierait le seul message qui compte.
+     */
+    @Test
+    @DisplayName("Une session arrivée à son terme ne dit rien")
+    void acompletedSessionSaysNothing() {
+        List<Component> lines = TopReport.lines(
+                top(10, 1, entry(0, 2_000_000, "Probe")), null,
+                new TopReport.Session(1_200, 1_200, false));
+
+        assertFalse(flatten(lines).contains(TopReport.KEY_PREFIX + "profile_cancelled"));
+    }
+
+    /**
      * R-660 : sans tick connu, la part n'est pas calculable. Choisir un total plausible
      * reviendrait à publier un chiffre que personne n'a mesuré.
      */

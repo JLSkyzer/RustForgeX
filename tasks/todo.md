@@ -346,9 +346,12 @@ condition posée pour brancher le transformateur est levée.
       gouverneur l'annule aussitôt (ADR-020, `apply_verdict` → `clear_requested_depth`).
       Ce n'est pas un garde-fou à lever : c'est un appel à **chronométrer moins de sondes
       à la fois**, donc à les choisir — ce que `/rfx discover` permet désormais
-- [ ] **`/rfx profile N` ment par omission** : il annonce un chronométrage de N secondes
-      que le gouverneur peut annuler après quelques ticks sans rien dire à l'opérateur.
-      Il faut soit prévenir à l'annulation, soit rapporter la durée réellement obtenue
+- [x] **`/rfx profile N` ne ment plus.** Le message annonce une *demande* et sa
+      condition — « il s'arrêtera plus tôt si le coût dépasse le budget » — et le natif
+      consigne désormais ce que la session a **réellement** duré
+      (`profile_requested_ticks`, `profile_granted_ticks`, `profile_cancelled`).
+      `/rfx top` affiche « chronométrage écourté : %s ticks obtenus sur %s demandés »
+      quand le gouverneur a coupé, et ne dit rien quand la session est allée à son terme
 - [ ] ~~PROCHAIN TRAVAIL — vidage multi-thread~~ (PARTIE 5.39 étape 5, RISK-05).
       `probeBufferFlush` doit accepter un appel hors fil autoritatif, sans verrou dans
       le chemin chaud (R-320), sans multiplier les traversées (R-700 : dix-huit threads

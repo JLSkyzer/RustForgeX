@@ -135,6 +135,11 @@ public final class RfxCommands {
      *
      * <p>Le message dit ce que ça coûte : demander de la profondeur, c'est accepter que
      * le mod pèse davantage pendant ce temps. Le taire serait le pire des services.
+     *
+     * <p>Il dit aussi ce qu'il ne garantit <strong>pas</strong>. Le gouverneur coupe la
+     * session dès que le budget est dépassé (ADR-020), ce qui arrive vite quand des
+     * milliers de sondes passent en chronométré. Annoncer « chronométrage pendant 60 s »
+     * était une promesse que le runtime ne tient pas, et son non-respect était muet.
      */
     private static void requestProfiling(CommandSourceStack source, int seconds) {
         RfxRuntime runtime = RfxRuntime.instance();
@@ -181,7 +186,8 @@ public final class RfxCommands {
                 ? List.of(Component.translatable(TopReport.KEY_PREFIX + "unavailable"))
                 : TopReport.lines(runtime.topWorkloads(count),
                         runtime.instrumentation() == null
-                                ? null : runtime.instrumentation().registry());
+                                ? null : runtime.instrumentation().registry(),
+                        runtime.lastProfilingSession());
 
         for (Component line : lines) {
             source.sendSuccess(() -> line, false);

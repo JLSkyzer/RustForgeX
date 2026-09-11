@@ -126,6 +126,23 @@ pub struct Profiler {
     requested_cap: ProbeLevel,
     /// Tick auquel la session de diagnostic expire ; `0` s'il n'y en a pas.
     requested_until_tick: u64,
+    /// Duree demandee pour la session en cours, en ticks.
+    requested_ticks: u64,
+    /// Tick auquel la session en cours a commence.
+    requested_start_tick: u64,
+    /// Duree demandee par la derniere session achevee, en ticks.
+    last_session_requested_ticks: u64,
+    /// Duree REELLEMENT obtenue par la derniere session achevee, en ticks.
+    ///
+    /// Sans elle, un operateur a qui l'on promet soixante secondes de chronometrage n'a
+    /// aucun moyen d'apprendre que le gouverneur l'a coupe au bout de trois ticks : le
+    /// classement qu'il lira ensuite sera simplement vide, ce qui ressemble a une
+    /// absence de couverture (ADR-030).
+    last_session_granted_ticks: u64,
+    /// `true` si la derniere session a ete coupee par le gouverneur, non expiree.
+    last_session_cancelled: bool,
+    /// Sessions de diagnostic coupees par le gouverneur depuis le demarrage.
+    sessions_cancelled: u64,
     tick: u64,
     comfortable_streak: u32,
     records_ingested: u64,
@@ -156,6 +173,12 @@ impl Profiler {
             last_tick_ns: 0,
             requested_cap: ProbeLevel::Off,
             requested_until_tick: 0,
+            requested_ticks: 0,
+            requested_start_tick: 0,
+            last_session_requested_ticks: 0,
+            last_session_granted_ticks: 0,
+            last_session_cancelled: false,
+            sessions_cancelled: 0,
             config,
             level: ProfilerLevel::Off,
             tick: 0,
@@ -298,6 +321,10 @@ impl Profiler {
         if !paused {
             self.consolidate(tick);
         }
+
+        // Avant le verdict : une session arrivee a son terme s'est bien deroulee, et la
+        // cloturer ici evite qu'un depassement du meme tick la compte annulee.
+        self.expire_session_if_due();
 
         let event = self.baseline.record_tick(tick, cost);
 
@@ -457,17 +484,67 @@ impl Profiler {
     pub fn request_depth(&mut self, level: ProbeLevel, ticks: u64) {
         self.requested_cap = level;
         self.requested_until_tick = self.tick.saturating_add(ticks);
+        self.requested_ticks = ticks;
+        self.requested_start_tick = self.tick;
         // Les niveaux sont recalcules au prochain `end_tick` ; les marquer sales ici
         // fait partir la table sans attendre qu'une chaleur change.
         self.levels_dirty = true;
     }
 
     /// Annule la session de diagnostic en cours, s'il y en a une.
+    ///
+    /// Consigne ce qu'elle a reellement dure. Une session coupee en silence se lit comme
+    /// un classement vide, donc comme une absence de couverture — c'est exactement ce
+    /// qu'une campagne a conclu a tort (ADR-030).
     pub fn clear_requested_depth(&mut self) {
         if self.requested_until_tick != 0 {
+            self.close_session(true);
             self.requested_until_tick = 0;
             self.levels_dirty = true;
         }
+    }
+
+    /// Consigne la fin d'une session de diagnostic.
+    fn close_session(&mut self, cancelled: bool) {
+        self.last_session_requested_ticks = self.requested_ticks;
+        self.last_session_granted_ticks = self.tick.saturating_sub(self.requested_start_tick);
+        self.last_session_cancelled = cancelled;
+        if cancelled {
+            self.sessions_cancelled = self.sessions_cancelled.saturating_add(1);
+        }
+    }
+
+    /// Cloture une session arrivee a son terme, pour qu'elle se rapporte comme les autres.
+    fn expire_session_if_due(&mut self) {
+        if self.requested_until_tick != 0 && self.tick >= self.requested_until_tick {
+            self.close_session(false);
+            self.requested_until_tick = 0;
+            self.levels_dirty = true;
+        }
+    }
+
+    /// Duree demandee par la derniere session de diagnostic achevee, en ticks.
+    #[must_use]
+    pub fn last_session_requested_ticks(&self) -> u64 {
+        self.last_session_requested_ticks
+    }
+
+    /// Duree reellement obtenue par la derniere session achevee, en ticks.
+    #[must_use]
+    pub fn last_session_granted_ticks(&self) -> u64 {
+        self.last_session_granted_ticks
+    }
+
+    /// `true` si la derniere session achevee a ete coupee par le gouverneur.
+    #[must_use]
+    pub fn last_session_cancelled(&self) -> bool {
+        self.last_session_cancelled
+    }
+
+    /// Sessions de diagnostic coupees par le gouverneur depuis le demarrage.
+    #[must_use]
+    pub fn sessions_cancelled(&self) -> u64 {
+        self.sessions_cancelled
     }
 
     /// Ticks restants a la session de diagnostic, ou `0` s'il n'y en a pas.
@@ -605,6 +682,10 @@ impl Profiler {
             collisions: self.store.collisions(),
             zero_duration_exits: self.zero_duration_exits,
             level_changes: self.level_changes,
+            profile_requested_ticks: self.last_session_requested_ticks,
+            profile_granted_ticks: self.last_session_granted_ticks,
+            profile_cancelled: self.last_session_cancelled,
+            profile_sessions_cancelled: self.sessions_cancelled,
             baseline_measurements: self.baseline.measurements(),
             baseline_overhead_ns: baseline.map_or(0, |m| m.overhead_ns),
             baseline_overhead_pct_x100: baseline.map_or(0, |m| pct_x100(m.overhead_pct())),
@@ -758,7 +839,84 @@ mod tests {
             });
         }
 
-        assert_eq!(profiler.requested_depth_ticks_left(), 0, "la demande doit sauter");
+        assert_eq!(
+            profiler.requested_depth_ticks_left(),
+            0,
+            "la demande doit sauter"
+        );
+    }
+
+    /// Et surtout : l'annulation doit se DIRE.
+    ///
+    /// Une session coupee en silence se lit comme un classement vide, donc comme une
+    /// absence de couverture. Une campagne entiere a conclu a tort sur ce malentendu
+    /// (ADR-030) : la fenetre avait bien ete ouverte, le gouverneur l'avait fermee, et
+    /// rien nulle part ne le disait.
+    #[test]
+    fn a_cancelled_session_reports_what_it_really_lasted() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+        profiler.request_depth(ProbeLevel::Deep, 10_000);
+
+        for _ in 0..200 {
+            profiler.end_tick(TickCost {
+                profiling_ns: 5_000_000,
+                tick_ns: 10_000_000,
+                period_ns: 50_000_000,
+            });
+        }
+
+        assert!(profiler.last_session_cancelled(), "coupee, pas expiree");
+        assert_eq!(profiler.last_session_requested_ticks(), 10_000);
+        let granted = profiler.last_session_granted_ticks();
+        assert!(granted > 0, "elle a bien tourne un peu");
+        assert!(
+            granted < 10_000,
+            "elle n'a pas tenu les 10 000 ticks demandes : {granted}"
+        );
+        assert_eq!(profiler.sessions_cancelled(), 1);
+
+        let status = profiler.status();
+        assert!(status.profile_cancelled);
+        assert_eq!(status.profile_requested_ticks, 10_000);
+        assert_eq!(status.profile_granted_ticks, granted);
+    }
+
+    /// Expiree n'est pas annulee : confondre les deux ferait crier au garde-fou alors
+    /// que la session s'est deroulee entierement.
+    #[test]
+    fn an_expired_session_is_not_reported_as_cancelled() {
+        let mut profiler = started();
+        let probe = profiler.register(WorkId(1)).expect("sonde");
+        make_critical(&mut profiler, probe);
+
+        profiler.request_depth(ProbeLevel::Deep, 3);
+        for _ in 0..10 {
+            profiler.end_tick(cheap_tick());
+        }
+
+        assert!(!profiler.last_session_cancelled());
+        assert_eq!(profiler.last_session_requested_ticks(), 3);
+        assert_eq!(
+            profiler.last_session_granted_ticks(),
+            3,
+            "toute la duree demandee"
+        );
+        assert_eq!(profiler.sessions_cancelled(), 0);
+    }
+
+    /// Tant qu'aucune session n'a eu lieu, les champs valent zero et ne doivent pas se
+    /// lire comme une session de duree nulle (R-660).
+    #[test]
+    fn no_session_yet_reports_zero_rather_than_a_zero_length_session() {
+        let profiler = started();
+        let status = profiler.status();
+
+        assert_eq!(status.profile_requested_ticks, 0);
+        assert_eq!(status.profile_granted_ticks, 0);
+        assert!(!status.profile_cancelled);
+        assert_eq!(status.profile_sessions_cancelled, 0);
     }
 
     #[test]

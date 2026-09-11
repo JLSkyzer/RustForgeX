@@ -725,3 +725,31 @@ n'était pas crédible, et c'est cette invraisemblance qui m'a fait relire le ch
   multi-thread change ce qui est *collecté* (`observed`, les appels), pas ce qui est
   *chronométré* (`measured`). Mesurer la seconde pour juger la première ne pouvait pas
   marcher, fenêtre ou pas.
+
+### 2026-09-11 | CI était rouge depuis huit jours et je ne l'avais pas regardée | La chaîne de vérification du CLAUDE.md se lance en entier, et le résultat du CI se lit après chaque push
+
+`cargo fmt --all --check` échouait sur deux fichiers depuis le commit `0a10bf6`
+(`/rfx profile`), que j'avais écrit. Trois exécutions du CI en échec, et je ne l'ai vu
+qu'en lançant la chaîne complète pour une autre raison.
+
+Deux manquements, pas un :
+
+1. `CLAUDE.md` liste `cargo fmt --check && cargo clippy --all-targets -- -D warnings &&
+   cargo test`. Je lançais `cargo test`, parfois `cargo build`, et je considérais le
+   Rust vérifié. Un test qui passe ne dit rien du formatage, et le CI, lui, refuse les
+   deux.
+2. Je pousse après chaque modification — c'est la règle — mais je ne relisais pas le
+   résultat. Pousser sans regarder revient à ne pas savoir si le dépôt est vert, tout en
+   croyant l'avoir vérifié.
+
+Ce dépôt a déjà eu 40 exécutions de CI en échec sans que personne s'en aperçoive. C'est
+la deuxième fois.
+
+**Règles** :
+- après une modification Rust, lancer **les trois** commandes, dans l'ordre du
+  `CLAUDE.md`, et pas seulement celle qui répond à la question du moment ;
+- après un push qui touche du code, vérifier l'état du CI avant de passer à autre chose
+  (`gh run list --limit 3`) ;
+- quand `cargo fmt --check` signale un fichier que je crois ne pas avoir touché,
+  vérifier **qui l'a écrit** avant de conclure à une divergence de version d'outil :
+  ici c'était bien mon code, et l'excuse de l'outil m'aurait fait laisser le CI rouge.

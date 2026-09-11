@@ -41,6 +41,22 @@ public final class TopReport {
     }
 
     /**
+     * Ce que la dernière session de chronométrage a réellement duré.
+     *
+     * <p>Le gouverneur coupe une session dès que le budget est dépassé (ADR-020). Sans
+     * ce report, un opérateur à qui {@code /rfx profile 60} a promis soixante secondes
+     * lit ensuite un classement vide, et rien ne lui dit que la fenêtre a été fermée au
+     * bout de trois ticks — il conclut à une absence de couverture. Une campagne
+     * entière l'a conclu à tort (ADR-030).
+     *
+     * @param requestedTicks durée demandée ; {@code 0} si aucune session n'a eu lieu
+     * @param grantedTicks durée réellement obtenue
+     * @param cancelled {@code true} si le gouverneur l'a coupée
+     */
+    public record Session(long requestedTicks, long grantedTicks, boolean cancelled) {
+    }
+
+    /**
      * Compose les lignes du rapport.
      *
      * @param top classement décodé, ou {@code null} s'il est indisponible
@@ -48,6 +64,19 @@ public final class TopReport {
      * @return les lignes à afficher, jamais vides
      */
     public static List<Component> lines(Map<String, Object> top, ProbeRegistry registry) {
+        return lines(top, registry, null);
+    }
+
+    /**
+     * Compose les lignes du rapport, en disant ce que le chronométrage a duré.
+     *
+     * @param top classement décodé, ou {@code null} s'il est indisponible
+     * @param registry registre des sondes, pour retrouver les noms, ou {@code null}
+     * @param session dernière session de chronométrage, ou {@code null} si inconnue
+     * @return les lignes à afficher, jamais vides
+     */
+    public static List<Component> lines(Map<String, Object> top, ProbeRegistry registry,
+            Session session) {
         if (top == null) {
             return List.of(Component.translatable(KEY_PREFIX + "unavailable"));
         }
@@ -64,6 +93,7 @@ public final class TopReport {
             // zéro. On n'a rien mesuré : c'est une information différente, et plus
             // utile — elle dit d'aller voir pourquoi.
             lines.add(Component.translatable(KEY_PREFIX + "nothing_measured"));
+            appendSession(lines, session);
             return List.copyOf(lines);
         }
 
@@ -84,7 +114,22 @@ public final class TopReport {
                 lines.add(describe(++rank, entry, registry, tickNs));
             }
         }
+        appendSession(lines, session);
         return List.copyOf(lines);
+    }
+
+    /**
+     * Ajoute, s'il y a lieu, ce que le dernier chronométrage a réellement duré.
+     *
+     * <p>Rien n'est dit quand la session est allée à son terme : c'est le cas normal, et
+     * l'annoncer à chaque fois noierait le seul message qui compte.
+     */
+    private static void appendSession(List<Component> lines, Session session) {
+        if (session == null || !session.cancelled() || session.requestedTicks() == 0) {
+            return;
+        }
+        lines.add(Component.translatable(KEY_PREFIX + "profile_cancelled",
+                session.grantedTicks(), session.requestedTicks()));
     }
 
     /**
