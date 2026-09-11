@@ -330,10 +330,25 @@ condition posée pour brancher le transformateur est levée.
 
       Coût apparié par position : **−2,25 ms** et **−9,00 ms** — aucun surcoût mesurable.
       Les 21 989 restants sont la valeur d'un tick en cours : on ne descend pas plus bas
-- [ ] **Reste à mesurer : la part du tick que `/rfx top` explique désormais.** Elle
-      demande une fenêtre de chronométrage (`/rfx profile`) — les niveaux `COUNTER` ne
-      produisent que des décomptes. Première campagne qui portera sur autre chose qu'un
-      thread sur dix-huit
+- [x] **Couverture mesurée** (ADR-030), deux exécutions de 5 000 ticks sous `medium` :
+
+      | | sans | avec |
+      |---|---|---|
+      | threads qui vident | 1 / 17 | **18 / 18** |
+      | enregistrements perdus | 37 003 714 | **0** |
+      | unités observées | 13 | **60** |
+      | **appels par tick** | **289,1** | **29 578,8** |
+
+      Le profileur voit **cent deux fois plus d'appels**. L'ordre de grandeur recoupe
+      ADR-028 : 152 M de passages perdus sur 8 900 ticks font ~17 000 par tick
+- [ ] **La part du TEMPS de tick expliquée reste non mesurée**, et le dire est
+      obligatoire (R-660). Le chronométrage exige `DEEP` sur les 2 475 sondes, le
+      gouverneur l'annule aussitôt (ADR-020, `apply_verdict` → `clear_requested_depth`).
+      Ce n'est pas un garde-fou à lever : c'est un appel à **chronométrer moins de sondes
+      à la fois**, donc à les choisir — ce que `/rfx discover` permet désormais
+- [ ] **`/rfx profile N` ment par omission** : il annonce un chronométrage de N secondes
+      que le gouverneur peut annuler après quelques ticks sans rien dire à l'opérateur.
+      Il faut soit prévenir à l'annulation, soit rapporter la durée réellement obtenue
 - [ ] ~~PROCHAIN TRAVAIL — vidage multi-thread~~ (PARTIE 5.39 étape 5, RISK-05).
       `probeBufferFlush` doit accepter un appel hors fil autoritatif, sans verrou dans
       le chemin chaud (R-320), sans multiplier les traversées (R-700 : dix-huit threads
@@ -485,7 +500,8 @@ trouver.
 
 - [x] **L'horloge lue pour rien** : `System.nanoTime()` remplissait `timestamp_ns`, que
       le natif ne lit jamais. 249 → ~129 µs
-- [ ] **Le niveau COUNTER viole R-700 — chantier principal.** Pour transporter un
+- [x] ~~Le niveau COUNTER violait R-700~~ — livré, comptage par lot (commit `7923836`).
+- [ ] ~~**Le niveau COUNTER viole R-700 — chantier principal.**~~ Pour transporter un
       simple « +1 », le chemin chaud écrit **32 octets** dans le tampon et lit **trois
       champs `volatile`**. Or R-700 exige « par lot, jamais par élément » : le tampon
       le respecte pour les mesures chronométrées, le comptage franchit la frontière un

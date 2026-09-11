@@ -698,3 +698,30 @@ enregistrements produits sur ces threads-là.
 - une variable de thread ne s'énumère pas, donc rien ne peut interroger l'ensemble des
   threads. Quand un état est par thread, prévoir dès le départ le moyen de le recenser,
   sinon le défaut qui le concerne sera invisible par construction.
+
+### 2026-09-11 | Une campagne a rendu « la couverture ne bouge pas » alors qu'elle mesurait un garde-fou qui s'était déclenché | Vérifier que l'instrument est resté allumé avant de lire ce qu'il rend
+
+La campagne de couverture ouvrait une fenêtre de chronométrage sur toute la fenêtre
+mesurée, puis lisait la part du tick expliquée : **0,12 % sans la correction, 0,09 %
+avec**. Conclusion apparente : le vidage multi-thread n'achète rien.
+
+Le journal disait pourtant « fenêtre ouverte » dans les deux exécutions. Ce qu'il ne
+disait pas, c'est que `apply_verdict` appelle `clear_requested_depth()` dès que le budget
+est dépassé — voulu, correct, et immédiat sous cette charge. La campagne mesurait le
+déclenchement d'ADR-020.
+
+Ce qui m'a sauvé n'est pas de la prudence : c'est que le résultat était *trop* net. Une
+couverture qui ne bouge pas d'un iota quand la collecte passe de 1 à 17 threads
+n'était pas crédible, et c'est cette invraisemblance qui m'a fait relire le chemin.
+
+**Règles** :
+- « la demande a été acceptée » et « la demande est encore en vigueur au moment de la
+  lecture » sont deux faits différents. Une mesure qui dépend d'un mode doit **vérifier
+  ce mode à l'instant de la lecture**, pas à celui de la demande ;
+- un garde-fou qui s'annule silencieusement se lit comme une absence de résultat.
+  Tout mécanisme qui révoque une demande doit le consigner, sinon il produira des
+  campagnes qui mesurent son déclenchement en croyant mesurer leur sujet ;
+- choisir la grandeur que le changement affecte **réellement**. Ici le vidage
+  multi-thread change ce qui est *collecté* (`observed`, les appels), pas ce qui est
+  *chronométré* (`measured`). Mesurer la seconde pour juger la première ne pouvait pas
+  marcher, fenêtre ou pas.
