@@ -2,6 +2,7 @@ package dev.rustforgex.bench;
 
 import dev.rustforgex.RfxRuntime;
 import dev.rustforgex.command.DiscoveryReport;
+import dev.rustforgex.instrument.ProbeRegistry;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.forge.EventDispatchTable;
@@ -75,6 +76,18 @@ public final class MacroRecorder {
     /** Numéro de cette exécution parmi les répétitions. */
     public static final String PROPERTY_RUN = "rustforgex.bench.run";
 
+    /**
+     * Durée de chronométrage à ouvrir sur la fenêtre mesurée, en secondes. Zéro : aucun.
+     *
+     * <p>Les niveaux {@code COUNTER} ne produisent que des décomptes : sans fenêtre
+     * chronométrée, aucun coût n'est attribué aux unités de travail, et la part du tick
+     * expliquée vaut zéro pour une raison qui n'a rien à voir avec la couverture.
+     *
+     * <p>Éteint par défaut, et c'est délibéré : le chronométrage coûte, et l'allumer
+     * partout changerait le sens de toutes les campagnes de coût déjà étalonnées.
+     */
+    public static final String PROPERTY_PROFILE_SECONDS = "rustforgex.bench.profile_seconds";
+
     /** Version du schéma du fichier d'exécution. */
     private static final int SCHEMA = 1;
 
@@ -147,6 +160,24 @@ public final class MacroRecorder {
                 warmup, ticks, label, run);
     }
 
+    /**
+     * Ouvre une fenêtre de chronométrage sur toute la fenêtre mesurée, si demandée.
+     *
+     * <p>Ici et pas à l'armement : ouvrir pendant l'échauffement ferait expirer la
+     * demande avant que la mesure commence, et mesurer un chronométrage qui s'est éteint
+     * en route ne dirait rien de lisible.
+     */
+    private void openProfilingWindow() {
+        int seconds = intProperty(PROPERTY_PROFILE_SECONDS, 0);
+        if (seconds <= 0) {
+            return;
+        }
+        RfxRuntime runtime = RfxRuntime.instance();
+        boolean opened = runtime != null && runtime.requestProfilingDepth(seconds);
+        LOGGER.info("Fenêtre de chronométrage de {} s sur la fenêtre mesurée : {}.",
+                seconds, opened ? "ouverte" : "refusée");
+    }
+
     /** Ouvre le chronomètre du tick, avant tout autre travail. */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onTickStart(final TickEvent.ServerTickEvent event) {
@@ -188,6 +219,7 @@ public final class MacroRecorder {
                 gcCountAtStart = gcCount();
                 gcTimeAtStartMs = gcTimeMs();
                 lastGcCount = gcCountAtStart;
+                openProfilingWindow();
             }
             return;
         }
@@ -346,6 +378,7 @@ public final class MacroRecorder {
         appendThreshold(state, runtime);
         appendProfilerLevel(state, runtime);
         appendDiscovery(state, runtime);
+        appendTop(state, runtime);
         appendProbeThreads(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
@@ -514,6 +547,101 @@ public final class MacroRecorder {
                     .append(", \"dropped\": ").append(thread.dropped()).append('}');
         }
         state.append("\n    ]");
+    }
+
+    /**
+     * Unités de travail demandées au natif pour calculer la part expliquée.
+     *
+     * <p>Au-dessus du plafond d'unités suivies : un classement tronqué donnerait une
+     * somme tronquée, donc une part sous-estimée sans qu'on puisse le voir.
+     */
+    private static final int TOP_QUERY_LIMIT = 8_192;
+
+    /** Unités détaillées dans le fichier. Le reste n'entre que dans la somme. */
+    private static final int TOP_ROWS = 25;
+
+    /**
+     * Consigne le classement des unités et, surtout, la part du tick qu'il explique.
+     *
+     * <p>C'est le chiffre que quatre décisions successives cherchaient sans pouvoir le
+     * produire : tant que la collecte ne ramassait qu'un thread sur dix-huit (ADR-028),
+     * il ne mesurait pas la couverture mais l'étendue du défaut.
+     *
+     * <p>La somme porte sur <strong>toutes</strong> les unités suivies, pas sur les
+     * lignes détaillées : additionner un classement tronqué sous-estimerait la part sans
+     * que rien ne le signale (R-660).
+     */
+    private static void appendTop(StringBuilder state, RfxRuntime runtime) {
+        Map<String, Object> top = runtime.topWorkloads(TOP_QUERY_LIMIT);
+        if (top == null) {
+            return;
+        }
+        long tickNs = longValue(top, "tick_ns");
+        Object rawEntries = top.get("entries");
+        List<?> entries = rawEntries instanceof List<?> list ? list : List.of();
+
+        long explained = 0L;
+        for (Object element : entries) {
+            if (element instanceof Map<?, ?> entry) {
+                explained += longValue(castEntry(entry), "cost_ns_per_tick");
+            }
+        }
+
+        state.append(",\n    \"top\": {\n");
+        state.append("      \"tracked\": ").append(longValue(top, "tracked")).append(",\n");
+        state.append("      \"measured\": ").append(longValue(top, "measured")).append(",\n");
+        state.append("      \"tick_ns\": ").append(tickNs).append(",\n");
+        state.append("      \"explained_ns\": ").append(explained).append(",\n");
+        // Sans tick connu, la part n'est pas calculable : -1 le dit, la 0 le tairait
+        // en se faisant passer pour une mesure (R-660).
+        state.append("      \"explained_pct_x100\": ")
+                .append(tickNs == 0 ? -1L : explained * 10_000L / tickNs).append(",\n");
+        state.append("      \"entries\": [");
+        appendTopRows(state, entries, runtime);
+        state.append("    }");
+    }
+
+    /** Détaille les premières unités du classement, nom et mod propriétaire compris. */
+    private static void appendTopRows(StringBuilder state, List<?> entries, RfxRuntime runtime) {
+        ProbeRegistry registry = runtime.instrumentation() == null
+                ? null : runtime.instrumentation().registry();
+        boolean first = true;
+        int rows = 0;
+        for (Object element : entries) {
+            if (rows >= TOP_ROWS || !(element instanceof Map<?, ?> raw)) {
+                break;
+            }
+            Map<String, Object> entry = castEntry(raw);
+            long cost = longValue(entry, "cost_ns_per_tick");
+            if (cost <= 0L) {
+                // Le classement est décroissant : la première unité sans coût annonce
+                // que toutes les suivantes n'en ont pas non plus.
+                break;
+            }
+            int probeId = (int) longValue(entry, "probe_id");
+            String name = registry == null ? null : registry.nameOf(probeId);
+            String owner = registry == null ? null : registry.ownerOf(probeId);
+            state.append(first ? "\n" : ",\n");
+            first = false;
+            rows++;
+            state.append("        {\"owner\": \"").append(escape(owner == null ? "?" : owner))
+                    .append("\", \"method\": \"").append(escape(name == null ? "sonde#" + probeId : name))
+                    .append("\", \"cost_ns_per_tick\": ").append(cost)
+                    .append(", \"source\": \"").append(escape(stringValue(entry, "source")))
+                    .append("\"}");
+        }
+        state.append(first ? "]\n" : "\n      ]\n");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castEntry(Map<?, ?> entry) {
+        return (Map<String, Object>) entry;
+    }
+
+    /** Lit une chaîne des tables décodées, ou {@code "?"} si elle est absente. */
+    private static String stringValue(Map<String, Object> table, String key) {
+        Object value = table == null ? null : table.get(key);
+        return value instanceof String text ? text : "?";
     }
 
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {
