@@ -71,8 +71,18 @@ public final class WorldDigest {
 
     private static final long FNV_PRIME = 0x100000001b3L;
 
-    /** Empreinte des quatre composantes d'un chunk. */
-    public record ChunkDigest(long blocks, long biomes, long blockEntities, long structures) {
+    /**
+     * Empreinte des quatre composantes d'un chunk, et des blocs section par section.
+     *
+     * @param blocks empreinte des blocs du chunk entier
+     * @param biomes empreinte des biomes
+     * @param blockEntities empreinte des entités de bloc
+     * @param structures empreinte des départs et références de structures
+     * @param sections empreinte des blocs de chaque section, de la plus basse à la plus
+     *     haute
+     */
+    public record ChunkDigest(long blocks, long biomes, long blockEntities, long structures,
+            long[] sections) {
     }
 
     private WorldDigest() {
@@ -87,26 +97,57 @@ public final class WorldDigest {
      * @return ses quatre empreintes
      */
     public static ChunkDigest digest(ServerLevel level, LevelChunk chunk) {
-        return new ChunkDigest(
-                blocks(chunk), biomes(chunk), blockEntities(chunk), structures(level, chunk));
+        long[] sections = sectionBlocks(chunk);
+        return new ChunkDigest(combine(sections), biomes(chunk), blockEntities(chunk),
+                structures(level, chunk), sections);
     }
 
     /**
-     * États de bloc, section par section, dans l'ordre des positions.
+     * États de bloc du chunk entier, composés à partir des empreintes de ses sections.
      *
-     * <p>Une section vide est comptée comme telle plutôt que sautée : sans cela, un chunk
-     * à une section d'air de plus ou de moins aurait la même empreinte que l'autre.
+     * <p>Une seule lecture des blocs sert les deux niveaux : le chunk se juge sur cette
+     * valeur, et les sections disent où se trouve l'écart quand il y en a un.
      */
     static long blocks(LevelChunk chunk) {
-        long[] hash = {FNV_OFFSET};
-        for (LevelChunkSection section : chunk.getSections()) {
+        return combine(sectionBlocks(chunk));
+    }
+
+    /** Compose les empreintes de sections en une empreinte de chunk, dans l'ordre. */
+    static long combine(long[] sections) {
+        long hash = FNV_OFFSET;
+        for (long section : sections) {
+            hash = mix(hash, (int) section);
+            hash = mix(hash, (int) (section >>> 32));
+        }
+        return hash;
+    }
+
+    /**
+     * États de bloc, une empreinte par section, de la plus basse à la plus haute.
+     *
+     * <p>Le jeu ne génère pas deux fois les mêmes blocs à graine égale : sur le modpack
+     * de référence, la moitié des chunks diffèrent d'une génération à l'autre sans
+     * RUSTFORGE-X (ADR-032). Juger le chunk entier noie un effet éventuel dans ce bruit.
+     * Juger chaque section isole les hauteurs où le jeu diverge de lui-même, et laisse
+     * comparables toutes les autres.
+     *
+     * <p>Une section vide a sa propre empreinte plutôt que d'être sautée : sans cela, une
+     * section d'air de plus ou de moins passerait inaperçue.
+     */
+    static long[] sectionBlocks(LevelChunk chunk) {
+        LevelChunkSection[] sections = chunk.getSections();
+        long[] hashes = new long[sections.length];
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
             if (section.hasOnlyAir()) {
-                hash[0] = mix(hash[0], -1);
+                hashes[i] = mix(FNV_OFFSET, -1);
                 continue;
             }
+            long[] hash = {FNV_OFFSET};
             section.getStates().getAll(state -> hash[0] = mix(hash[0], Block.getId(state)));
+            hashes[i] = hash[0];
         }
-        return hash[0];
+        return hashes;
     }
 
     /** Biomes, section par section, dans l'ordre des positions. */

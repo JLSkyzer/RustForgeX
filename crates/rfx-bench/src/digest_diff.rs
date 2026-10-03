@@ -48,6 +48,12 @@ pub struct DigestFile {
     pub components: Vec<String>,
     /// Empreintes par chunk `"x,z"`, ou `None` si le chunk n'etait pas charge.
     pub chunks: BTreeMap<String, Option<Vec<String>>>,
+    /// Ordonnee de la premiere section, en sections (schema 2).
+    #[serde(default)]
+    pub min_section_y: Option<i32>,
+    /// Empreinte des blocs de chaque section, par chunk (schema 2).
+    #[serde(default)]
+    pub block_sections: Option<BTreeMap<String, Option<Vec<String>>>>,
 }
 
 /// Raisons pour lesquelles une comparaison ne vaut rien. Vide si elle est valide.
@@ -144,22 +150,23 @@ impl ComponentVerdict {
         binomial_upper_tail(self.single_odd(), self.candidate_odd, 1.0 / 3.0)
     }
 
-    /// `true` si rien n'impute d'ecart au candidat.
+    /// `true` si rien n'impute d'ecart au candidat, au seuil donne.
     ///
     /// Composante deterministe : aucun ecart permis, aucun hasard ne pourrait
     /// l'expliquer. Composante bruitee : le candidat ne doit pas etre l'intrus plus
-    /// souvent que le hasard ne le permet, au seuil de [`ALPHA`].
+    /// souvent que le hasard ne le permet, au seuil `alpha` — celui que
+    /// [`Verdict::alpha`] calcule pour l'ensemble des tests.
     ///
     /// La premiere regle employee ici — ne pas etre plus souvent l'intrus que la plus
     /// bruitee des references — a fait echouer un candidat a trois occurrences contre
     /// deux, sur six en tout. Une regle sans loi derriere juge le hasard des petits
     /// effectifs comme un effet.
     #[must_use]
-    pub fn passed(&self) -> bool {
+    pub fn passed_at(&self, alpha: f64) -> bool {
         if self.deterministic() {
             self.candidate_odd == 0
         } else {
-            self.p_value() >= ALPHA
+            self.p_value() >= alpha
         }
     }
 }
@@ -210,15 +217,51 @@ pub struct Verdict {
     pub invalid: Vec<String>,
     /// Chunks presents dans les trois executions.
     pub compared: usize,
-    /// Une entree par composante, dans l'ordre du fichier.
+    /// Une entree par composante jugee : celles du fichier, et, quand les empreintes
+    /// par section sont presentes, une par hauteur de section a la place des blocs du
+    /// chunk entier.
     pub components: Vec<ComponentVerdict>,
 }
 
 impl Verdict {
+    /// Composantes bruitees, donc soumises au test binomial.
+    #[must_use]
+    pub fn noisy_tests(&self) -> usize {
+        self.components
+            .iter()
+            .filter(|c| !c.deterministic())
+            .count()
+    }
+
+    /// Seuil applique a chaque composante bruitee : [`ALPHA`] divise par leur nombre.
+    ///
+    /// Juger les blocs section par section enchaine une vingtaine de tests. A un pourcent
+    /// chacun, une campagne sans aucun effet donnerait une fausse alarme environ une fois
+    /// sur cinq. La correction de Bonferroni ramene a un pourcent la probabilite d'en
+    /// produire une, sur l'ensemble des tests.
+    #[must_use]
+    pub fn alpha(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        let tests = self.noisy_tests().max(1) as f64;
+        ALPHA / tests
+    }
+
     /// `true` si la comparaison est valide et que chaque composante passe.
     #[must_use]
     pub fn passed(&self) -> bool {
-        self.invalid.is_empty() && self.components.iter().all(ComponentVerdict::passed)
+        let alpha = self.alpha();
+        self.invalid.is_empty() && self.components.iter().all(|c| c.passed_at(alpha))
+    }
+}
+
+/// Classe un triplet d'empreintes : qui est l'intrus, s'il y en a un.
+fn tally(slot: &mut ComponentVerdict, x: &str, y: &str, z: &str) {
+    match (x == y, x == z, y == z) {
+        (true, true, _) => slot.all_equal += 1,
+        (true, false, _) => slot.candidate_odd += 1,
+        (false, true, _) => slot.second_odd += 1,
+        (false, false, true) => slot.reference_odd += 1,
+        (false, false, false) => slot.all_different += 1,
     }
 }
 
@@ -247,19 +290,73 @@ pub fn judge(reference: &DigestFile, second: &DigestFile, candidate: &DigestFile
         };
         verdict.compared += 1;
         for (i, slot) in verdict.components.iter_mut().enumerate() {
-            let (Some(x), Some(y), Some(z)) = (a.get(i), b.get(i), c.get(i)) else {
-                continue;
-            };
-            match (x == y, x == z, y == z) {
-                (true, true, _) => slot.all_equal += 1,
-                (true, false, _) => slot.candidate_odd += 1,
-                (false, true, _) => slot.second_odd += 1,
-                (false, false, true) => slot.reference_odd += 1,
-                (false, false, false) => slot.all_different += 1,
+            if let (Some(x), Some(y), Some(z)) = (a.get(i), b.get(i), c.get(i)) {
+                tally(slot, x, y, z);
             }
         }
     }
+
+    if let Some(strata) = section_strata(reference, second, candidate, &mut verdict.invalid) {
+        // Les sections remplacent les blocs du chunk entier : la meme information, a une
+        // granularite qui isole le bruit au lieu de le laisser contaminer tout le chunk.
+        verdict.components.retain(|c| c.name != "blocks");
+        verdict.components.extend(strata);
+    }
     verdict
+}
+
+/// Une composante par hauteur de section, si les trois fichiers portent les sections.
+///
+/// Sur le modpack de reference, le bruit de generation se concentre entre Y = -16 et
+/// Y = 79 ; au-dessus de 160, aucune section ne differe jamais entre deux references.
+/// Jugees chunk par chunk, ces sections stables etaient noyees dans le bruit des autres ;
+/// jugees a part, elles exigent l'egalite stricte (ADR-032).
+fn section_strata(
+    reference: &DigestFile,
+    second: &DigestFile,
+    candidate: &DigestFile,
+    invalid: &mut Vec<String>,
+) -> Option<Vec<ComponentVerdict>> {
+    let (Some(sa), Some(sb), Some(sc)) = (
+        &reference.block_sections,
+        &second.block_sections,
+        &candidate.block_sections,
+    ) else {
+        return None;
+    };
+    let min_y = reference.min_section_y.unwrap_or(0);
+    if second.min_section_y != reference.min_section_y
+        || candidate.min_section_y != reference.min_section_y
+    {
+        invalid.push("hauteur de la premiere section differente d'un fichier a l'autre".to_owned());
+        return None;
+    }
+
+    let mut strata: Vec<ComponentVerdict> = Vec::new();
+    for (chunk, a) in sa {
+        let (Some(a), Some(Some(b)), Some(Some(c))) = (a, sb.get(chunk), sc.get(chunk)) else {
+            continue;
+        };
+        if a.len() != b.len() || a.len() != c.len() {
+            invalid.push(format!("{chunk} : nombre de sections different"));
+            return None;
+        }
+        if strata.is_empty() {
+            strata = (0..a.len())
+                .map(|i| ComponentVerdict {
+                    name: format!(
+                        "blocks@y{}",
+                        (i64::from(min_y) + i64::try_from(i).unwrap_or(0)) * 16
+                    ),
+                    ..ComponentVerdict::default()
+                })
+                .collect();
+        }
+        for (i, slot) in strata.iter_mut().enumerate() {
+            tally(slot, &a[i], &b[i], &c[i]);
+        }
+    }
+    Some(strata)
 }
 
 #[cfg(test)]
@@ -289,6 +386,8 @@ mod tests {
                     )
                 })
                 .collect(),
+            min_section_y: None,
+            block_sections: None,
         }
     }
 
@@ -296,6 +395,110 @@ mod tests {
 
     fn blocks(verdict: &Verdict) -> &ComponentVerdict {
         &verdict.components[0]
+    }
+
+    /// Ajoute des empreintes par section : trois sections, de Y = -64 a Y = -17.
+    fn with_sections(mut f: DigestFile, sections: &[(&str, [&str; 3])]) -> DigestFile {
+        f.min_section_y = Some(-4);
+        f.block_sections = Some(
+            sections
+                .iter()
+                .map(|(k, s)| {
+                    (
+                        (*k).to_owned(),
+                        Some(s.iter().map(|h| (*h).to_owned()).collect()),
+                    )
+                })
+                .collect(),
+        );
+        f
+    }
+
+    fn named<'a>(verdict: &'a Verdict, name: &str) -> &'a ComponentVerdict {
+        verdict
+            .components
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("composante {name} absente"))
+    }
+
+    /// Les sections remplacent les blocs du chunk entier, une composante par hauteur.
+    #[test]
+    fn sections_replace_whole_chunk_blocks() {
+        let s = [("0,0", ["s0", "s1", "s2"])];
+        let r1 = with_sections(file("r1", &[("0,0", Some(SAME))]), &s);
+        let r2 = with_sections(file("r2", &[("0,0", Some(SAME))]), &s);
+        let c = with_sections(file("c", &[("0,0", Some(SAME))]), &s);
+
+        let verdict = judge(&r1, &r2, &c);
+        let names: Vec<&str> = verdict.components.iter().map(|c| c.name.as_str()).collect();
+
+        assert!(!names.contains(&"blocks"), "{names:?}");
+        assert!(names.contains(&"blocks@y-64"));
+        assert!(names.contains(&"blocks@y-32"));
+        assert!(verdict.passed());
+    }
+
+    /// Le gain de resolution : une section ou les references concordent toujours est
+    /// deterministe, meme si le chunk entier est bruite. Un ecart du candidat y est
+    /// impute strictement, la ou le jugement par chunk l'aurait noye dans le bruit.
+    #[test]
+    fn a_candidate_divergence_in_a_stable_section_fails_despite_a_noisy_chunk() {
+        // Les references different sur la section basse : le chunk entier est bruite.
+        let r1 = with_sections(
+            file("r1", &[("0,0", Some(SAME))]),
+            &[("0,0", ["bas1", "milieu", "haut"])],
+        );
+        let r2 = with_sections(
+            file("r2", &[("0,0", Some(SAME))]),
+            &[("0,0", ["bas2", "milieu", "haut"])],
+        );
+        // Le candidat differe sur la section haute, stable chez les references.
+        let c = with_sections(
+            file("c", &[("0,0", Some(SAME))]),
+            &[("0,0", ["bas1", "milieu", "HAUT"])],
+        );
+
+        let verdict = judge(&r1, &r2, &c);
+
+        let top = named(&verdict, "blocks@y-32");
+        assert!(top.deterministic());
+        assert_eq!(top.candidate_odd, 1);
+        assert!(!verdict.passed());
+    }
+
+    /// Une vingtaine de tests a un pourcent chacun produiraient une fausse alarme une
+    /// campagne sur cinq : le seuil se divise par le nombre de tests bruites.
+    #[test]
+    fn the_threshold_is_divided_by_the_number_of_noisy_tests() {
+        let r1 = with_sections(
+            file("r1", &[("0,0", Some(SAME))]),
+            &[("0,0", ["x", "y", "z"])],
+        );
+        let r2 = with_sections(
+            file("r2", &[("0,0", Some(SAME))]),
+            &[("0,0", ["X", "Y", "z"])],
+        );
+        let c = with_sections(
+            file("c", &[("0,0", Some(SAME))]),
+            &[("0,0", ["x", "y", "z"])],
+        );
+
+        let verdict = judge(&r1, &r2, &c);
+
+        assert_eq!(verdict.noisy_tests(), 2);
+        assert!((verdict.alpha() - ALPHA / 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn different_section_origins_make_the_comparison_invalid() {
+        let s = [("0,0", ["s0", "s1", "s2"])];
+        let r1 = with_sections(file("r1", &[("0,0", Some(SAME))]), &s);
+        let r2 = with_sections(file("r2", &[("0,0", Some(SAME))]), &s);
+        let mut c = with_sections(file("c", &[("0,0", Some(SAME))]), &s);
+        c.min_section_y = Some(0);
+
+        assert!(!judge(&r1, &r2, &c).invalid.is_empty());
     }
 
     #[test]
@@ -384,7 +587,7 @@ mod tests {
         };
 
         assert!(component.p_value() < ALPHA, "p = {}", component.p_value());
-        assert!(!component.passed());
+        assert!(!component.passed_at(ALPHA));
     }
 
     /// Le cas qui a fait echouer la premiere regle sur de vraies donnees : trois contre
@@ -400,7 +603,7 @@ mod tests {
             all_different: 303,
         };
 
-        assert!(component.passed(), "p = {}", component.p_value());
+        assert!(component.passed_at(ALPHA), "p = {}", component.p_value());
     }
 
     /// Valeurs exactes de la queue binomiale, et tenue numerique sur un grand effectif.

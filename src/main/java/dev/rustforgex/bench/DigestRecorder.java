@@ -79,7 +79,13 @@ public final class DigestRecorder {
     /** Cadence de vérification de la génération, en ticks. */
     private static final int POLL_EVERY_TICKS = 20;
 
-    private static final int SCHEMA = 1;
+    /**
+     * Version du fichier. 2 : empreinte par section et ordonnée de la première section.
+     *
+     * <p>L'empreinte des blocs d'un chunk se compose désormais de celles de ses sections :
+     * un fichier de version 1 ne se compare pas à un fichier de version 2.
+     */
+    private static final int SCHEMA = 2;
 
     private final Path out;
     private final String label;
@@ -181,9 +187,9 @@ public final class DigestRecorder {
     private void finish(MinecraftServer server, ServerLevel level, int ready, boolean timedOut) {
         try {
             long start = System.nanoTime();
-            String chunks = digestAll(level);
+            Tables tables = digestAll(level);
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
-            write(level, ready, timedOut, digestMs, chunks);
+            write(level, ready, timedOut, digestMs, tables);
             LOGGER.info("G-03 terminé : empreinte de {} chunks en {} ms, dans {}.",
                     ready, digestMs, out.toAbsolutePath());
         } catch (IOException | RuntimeException e) {
@@ -193,40 +199,62 @@ public final class DigestRecorder {
         server.halt(false);
     }
 
-    /** Une ligne par chunk, ou {@code null} s'il n'est pas chargé. */
-    private String digestAll(ServerLevel level) {
-        StringBuilder json = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 96);
+    /**
+     * Empreintes de tous les chunks, en deux tables JSON : composantes, et sections de
+     * blocs.
+     *
+     * @param chunks une ligne par chunk : ses quatre empreintes, ou {@code null}
+     * @param sections une ligne par chunk : l'empreinte de chacune de ses sections
+     */
+    private record Tables(String chunks, String sections) {
+    }
+
+    /** Une ligne par chunk dans chaque table, ou {@code null} s'il n'est pas chargé. */
+    private Tables digestAll(ServerLevel level) {
+        StringBuilder chunks = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 96);
+        StringBuilder sections = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 480);
         boolean first = true;
         for (int x = firstChunk; x <= lastChunk; x++) {
             for (int z = firstChunk; z <= lastChunk; z++) {
-                json.append(first ? "\n" : ",\n");
+                String key = "    \"" + x + ',' + z + "\": ";
+                chunks.append(first ? "\n" : ",\n").append(key);
+                sections.append(first ? "\n" : ",\n").append(key);
                 first = false;
-                json.append("    \"").append(x).append(',').append(z).append("\": ");
                 LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
                 if (chunk == null) {
                     // Absent n'est pas une empreinte : une valeur inventée ici se ferait
                     // passer pour un chunk généré (R-660).
-                    json.append("null");
+                    chunks.append("null");
+                    sections.append("null");
                     continue;
                 }
                 WorldDigest.ChunkDigest digest = WorldDigest.digest(level, chunk);
-                json.append(String.format(Locale.ROOT,
+                chunks.append(String.format(Locale.ROOT,
                         "[\"%016x\", \"%016x\", \"%016x\", \"%016x\"]",
                         digest.blocks(), digest.biomes(),
                         digest.blockEntities(), digest.structures()));
+                sections.append('[');
+                long[] perSection = digest.sections();
+                for (int i = 0; i < perSection.length; i++) {
+                    sections.append(i == 0 ? "\"" : ", \"")
+                            .append(String.format(Locale.ROOT, "%016x", perSection[i]))
+                            .append('"');
+                }
+                sections.append(']');
             }
         }
-        return json.toString();
+        return new Tables(chunks.toString(), sections.toString());
     }
 
     private void write(ServerLevel level, int ready, boolean timedOut, long digestMs,
-            String chunks) throws IOException {
+            Tables tables) throws IOException {
         RfxRuntime runtime = RfxRuntime.instance();
         boolean active = runtime != null && runtime.active();
         long probed = runtime == null || runtime.instrumentation() == null
                 ? 0L : runtime.instrumentation().methodsProbed();
 
-        StringBuilder json = new StringBuilder(chunks.length() + 1024);
+        StringBuilder json = new StringBuilder(
+                tables.chunks().length() + tables.sections().length() + 1024);
         json.append("{\n");
         json.append("  \"schema\": ").append(SCHEMA).append(",\n");
         json.append("  \"test\": \"G-03\",\n");
@@ -243,7 +271,11 @@ public final class DigestRecorder {
         json.append("  \"digest_ms\": ").append(digestMs).append(",\n");
         json.append("  \"components\": [\"blocks\", \"biomes\", \"block_entities\", "
                 + "\"structures\"],\n");
-        json.append("  \"chunks\": {").append(chunks).append("\n  }\n");
+        json.append("  \"chunks\": {").append(tables.chunks()).append("\n  },\n");
+        // Ordonnée de la première section : sans elle, l'indice d'une section dans la
+        // table ne dirait pas à quelle hauteur se trouve un écart.
+        json.append("  \"min_section_y\": ").append(level.getMinSection()).append(",\n");
+        json.append("  \"block_sections\": {").append(tables.sections()).append("\n  }\n");
         json.append("}\n");
 
         Path parent = out.toAbsolutePath().getParent();

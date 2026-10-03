@@ -182,8 +182,9 @@ fn digest_level() {
         "{:<16}{:>9}{:>11}{:>11}{:>13}{:>13}{:>9}  verdict",
         "composante", "egaux", "ref1 seule", "ref2 seule", "cand. seul", "3 differents", "p"
     );
+    let alpha = verdict.alpha();
     for c in &verdict.components {
-        let state = match (c.passed(), c.deterministic()) {
+        let state = match (c.passed_at(alpha), c.deterministic()) {
             (true, true) => "egalite stricte",
             (true, false) => "passe, resolution limitee par le bruit du jeu",
             (false, true) => "ECART sur une composante deterministe",
@@ -200,9 +201,11 @@ fn digest_level() {
         );
     }
     println!(
-        "seuil : p < {} sur une composante bruitee ; egalite stricte sur une composante \
-         deterministe",
-        digest_diff::ALPHA
+        "seuil : p < {} / {} composantes bruitees = {:.5} (Bonferroni) ; egalite stricte sur \
+         une composante deterministe",
+        digest_diff::ALPHA,
+        verdict.noisy_tests(),
+        alpha
     );
     for problem in &verdict.invalid {
         println!("INVALIDE : {problem}");

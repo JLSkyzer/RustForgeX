@@ -706,9 +706,15 @@ donc ouvert.
 
             55 erreurs dans chacune des trois exécutions, messages identiques ; aucune
             `VerifyError`, aucune erreur de RF-X
-      - [ ] **Résolution sur les blocs** : savoir où le jeu diverge de lui-même — surface,
-            profondeur, bords du carré — par une empreinte par section. Peut désigner un
-            champ à exclure et rendre la composante plus étroite
+      - [x] **Empreinte par section** (ADR-032, mise à jour) : le bruit vit entre
+            Y = −16 et Y = 79, jamais au-dessus de 160, et pas sur les bords du carré.
+            Les blocs se jugent désormais par hauteur, avec correction de Bonferroni :
+            14 hauteurs en égalité stricte (28 350 sections), les 10 autres passent.
+            Deuxième campagne, même verdict
+      - [ ] **Protocole : biais de position.** La première exécution d'une campagne est
+            l'intruse le plus souvent (281, puis 340, contre ~200). Ajouter une
+            génération d'échauffement écartée, ou faire tourner l'ordre. Surveiller
+            aussi Y = 80 et Y = 96 (p = 0,043 et 0,045 sur 15 tests)
       - [ ] Les autres scénarios G-01..G-15 ; G-01 (5 min de tick à vide sans erreur) et
             G-08 (sauvegarde, rechargement, comparaison) réutilisent ce harnais
 - [ ] JAR installable et jouable, client et serveur dédié.
