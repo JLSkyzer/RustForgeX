@@ -680,25 +680,37 @@ donc ouvert.
       génération de monde traverse le plus de code de mods sondé, et parce qu'elle part
       d'une graine : c'est le scénario le plus déterministe de la liste.
 
-      - [ ] Profil `worldgen` dans `LoadProfile` : tout ce qui varie seul est figé,
-            `randomTickSpeed 0` compris, puis un carré de 45 × 45 chunks est forcé
-      - [ ] `WorldDigest` : sérialise chaque chunk par le code du jeu
-            (`ChunkSerializer.write`), retire les champs datés (`LastUpdate`,
-            `InhabitedTime`), et hache **par clé** — blocs, biomes, lumière, entités de
-            bloc, ticks planifiés à part. Un écart doit dire *où* il est
-      - [ ] `DigestRecorder`, armé par `rustforgex.bench.digest.out` : applique le
-            profil, attend que les 2 025 chunks soient `FULL`, laisse reposer, hache,
-            écrit, arrête le serveur. Classe distincte de `MacroRecorder` : l'une mesure
-            le temps, l'autre l'état
-      - [ ] `rfx-bench digest a.json b.json` : compare chunk par chunk et clé par clé
-      - [ ] **A/A d'abord** : deux références, RF-X désactivé. Ce qui diverge là est du
-            non-déterminisme du jeu et des mods, pas de RF-X. Sans cette mesure, l'A/B
-            ne peut rien conclure
-      - [ ] Puis A/B : référence contre RF-X actif. Critère : aucune divergence hors de
-            ce que l'A/A montre déjà instable
-      - [ ] Chaque exécution part d'un monde neuf (`--world g03-<étiquette>`), même
-            graine, supprimé avant la suivante — cible exacte, monde de test créé par
-            le harnais et par lui seul
+      - [x] Profil `worldgen` dans `LoadProfile` : jeu figé, `randomTickSpeed 0`,
+            carré de 45 × 45 chunks forcé ; `forcedChunkRange` seule source de la
+            géométrie, vérifiée chunk par chunk par un test
+      - [x] `WorldDigest` : quatre empreintes par chunk — blocs, biomes, entités de bloc,
+            structures. État lu **vivant** et non sérialisé (la palette dépend de l'ordre
+            de pose). Lumière, cartes de hauteur, ticks planifiés et entités exclus, et
+            le code dit pourquoi
+      - [x] `DigestRecorder` (`rustforgex.bench.digest.out`) : génère, attend les 2 025
+            chunks `FULL`, repose 200 ticks, hache, écrit, arrête
+      - [x] `rfx-bench digest ref1 ref2 candidat` : test **symétrique** — laquelle des
+            trois exécutions est l'intruse — avec loi binomiale de paramètre 1/3 et seuil
+            p = 0,01 sur une composante bruitée, égalité stricte sur une composante
+            déterministe (ADR-032)
+      - [x] **A/A mesuré** : sans RF-X, deux générations à la même graine diffèrent déjà
+            sur ~920 chunks sur 2 025 pour les blocs. Biomes et structures : 2 025 / 2 025
+      - [x] **G-03 passé** (ADR-032) :
+
+            | composante | RF-X intrus | p | verdict |
+            |---|---|---|---|
+            | biomes | 0 | — | égalité stricte |
+            | structures | 0 | — | égalité stricte |
+            | blocs | 239 (ref : 281, 153) | 0,124 | passe, résolution limitée |
+            | entités de bloc | 3 (ref : 1, 2) | 0,320 | passe, résolution limitée |
+
+            55 erreurs dans chacune des trois exécutions, messages identiques ; aucune
+            `VerifyError`, aucune erreur de RF-X
+      - [ ] **Résolution sur les blocs** : savoir où le jeu diverge de lui-même — surface,
+            profondeur, bords du carré — par une empreinte par section. Peut désigner un
+            champ à exclure et rendre la composante plus étroite
+      - [ ] Les autres scénarios G-01..G-15 ; G-01 (5 min de tick à vide sans erreur) et
+            G-08 (sauvegarde, rechargement, comparaison) réutilisent ce harnais
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :

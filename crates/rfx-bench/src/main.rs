@@ -162,21 +162,10 @@ fn digest_level() {
     let (reference, second, candidate) = (load(&paths[0]), load(&paths[1]), load(&paths[2]));
     let verdict = digest_diff::judge(&reference, &second, &candidate);
 
-    let describe = |title: &str, cmp: &digest_diff::Comparison| {
-        println!(
-            "{title} : {} chunks compares, {} en ecart",
-            cmp.compared,
-            cmp.divergent.len()
-        );
-        for (component, count) in cmp.per_component() {
-            println!("    {component:<16} {count}");
-        }
-        for problem in &cmp.invalid {
-            println!("    INVALIDE : {problem}");
-        }
-    };
     println!(
-        "candidat « {} » : RUSTFORGE-X {}, {} methodes sondees",
+        "references « {} » et « {} », candidat « {} » (RUSTFORGE-X {}, {} methodes sondees)",
+        reference.label,
+        second.label,
         candidate.label,
         if candidate.rfx_active {
             "actif"
@@ -185,30 +174,48 @@ fn digest_level() {
         },
         candidate.methods_probed
     );
-    describe(
-        &format!("bruit ({} / {})", reference.label, second.label),
-        &verdict.noise,
-    );
-    describe(
-        &format!("candidat ({} / {})", reference.label, candidate.label),
-        &verdict.candidate,
+    println!(
+        "{} chunks presents dans les trois executions",
+        verdict.compared
     );
     println!(
-        "attribuables au candidat : {} paires (chunk, composante)",
-        verdict.attributable.len()
+        "{:<16}{:>9}{:>11}{:>11}{:>13}{:>13}{:>9}  verdict",
+        "composante", "egaux", "ref1 seule", "ref2 seule", "cand. seul", "3 differents", "p"
     );
-    for (chunk, component) in verdict.attributable.iter().take(40) {
-        println!("    {chunk:<10} {component}");
+    for c in &verdict.components {
+        let state = match (c.passed(), c.deterministic()) {
+            (true, true) => "egalite stricte",
+            (true, false) => "passe, resolution limitee par le bruit du jeu",
+            (false, true) => "ECART sur une composante deterministe",
+            (false, false) => "ECART : candidat intrus plus souvent que le hasard",
+        };
+        let p = if c.deterministic() {
+            "-".to_owned()
+        } else {
+            format!("{:.3}", c.p_value())
+        };
+        println!(
+            "{:<16}{:>9}{:>11}{:>11}{:>13}{:>13}{:>9}  {state}",
+            c.name, c.all_equal, c.reference_odd, c.second_odd, c.candidate_odd, c.all_different, p
+        );
+    }
+    println!(
+        "seuil : p < {} sur une composante bruitee ; egalite stricte sur une composante \
+         deterministe",
+        digest_diff::ALPHA
+    );
+    for problem in &verdict.invalid {
+        println!("INVALIDE : {problem}");
     }
 
-    if !verdict.noise.invalid.is_empty() || !verdict.candidate.invalid.is_empty() {
+    if !verdict.invalid.is_empty() {
         println!("VERDICT : comparaison invalide");
         std::process::exit(2);
     }
     if verdict.passed() {
-        println!("VERDICT : egalite d'etat, hors du bruit mesure entre references");
+        println!("VERDICT : le candidat n'est pas plus ecarte que les references");
     } else {
-        println!("VERDICT : DIVERGENCE attribuable au candidat");
+        println!("VERDICT : DIVERGENCE imputable au candidat");
         std::process::exit(1);
     }
 }

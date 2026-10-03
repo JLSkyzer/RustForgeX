@@ -753,3 +753,44 @@ la deuxième fois.
 - quand `cargo fmt --check` signale un fichier que je crois ne pas avoir touché,
   vérifier **qui l'a écrit** avant de conclure à une divergence de version d'outil :
   ici c'était bien mon code, et l'excuse de l'outil m'aurait fait laisser le CI rouge.
+
+### 2026-10-03 | Mon comparateur a conclu à une DIVERGENCE de RF-X sur ce qui était le hasard du jeu, deux fois de suite | Cause : j'ai jugé contre une référence non déterministe sans modéliser son bruit | Règle : contre une référence bruitée, A/A d'abord, puis un test symétrique muni d'une loi
+
+G-03 compare des générations de monde avec et sans RUSTFORGE-X. Deux références sans
+RUSTFORGE-X diffèrent déjà sur la moitié des chunks pour les blocs.
+
+Premier critère : « est attribuable tout écart du candidat hors des chunks où les
+références diffèrent ». Verdict DIVERGENCE, 242 écarts. Faux : le hasard ne frappe pas
+toujours les mêmes chunks, et une troisième exécution sans effet en produit
+mécaniquement hors de cet ensemble.
+
+Second critère : « le candidat ne doit pas être l'intrus plus souvent que la plus
+bruitée des références ». Échec à 3 contre 2 et 1, sur 6 en tout. Une règle sans loi
+prend le hasard des petits effectifs pour un effet.
+
+Le test retenu est symétrique — laquelle des trois exécutions est l'intruse — et a une
+loi : sans effet, le candidat l'est avec une probabilité de 1/3, d'où une binomiale et
+une p-valeur. RF-X intrus 239 fois contre 281 et 153 pour les références : p = 0,124.
+
+**Règles** :
+- avant de comparer un candidat à une référence, mesurer la référence contre
+  elle-même. Sans A/A, aucun écart n'est interprétable ;
+- un critère de divergence doit avoir une loi sous l'hypothèse « aucun effet ». Une
+  règle de bon sens (un ensemble, un maximum) n'en a pas, et c'est elle qui crie au loup ;
+- quand un verdict tombe, le confronter au cas le plus simple : « une troisième
+  exécution sans effet passerait-elle ? » Les deux critères faux échouaient à ce test.
+
+### 2026-10-03 | « compile fini » alors que Gradle n'avait rien compilé (récidive) | Cause : `grep "error:"` sensible à la casse ; Gradle a écrit `ERROR: JAVA_HOME is not set` | Règle : un build se juge à son code de sortie, et l'outillage se vérifie en début de session
+
+La règle existait déjà (« rust ok » imprimé pendant un échec de compilation). Elle n'a
+pas suffi parce que je filtrais encore la sortie au lieu de lire `$?`. Et la cause de
+fond était ailleurs : la machine n'a plus aucun Java sur le PATH depuis la dernière
+session ; seuls restent les JDK provisionnés par Gradle (`~/.gradle/jdks`).
+
+**Règles** :
+- toute commande de build ou de test se termine par la lecture de son code de sortie,
+  jamais par un `grep` sur sa sortie ;
+- en début de session, vérifier que `java`, `cargo` et `gh` répondent avant de
+  compter sur eux. Faute de Java système, `JAVA_HOME` pointe sur
+  `~/.gradle/jdks/eclipse_adoptium-17-amd64-windows/jdk-17.0.20.1+1` pour Gradle, et le
+  serveur de banc tourne avec `eclipse_adoptium-21-amd64-windows.2` (21.0.8).
