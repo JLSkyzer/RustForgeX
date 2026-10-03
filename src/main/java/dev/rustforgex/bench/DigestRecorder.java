@@ -223,7 +223,13 @@ public final class DigestRecorder {
             return;
         }
         if (!pending.isEmpty()) {
-            LoadProfile.pump(server, pending);
+            // UNE commande par tick. Chaque `forceload add` génère sa bande de chunks de
+            // façon synchrone, dans le tick qui l'exécute : toutes ensemble, les 2 025
+            // chunks tenaient en un ou deux ticks de 60 à 80 secondes, à un souffle du
+            // chien de garde du serveur (120 s). Machine chargée, une référence sans
+            // RUSTFORGE-X l'a franchi et le serveur a été arrêté. Une bande par tick reste
+            // très en deçà, quelle que soit la charge.
+            LoadProfile.pump(server, new ArrayDeque<>(java.util.List.of(pending.poll())));
             return;
         }
         if (seen % POLL_EVERY_TICKS != 0) {
