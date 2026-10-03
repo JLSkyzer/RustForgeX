@@ -711,12 +711,17 @@ donc ouvert.
             Les blocs se jugent désormais par hauteur, avec correction de Bonferroni :
             14 hauteurs en égalité stricte (28 350 sections), les 10 autres passent.
             Deuxième campagne, même verdict
-      - [ ] **Protocole : biais de position.** La première exécution d'une campagne est
-            l'intruse le plus souvent (281, puis 340, contre ~200). Ajouter une
-            génération d'échauffement écartée, ou faire tourner l'ordre. Surveiller
-            aussi Y = 80 et Y = 96 (p = 0,043 et 0,045 sur 15 tests)
-      - [ ] Les autres scénarios G-01..G-15 ; G-01 (5 min de tick à vide sans erreur) et
-            G-08 (sauvegarde, rechargement, comparaison) réutilisent ce harnais
+      - [x] **Protocole** (`benchmarks/run-gameplay.sh`) : échauffement écarté, candidat
+            au milieu. L'échauffement n'a PAS supprimé l'excès de la référence 1
+            (1 303 contre 936 et 916) ; c'est la position du candidat qui protège le
+            verdict. Cause de l'excès inconnue
+      - [x] **G-03 a trouvé un défaut réel** : génération tuée par le chien de garde avec
+            RF-X — refus du natif non retenu, places des threads morts jamais rendues.
+            Corrigé (`9405d35`) : 81 s contre 73 à 82 s pour les références
+      - [x] **G-03 et G-01 passent** (ADR-032) : égalité stricte au-dessus de Y = 160 et
+            Y = 112, biomes et structures ; mêmes erreurs ; aucun chien de garde
+      - [ ] G-08 (sauvegarde, rechargement, comparaison) et les autres scénarios
+            G-02..G-15 ; G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :

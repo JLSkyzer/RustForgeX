@@ -51,7 +51,10 @@ main() {
         echo "Si aucune ne tourne, le verrou est un reste d'arrêt brutal : le supprimer."
         return 3
     fi
-    trap 'rmdir "$out/.lock" 2>/dev/null' EXIT
+    # Chemin développé MAINTENANT : le piège s'exécute après la sortie de main, quand la
+    # variable locale n'existe plus — et sous `set -u`, il échouait sans retirer le verrou.
+    # shellcheck disable=SC2064
+    trap "rmdir '$out/.lock' 2>/dev/null" EXIT
 
     rm -f "$out"/*.json "$out"/*.log
 
