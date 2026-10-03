@@ -832,3 +832,21 @@ qui a planté au démarrage. Vingt-cinq minutes de résultats inutilisables.
   notification ;
 - une campagne vide ses résultats précédents au départ : un fichier ancien lu comme
   nouveau a déjà fait déclencher une attente trop tôt.
+
+### 2026-10-03 | Le CI était « en échec » sur quatre commits sans avoir jamais tourné | Cause : quota de minutes du dépôt privé épuisé ; je n'ai pas relu le CI après chaque poussée de la session (récidive de la leçon de septembre) | Règle : lire l'état du CI après chaque poussée, et lire l'annotation d'un échec avant d'en chercher la cause dans le code
+
+Les cinq jobs échouaient en trois secondes, `fmt` compris, sans journal. L'annotation
+disait : « The job was not started because recent account payments have failed or your
+spending limit needs to be increased ». Zéro étape exécutée : le code n'était pas en
+cause, le CI ne tournait plus. Le dépôt est public depuis le 2026-10-03 (ADR-010) : les
+exécuteurs standard y sont gratuits, et le run relancé est vert sur les cinq jobs.
+
+**Règles** :
+- un job sans aucune étape et sans journal n'a pas échoué sur le code : lire
+  `gh api repos/<dépôt>/check-runs/<job>/annotations` avant tout ;
+- la vérification du CI après une poussée n'est pas une formalité de fin de session :
+  quatre commits sont passés sans qu'elle soit faite, alors que la règle existait.
+
+Depuis la publication, ce dépôt commite avec l'adresse noreply de GitHub
+(`git config user.email`, local à ce dépôt) : l'adresse personnelle ne figure plus que
+dans l'historique antérieur au 2026-10-03.
