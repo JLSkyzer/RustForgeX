@@ -23,6 +23,7 @@
 //! et ne peut donc pas répondre à la question « quel est l'overhead de RUSTFORGE-X ».
 //! Cette réponse viendra du niveau B, décrit en PARTIE 21.2.
 
+mod digest_diff;
 mod macro_bench;
 
 use std::collections::BTreeMap;
@@ -128,10 +129,87 @@ fn main() {
     match level.as_str() {
         "micro" => micro(),
         "macro" => macro_level(),
+        "digest" => digest_level(),
         other => {
-            eprintln!("niveau inconnu « {other} » — attendu : micro | macro");
+            eprintln!("niveau inconnu « {other} » — attendu : micro | macro | digest");
             std::process::exit(2);
         }
+    }
+}
+
+/// Test de gameplay (PARTIE 20.3.4) : egalite d'etat entre references et candidat.
+///
+/// `rfx-bench digest <reference> <seconde-reference> <candidat>`. Code de sortie : `0` si
+/// rien n'est attribuable au candidat, `1` s'il diverge hors du bruit, `2` si la
+/// comparaison ne vaut rien (fichier illisible, graines differentes, generation
+/// incomplete).
+fn digest_level() {
+    let paths: Vec<String> = std::env::args().skip(2).collect();
+    if paths.len() != 3 {
+        eprintln!("usage : rfx-bench digest <reference> <seconde-reference> <candidat>");
+        std::process::exit(2);
+    }
+    let load = |path: &str| -> digest_diff::DigestFile {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("{path} : illisible ({e})");
+            std::process::exit(2);
+        });
+        serde_json::from_str(&text).unwrap_or_else(|e| {
+            eprintln!("{path} : format inattendu ({e})");
+            std::process::exit(2);
+        })
+    };
+    let (reference, second, candidate) = (load(&paths[0]), load(&paths[1]), load(&paths[2]));
+    let verdict = digest_diff::judge(&reference, &second, &candidate);
+
+    let describe = |title: &str, cmp: &digest_diff::Comparison| {
+        println!(
+            "{title} : {} chunks compares, {} en ecart",
+            cmp.compared,
+            cmp.divergent.len()
+        );
+        for (component, count) in cmp.per_component() {
+            println!("    {component:<16} {count}");
+        }
+        for problem in &cmp.invalid {
+            println!("    INVALIDE : {problem}");
+        }
+    };
+    println!(
+        "candidat « {} » : RUSTFORGE-X {}, {} methodes sondees",
+        candidate.label,
+        if candidate.rfx_active {
+            "actif"
+        } else {
+            "inactif"
+        },
+        candidate.methods_probed
+    );
+    describe(
+        &format!("bruit ({} / {})", reference.label, second.label),
+        &verdict.noise,
+    );
+    describe(
+        &format!("candidat ({} / {})", reference.label, candidate.label),
+        &verdict.candidate,
+    );
+    println!(
+        "attribuables au candidat : {} paires (chunk, composante)",
+        verdict.attributable.len()
+    );
+    for (chunk, component) in verdict.attributable.iter().take(40) {
+        println!("    {chunk:<10} {component}");
+    }
+
+    if !verdict.noise.invalid.is_empty() || !verdict.candidate.invalid.is_empty() {
+        println!("VERDICT : comparaison invalide");
+        std::process::exit(2);
+    }
+    if verdict.passed() {
+        println!("VERDICT : egalite d'etat, hors du bruit mesure entre references");
+    } else {
+        println!("VERDICT : DIVERGENCE attribuable au candidat");
+        std::process::exit(1);
     }
 }
 

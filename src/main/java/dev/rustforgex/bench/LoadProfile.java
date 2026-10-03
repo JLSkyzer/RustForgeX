@@ -92,6 +92,28 @@ public final class LoadProfile {
     public static final String MEDIUM = "medium";
 
     /**
+     * Test de gameplay G-03 (PARTIE 20.3.4) : génération de 2 000 chunks, comparée à une
+     * référence.
+     *
+     * <p>Ce profil ne charge pas le serveur : il le <strong>fige</strong>, puis fait
+     * générer un carré de chunks à partir de la graine du monde. Tout ce qui varierait
+     * tout seul est arrêté — ticks aléatoires compris, qui font pousser l'herbe et
+     * tomber les feuilles selon un aléa que la graine ne gouverne pas. Ce qui reste est
+     * la génération, que la graine détermine.
+     *
+     * <p>Aucune entité n'est placée : les entités bougent, et l'état comparé est celui
+     * des blocs.
+     */
+    public static final String WORLDGEN = "worldgen";
+
+    /**
+     * Chunks générés par {@link #WORLDGEN} : un carré de 45 sur 45.
+     *
+     * <p>2 025, soit les « 2 000 chunks » de G-03 arrondis au carré le plus proche.
+     */
+    public static final int WORLDGEN_CHUNKS = 2_025;
+
+    /**
      * Côté du carré de régions maintenues chargées, en blocs.
      *
      * <p>{@code /forceload add} refuse au-delà de 256 régions par commande : un carré de
@@ -159,7 +181,8 @@ public final class LoadProfile {
             return List.of();
         }
         if (!CHUNKS.equals(profile) && !MOBS.equals(profile)
-                && !MEDIUM.equals(profile) && !HEAVY.equals(profile)) {
+                && !MEDIUM.equals(profile) && !HEAVY.equals(profile)
+                && !WORLDGEN.equals(profile)) {
             return List.of();
         }
 
@@ -188,7 +211,11 @@ public final class LoadProfile {
             commands.add(String.format(Locale.ROOT, "forceload add %d %d %d %d",
                     -half, -half, half - 1, half - 1));
         }
-        commands.add("gamerule randomTickSpeed " + RANDOM_TICK_SPEED);
+        // G-03 compare l'état des blocs : un tick aléatoire fait pousser l'herbe et
+        // tomber les feuilles selon un aléa que la graine ne gouverne pas, et deux
+        // générations identiques divergeraient sans que le code y soit pour rien.
+        commands.add("gamerule randomTickSpeed "
+                + (WORLDGEN.equals(profile) ? 0 : RANDOM_TICK_SPEED));
 
         int mobs = mobsFor(profile);
         if (mobs > 0) {
@@ -217,6 +244,9 @@ public final class LoadProfile {
         if (HEAVY.equals(profile)) {
             return HEAVY_CHUNKS;
         }
+        if (WORLDGEN.equals(profile)) {
+            return WORLDGEN_CHUNKS;
+        }
         return MEDIUM.equals(profile) ? MEDIUM_CHUNKS : 0;
     }
 
@@ -226,6 +256,22 @@ public final class LoadProfile {
             return HEAVY_MOB_COUNT;
         }
         return MEDIUM.equals(profile) ? MEDIUM_MOB_COUNT : 0;
+    }
+
+    /**
+     * Premier et dernier chunk du carré forcé pour {@code chunks} chunks, sur chaque axe.
+     *
+     * <p>Seule source de cette géométrie : le test G-03 relit exactement les chunks que
+     * le profil a forcés. Deux calculs séparés finiraient par désigner deux carrés
+     * différents, et l'empreinte porterait sur des chunks jamais générés.
+     *
+     * @param chunks nombre de chunks voulus
+     * @return {@code {premier, dernier}}, bornes incluses, identiques en X et en Z
+     */
+    public static int[] forcedChunkRange(int chunks) {
+        int side = (int) Math.round(Math.sqrt(chunks));
+        int half = side / 2;
+        return new int[] {-half, side - half - 1};
     }
 
     /** Côté, en blocs, du carré couvrant `chunks` chunks. */
@@ -242,7 +288,7 @@ public final class LoadProfile {
      */
     private static void appendForceload(List<String> commands, int chunks) {
         int side = (int) Math.round(Math.sqrt(chunks));
-        int halfChunks = side / 2;
+        int halfChunks = -forcedChunkRange(chunks)[0];
         // Une bande de `rows` rangées de `side` chunks tient sous la limite par commande.
         int rows = Math.max(1, FORCELOAD_PER_COMMAND / side);
         for (int row = -halfChunks; row < side - halfChunks; row += rows) {

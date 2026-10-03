@@ -91,6 +91,9 @@ public class RustForgeX {
         // n'abonne personne. Il est ici, et non dans le setup, parce qu'un benchmark
         // doit pouvoir mesurer un serveur où RUSTFORGE-X est désactivé.
         MacroRecorder.armIfRequested();
+        // Test de gameplay G-03 : même raison, et c'est même sa condition — la référence
+        // est une exécution où RUSTFORGE-X est désactivé (PARTIE 20.3.4).
+        dev.rustforgex.bench.DigestRecorder.armIfRequested();
 
         if (earlyArmRequested()) {
             logArmingSchedule();

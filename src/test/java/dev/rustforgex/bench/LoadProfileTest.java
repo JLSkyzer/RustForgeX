@@ -298,4 +298,75 @@ class LoadProfileTest {
 
         assertTrue(chunks >= 1_200, "seulement " + chunks + " chunks chargés");
     }
+
+    /**
+     * G-03 relit exactement les chunks que le profil a forcés. Si les commandes et
+     * {@link LoadProfile#forcedChunkRange} désignaient deux carrés différents, l'empreinte
+     * porterait sur des chunks jamais générés, et la comparaison serait fausse sans que
+     * rien ne le signale.
+     */
+    @Test
+    @DisplayName("G-03 : les commandes forcent exactement le carré que l'empreinte relit")
+    void theWorldgenCommandsForceExactlyTheSquareTheDigestReads() {
+        int[] range = LoadProfile.forcedChunkRange(LoadProfile.WORLDGEN_CHUNKS);
+        java.util.Set<Long> forced = new java.util.HashSet<>();
+        for (String command : LoadProfile.commandsFor(LoadProfile.WORLDGEN)) {
+            if (!command.startsWith("forceload add")) {
+                continue;
+            }
+            String[] parts = command.split(" ");
+            int x0 = Math.floorDiv(Integer.parseInt(parts[2]), 16);
+            int z0 = Math.floorDiv(Integer.parseInt(parts[3]), 16);
+            int x1 = Math.floorDiv(Integer.parseInt(parts[4]), 16);
+            int z1 = Math.floorDiv(Integer.parseInt(parts[5]), 16);
+            assertTrue((long) (x1 - x0 + 1) * (z1 - z0 + 1) <= 256,
+                    command + " dépasse la limite de 256 régions");
+            for (int x = x0; x <= x1; x++) {
+                for (int z = z0; z <= z1; z++) {
+                    forced.add(((long) x << 32) | (z & 0xffffffffL));
+                }
+            }
+        }
+
+        java.util.Set<Long> read = new java.util.HashSet<>();
+        for (int x = range[0]; x <= range[1]; x++) {
+            for (int z = range[0]; z <= range[1]; z++) {
+                read.add(((long) x << 32) | (z & 0xffffffffL));
+            }
+        }
+
+        assertEquals(LoadProfile.WORLDGEN_CHUNKS, read.size());
+        assertEquals(read, forced, "forcé et relu doivent être le même carré");
+    }
+
+    /**
+     * Un tick aléatoire fait pousser l'herbe et tomber les feuilles selon un aléa que la
+     * graine ne gouverne pas. Deux générations identiques divergeraient sans que le code
+     * y soit pour rien.
+     */
+    @Test
+    @DisplayName("G-03 : les ticks aléatoires sont arrêtés, et rien d'autre ne varie seul")
+    void theWorldgenProfileStopsRandomTicks() {
+        List<String> commands = LoadProfile.commandsFor(LoadProfile.WORLDGEN);
+
+        assertTrue(commands.contains("gamerule randomTickSpeed 0"), commands.toString());
+        assertTrue(commands.contains("gamerule doMobSpawning false"));
+        assertTrue(commands.contains("gamerule doFireTick false"));
+        assertTrue(commands.contains("gamerule doDaylightCycle false"));
+        assertTrue(commands.contains("gamerule doWeatherCycle false"));
+    }
+
+    @Test
+    @DisplayName("G-03 : aucune entité n'est placée, l'état comparé est celui des blocs")
+    void theWorldgenProfilePlacesNoEntity() {
+        assertFalse(LoadProfile.commandsFor(LoadProfile.WORLDGEN).stream()
+                .anyMatch(c -> c.contains("summon")));
+    }
+
+    @Test
+    @DisplayName("Les profils de charge gardent leurs ticks aléatoires")
+    void loadProfilesKeepTheirRandomTicks() {
+        assertTrue(LoadProfile.commandsFor(LoadProfile.MEDIUM)
+                .contains("gamerule randomTickSpeed " + LoadProfile.RANDOM_TICK_SPEED));
+    }
 }

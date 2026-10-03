@@ -674,6 +674,31 @@ donc ouvert.
       chien de garde. La table de la PARTIE 22 décrit des mods synthétiques, pas
       290 mods réels ; ses chiffres ne se transposent pas
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
+
+      **Plan G-03 (PARTIE 20.3.4), premier test de gameplay** — génération de 2 000
+      chunks, comparaison NBT avec la référence. Choisi en premier parce que la
+      génération de monde traverse le plus de code de mods sondé, et parce qu'elle part
+      d'une graine : c'est le scénario le plus déterministe de la liste.
+
+      - [ ] Profil `worldgen` dans `LoadProfile` : tout ce qui varie seul est figé,
+            `randomTickSpeed 0` compris, puis un carré de 45 × 45 chunks est forcé
+      - [ ] `WorldDigest` : sérialise chaque chunk par le code du jeu
+            (`ChunkSerializer.write`), retire les champs datés (`LastUpdate`,
+            `InhabitedTime`), et hache **par clé** — blocs, biomes, lumière, entités de
+            bloc, ticks planifiés à part. Un écart doit dire *où* il est
+      - [ ] `DigestRecorder`, armé par `rustforgex.bench.digest.out` : applique le
+            profil, attend que les 2 025 chunks soient `FULL`, laisse reposer, hache,
+            écrit, arrête le serveur. Classe distincte de `MacroRecorder` : l'une mesure
+            le temps, l'autre l'état
+      - [ ] `rfx-bench digest a.json b.json` : compare chunk par chunk et clé par clé
+      - [ ] **A/A d'abord** : deux références, RF-X désactivé. Ce qui diverge là est du
+            non-déterminisme du jeu et des mods, pas de RF-X. Sans cette mesure, l'A/B
+            ne peut rien conclure
+      - [ ] Puis A/B : référence contre RF-X actif. Critère : aucune divergence hors de
+            ce que l'A/A montre déjà instable
+      - [ ] Chaque exécution part d'un monde neuf (`--world g03-<étiquette>`), même
+            graine, supprimé avant la suivante — cible exacte, monde de test créé par
+            le harnais et par lui seul
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :
