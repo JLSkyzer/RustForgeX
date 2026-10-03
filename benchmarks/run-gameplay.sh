@@ -20,90 +20,117 @@
 # La sortie de `rfx-bench digest` donne, pour chaque composante, combien de fois chaque
 # position a été l'intruse : c'est là qu'on vérifie que le biais a disparu.
 #
+# DEUX GARDE-FOUS, posés après une campagne gâchée le 2026-10-03.
+#   - Tout le script tient dans la fonction `main`, suivie d'un `exit`. Bash lit un
+#     script au fil de l'exécution : modifier le fichier pendant qu'une campagne tourne
+#     lui faisait rejouer une partie de la boucle, et lancer un second serveur en même
+#     temps qu'un autre. Une fonction est lue en entier avant d'être exécutée.
+#   - Un verrou interdit deux campagnes simultanées sur la même sortie.
+#
 # Le script supprime, avant chaque exécution, le monde de test qu'il va créer — et
 # seulement lui : un dossier `gp-<scénario>-<étiquette>` dans la racine du serveur. Le
-# monde principal et la configuration du serveur ne sont jamais touchés.
+# monde principal et la configuration du serveur ne sont jamais touchés. Il vide aussi,
+# au départ, les résultats de la campagne précédente dans `benchmarks/runs/gameplay/`,
+# pour qu'un fichier ancien ne soit jamais lu comme un nouveau.
 
 set -u
 
-SERVER="${1:?usage: run-gameplay.sh <racine_du_serveur> [g03,g01]}"
-SCENARIOS="${2:-g03,g01}"
-JAVA="${JAVA:-java}"
+main() {
+    local server="${1:?usage: run-gameplay.sh <racine_du_serveur> [g03,g01]}"
+    local scenarios="${2:-g03,g01}"
+    local java="${JAVA:-java}"
 
-cd "$(dirname "$0")/.." || exit 1
-PROJ="$(pwd)"
-OUT="$PROJ/benchmarks/runs/gameplay"
-mkdir -p "$OUT"
+    cd "$(dirname "$0")/.." || return 1
+    local proj
+    proj="$(pwd)"
+    local out="$proj/benchmarks/runs/gameplay"
+    mkdir -p "$out"
 
-FV="$(ls "$SERVER/libraries/net/minecraftforge/forge" | head -1)"
-AF="libraries/net/minecraftforge/forge/$FV/win_args.txt"
-[ -f "$SERVER/$AF" ] || AF="libraries/net/minecraftforge/forge/$FV/unix_args.txt"
-
-cp "$PROJ/build/libs/rustforgex-1.0-SNAPSHOT.jar" \
-   "$PROJ/build/libs/rustforgex-launch-1.0-SNAPSHOT.jar" "$SERVER/mods/" || exit 1
-
-# run <scenario> <étiquette> <true|false>
-run() {
-    local scenario=$1 label=$2 enabled=$3
-    local world="gp-$scenario-$label"
-    echo "$(date +%H:%M:%S) == $scenario / $label : RUSTFORGE-X $enabled"
-    rm -rf "${SERVER:?}/$world"
-    rm -f "$OUT/$scenario-$label.json"
-    ( cd "$SERVER" && "$JAVA" \
-        -Drustforgex.bench.scenario="$scenario" \
-        -Drustforgex.bench.digest.out="$OUT/$scenario-$label.json" \
-        -Drustforgex.bench.label="$scenario-$label" \
-        -Drustforgex.general.enabled="$enabled" \
-        "@user_jvm_args.txt" "@$AF" nogui --world "$world" ) > "$OUT/$scenario-$label.log" 2>&1
-    if [ -f "$OUT/$scenario-$label.json" ]; then
-        echo "$(date +%H:%M:%S)    fini"
-    else
-        echo "$(date +%H:%M:%S)    ÉCHEC : aucune empreinte. Journal : $OUT/$scenario-$label.log"
+    if ! mkdir "$out/.lock" 2>/dev/null; then
+        echo "Une campagne tourne déjà (verrou $out/.lock). Abandon."
+        echo "Si aucune ne tourne, le verrou est un reste d'arrêt brutal : le supprimer."
+        return 3
     fi
-}
+    trap 'rmdir "$out/.lock" 2>/dev/null' EXIT
 
-# Messages d'erreur, nombres normalisés : ce qui reste doit être identique d'une
-# exécution à l'autre si RUSTFORGE-X n'ajoute aucune erreur.
-errors() {
-    grep '/ERROR\]' "$1" | sed -E 's/^\[[0-9:]+\] \[[^]]*\/ERROR\] //; s/[0-9]+/N/g' | sort -u
-}
+    rm -f "$out"/*.json "$out"/*.log
 
-# L'échauffement est toujours une génération G-03, la plus courte : son rôle est de
-# réchauffer les caches de la machine (jars des mods, système de fichiers), pas de
-# jouer le scénario. Son résultat est écarté.
-echo "Échauffement : une exécution de g03, écartée."
-run g03 warmup false
+    local fv af
+    fv="$(ls "$server/libraries/net/minecraftforge/forge" | head -1)"
+    af="libraries/net/minecraftforge/forge/$fv/win_args.txt"
+    [ -f "$server/$af" ] || af="libraries/net/minecraftforge/forge/$fv/unix_args.txt"
 
-IFS=',' read -r -a LIST <<< "$SCENARIOS"
-for scenario in "${LIST[@]}"; do
-    run "$scenario" ref1 false
-    run "$scenario" rfx true
-    run "$scenario" ref2 false
-done
+    cp "$proj/build/libs/rustforgex-1.0-SNAPSHOT.jar" \
+       "$proj/build/libs/rustforgex-launch-1.0-SNAPSHOT.jar" "$server/mods/" || return 1
 
-status=0
-for scenario in "${LIST[@]}"; do
-    echo
-    echo "════ $scenario ════"
-    cargo run -q -p rfx-bench -- digest \
-        "$OUT/$scenario-ref1.json" "$OUT/$scenario-ref2.json" "$OUT/$scenario-rfx.json"
-    verdict=$?
-    [ "$verdict" -gt "$status" ] && status=$verdict
+    # run <scenario> <étiquette> <true|false>
+    run() {
+        local scenario=$1 label=$2 enabled=$3
+        local world="gp-$scenario-$label"
+        echo "$(date +%H:%M:%S) == $scenario / $label : RUSTFORGE-X $enabled"
+        rm -rf "${server:?}/$world"
+        ( cd "$server" && "$java" \
+            -Drustforgex.bench.scenario="$scenario" \
+            -Drustforgex.bench.digest.out="$out/$scenario-$label.json" \
+            -Drustforgex.bench.label="$scenario-$label" \
+            -Drustforgex.general.enabled="$enabled" \
+            "@user_jvm_args.txt" "@$af" nogui --world "$world" ) > "$out/$scenario-$label.log" 2>&1
+        if [ -f "$out/$scenario-$label.json" ]; then
+            echo "$(date +%H:%M:%S)    fini"
+        else
+            echo "$(date +%H:%M:%S)    ÉCHEC : aucune empreinte. Journal : $out/$scenario-$label.log"
+        fi
+    }
 
-    echo "── erreurs"
-    for label in ref1 rfx ref2; do
-        log="$OUT/$scenario-$label.log"
-        printf "   %-5s ERROR %4s   VerifyError/ClassFormat %s   RUSTFORGE-X %s\n" "$label" \
-            "$(grep -c '/ERROR\]' "$log")" \
-            "$(grep -cE 'VerifyError|ClassFormatError|IncompatibleClassChange|NoSuchMethodError' "$log")" \
-            "$(grep '/ERROR\]' "$log" | grep -ci rustforge)"
+    # Messages d'erreur, nombres normalisés : ce qui reste doit être identique d'une
+    # exécution à l'autre si RUSTFORGE-X n'ajoute aucune erreur.
+    errors() {
+        grep '/ERROR\]' "$1" | sed -E 's/^\[[0-9:]+\] \[[^]]*\/ERROR\] //; s/[0-9]+/N/g' | sort -u
+    }
+
+    # L'échauffement est toujours une génération G-03, la plus courte : son rôle est de
+    # réchauffer les caches de la machine (jars des mods, système de fichiers), pas de
+    # jouer le scénario. Son résultat est écarté.
+    echo "Échauffement : une exécution de g03, écartée."
+    run g03 warmup false
+
+    local list scenario label log status=0 verdict
+    IFS=',' read -r -a list <<< "$scenarios"
+    for scenario in "${list[@]}"; do
+        run "$scenario" ref1 false
+        run "$scenario" rfx true
+        run "$scenario" ref2 false
     done
-    if diff <(errors "$OUT/$scenario-ref1.log") <(errors "$OUT/$scenario-rfx.log") > /dev/null; then
-        echo "   messages d'erreur identiques entre référence et candidat"
-    else
-        echo "   MESSAGES D'ERREUR DIFFÉRENTS :"
-        diff <(errors "$OUT/$scenario-ref1.log") <(errors "$OUT/$scenario-rfx.log") | head -20
-        status=1
-    fi
-done
-exit "$status"
+
+    for scenario in "${list[@]}"; do
+        echo
+        echo "════ $scenario ════"
+        cargo run -q -p rfx-bench -- digest \
+            "$out/$scenario-ref1.json" "$out/$scenario-ref2.json" "$out/$scenario-rfx.json"
+        verdict=$?
+        [ "$verdict" -gt "$status" ] && status=$verdict
+
+        echo "── erreurs"
+        for label in ref1 rfx ref2; do
+            log="$out/$scenario-$label.log"
+            printf "   %-5s ERROR %4s   VerifyError/ClassFormat %s   RUSTFORGE-X %s   chien de garde %s\n" \
+                "$label" \
+                "$(grep -c '/ERROR\]' "$log")" \
+                "$(grep -cE 'VerifyError|ClassFormatError|IncompatibleClassChange|NoSuchMethodError' "$log")" \
+                "$(grep '/ERROR\]' "$log" | grep -ci rustforge)" \
+                "$(grep -c 'ServerHangWatchdog\|single server tick took' "$log")"
+        done
+        if diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-rfx.log") > /dev/null; then
+            echo "   messages d'erreur identiques entre référence et candidat"
+        else
+            echo "   MESSAGES D'ERREUR DIFFÉRENTS :"
+            diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-rfx.log") | head -20
+            status=1
+        fi
+    done
+    echo "CAMPAGNE TERMINÉE, statut $status"
+    return "$status"
+}
+
+main "$@"
+exit $?

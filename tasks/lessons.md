@@ -810,3 +810,25 @@ Deux constats :
   `ADDLOCAL=ZuluInstallation` seul. Ce que dit `ADDLOCAL` ne suffit pas à prédire ce
   qu'un MSI écrit : relever l'état avant et après chaque paquet l'a montré, et c'est la
   seule façon de le savoir.
+
+### 2026-10-03 | Une campagne de tests de gameplay a mélangé deux exécutions concurrentes et rejoué une partie de sa boucle | Cause : j'ai modifié `run-gameplay.sh` pendant qu'il tournait ; bash lit un script au fil de l'exécution, à une position dans le fichier | Règle : ne jamais modifier un script en cours d'exécution, et écrire tout script long sous la forme `main() { … }; main "$@"; exit`
+
+Une première campagne avait été « arrêtée » par la limite de durée des tâches de fond :
+seule l'enveloppe l'était, le script continuait. Je l'ai cru mort, j'ai modifié le
+fichier pour changer l'échauffement, puis lancé une nouvelle campagne. Le vieux script,
+relisant le fichier modifié à sa position courante, a rejoué une seconde série
+d'exécutions ; le nouveau a lancé son échauffement en même temps sur le même serveur,
+qui a planté au démarrage. Vingt-cinq minutes de résultats inutilisables.
+
+**Règles** :
+- un script lancé reste intouchable jusqu'à sa fin. Pour corriger, l'arrêter d'abord et
+  vérifier qu'aucun processus n'en reste (`Get-CimInstance Win32_Process` sur la ligne
+  de commande) ;
+- un script long s'écrit `main() { … }` puis `main "$@"; exit $?` : bash lit une
+  fonction en entier avant de l'exécuter, et l'`exit` l'empêche de relire la suite ;
+- toute campagne qui pilote une ressource partagée (un serveur, un dossier de monde)
+  prend un verrou, et le refuse s'il existe ;
+- « la tâche a été arrêtée » se vérifie sur la liste des processus, pas sur la
+  notification ;
+- une campagne vide ses résultats précédents au départ : un fichier ancien lu comme
+  nouveau a déjà fait déclencher une attente trop tôt.
