@@ -194,6 +194,14 @@ backend branché sur un moteur RUSTFORGE-X passerait par le pont optionnel d'AXI
 - À la fin, OpenGL ne sert plus qu'aux mods qui l'appellent en brut, par LWJGL, au lieu de
   passer par les fonctions de Minecraft ou de Forge.
 
+**Faisabilité, état au 2026-10-03.** Chaque brique a un précédent : relance du jeu
+(CleanroomRelauncher, §13.9), choix de la bibliothèque OpenGL de LWJGL
+(`org.lwjgl.opengl.libname`, §13.8), OpenGL sur Vulkan (Zink), moteur Vulkan pour Minecraft
+(VulkanMod), point d'entrée unique de vanilla (`GlStateManager`, §13.1). Rien d'impossible
+n'est apparu ; restent un chantier de l'ampleur de Zink et de VulkanMod réunis, et les
+vérifications des §13.6, §13.8 et §13.9. La fenêtre reste celle de GLFW — clavier, souris
+et événements inchangés —, mais l'image qui s'y affiche, la swapchain, est celle du moteur.
+
 ### 13.1 Le point d'entrée : Blaze3D
 
 Relevé le 2026-10-03 dans le jeu patché par Forge 47.4.23
