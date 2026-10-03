@@ -735,3 +735,7 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
 - **Licence définitive** (ADR-010) : `LICENSE` est aujourd'hui « tous droits réservés »,
   cohérent avec `mod_license`. Hors périmètre de décision de l'agent (contrat 5).
 - **Remote git** : le dépôt est local, aucun remote configuré, aucun push effectué.
+- **Rendu multi-thread et moteur Vulkan** (discussion du 2026-10-03) : consignée dans
+  `docs/design/C-53-exploration-rendu-vulkan.md`, à analyser par une session dédiée avant
+  tout code. Dépasse C-53 (préparation de données seulement) et R-830 ; une bibliothèque
+  native tierce (`wgpu`, `ash`) est hors périmètre de décision de l'agent (contrat 5).
