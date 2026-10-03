@@ -4976,7 +4976,7 @@ Ce fichier DOIT permettre à un agent de reprendre le projet sans aucune convers
 2. Comment construire, tester, lancer, benchmarker (commandes exactes)
 3. Comment lancer un serveur de test et un client de test
 4. Où sont les identifiants normatifs (R-xxx, C-xx, T-xxx) et comment les citer
-5. Ordre d'implémentation recommandé (jalons M0..M10)
+5. Ordre d'implémentation recommandé (jalons M0..M11)
 6. Invariants à ne jamais violer (liste INV-xx recopiée)
 7. Procédure de debug : logs, dumps, /rfx why, rfx-cli
 8. Procédure quand un test échoue : comment reproduire, comment isoler
@@ -5378,6 +5378,25 @@ DoD       : PARTIE 29.5 et PARTIE 31 intégralement
 Sortie    : rustforgex-1.0.0
 ```
 
+## M11 : Refonte du moteur de rendu
+
+Ajouté le 2026-10-03 par décision de Killian (ADR-031). **Après la 1.0.0** : rien de ce
+jalon ne doit infléchir M0 à M10. Point de départ : `docs/design/C-53-exploration-rendu-vulkan.md`.
+
+```text
+Préalable : rustforgex-1.0.0 publiée (M10) ; choix d'une bibliothèque native
+            tierce (contrat 5)
+Contenu   : nouveau composant de rendu natif, prolongeant C-53 et C-47 ; numéro,
+            exigences et tests fixés par un ADR de spécification, avant tout code
+Livrable  : rendu du jeu et des mods réparti sur tous les cœurs, par un moteur
+            natif moderne (Vulkan envisagé, à trancher)
+DoD       : fixée par l'ADR de spécification ; au minimum correction prouvée
+            (UNKNOWN = CONSERVATIVE), gains mesurés par C-36 sur les profils de la
+            PARTIE 22, aucune régression de compatibilité (PARTIE 18)
+Sortie    : rendu multi-cœur pour tout ce dont la correction est prouvée, le reste
+            inchangé
+```
+
 ## 30.1 Correspondance avec les phases du V0.3
 
 | Phase V0.3 | Jalon V1.0 | Écart et justification |
@@ -5391,7 +5410,7 @@ Sortie    : rustforgex-1.0.0
 | Phase 7 IR | M6 | identique, périmètre restreint (I-01) |
 | Phase 8 Native execution | M7 | identique, optionnel |
 | Phase 9 Rust-native subsystems | M8 | requalifié : via SDK, opt-in (I-06) |
-| Phase 10 Rust-dominant runtime | hors V1.0 | direction conservée, non promise |
+| Phase 10 Rust-dominant runtime | hors V1.0 ; son volet rendu : M11, après la 1.0.0 | direction conservée, non promise ; le rendu devient un jalon (ADR-031) |
 
 ---
 
@@ -5544,7 +5563,7 @@ Risques        : RISK-01..RISK-15 (PARTIE 1)
 Exigences      : R-100..R-920 (tout le document)
 Tests          : T-001..T-900, G-01..G-15, B-01..B-10
 Décisions      : ADR-001..ADR-012
-Jalons         : M0..M10
+Jalons         : M0..M11
 ```
 
 ## A.4 Traçabilité V0.3 vers V1.0

@@ -738,12 +738,12 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
 
 ---
 
-## Après la fin du cahier des charges v1.0
+## M11 — Refonte du moteur de rendu (après la 1.0.0)
 
-Pistes à ne prendre en compte qu'une fois tout le CDC v1.0 livré (décision de Killian,
-2026-10-03). Aucune ne doit infléchir les jalons M0 à M10.
+Jalon ajouté au CDC le 2026-10-03 par décision de Killian (ADR-031, PARTIE 30). Il ne
+commence qu'une fois la 1.0.0 publiée ; rien de ce qui suit ne doit infléchir M0 à M10.
 
-- **Rendu multi-thread et moteur Vulkan** (discussion du 2026-10-03) : consignée dans
-  `docs/design/C-53-exploration-rendu-vulkan.md`. Dépasse C-53 (préparation de données
-  seulement) et R-830 ; une bibliothèque native tierce (`wgpu`, `ash`) est hors périmètre
-  de décision de l'agent (contrat 5).
+- [ ] Spécifier le jalon par un ADR avant tout code : composant, exigences, tests,
+      Definition of Done. Point de départ : `docs/design/C-53-exploration-rendu-vulkan.md`.
+- [ ] Choisir, ou non, une bibliothèque native tierce (`wgpu`, `ash`) : décision de
+      Killian (contrat 5).

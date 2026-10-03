@@ -1,8 +1,8 @@
 # C-53 et au-delà — rendu multi-thread et moteur Vulkan : note d'exploration
 
-Statut : **exploration, rien n'est décidé ni implémenté — à ne prendre en compte qu'après
-la fin complète du cahier des charges v1.0** (décision de Killian, 2026-10-03). D'ici là,
-rien ici ne doit infléchir C-53 ni aucun jalon. Discussion entre Killian et l'assistant du
+Statut : **exploration, rien n'est décidé ni implémenté — matière du jalon M11 (ADR-031),
+qui ne commence qu'après la 1.0.0** (décision de Killian, 2026-10-03). D'ici là, rien ici
+ne doit infléchir C-53 ni aucun jalon de M0 à M10. Discussion entre Killian et l'assistant du
 2026-10-03, tenue depuis une session AXION ENGINE et consignée ici à la demande de
 Killian, pour qu'une session dédiée à RUSTFORGE-X l'analyse en détail le moment venu.
 
@@ -178,8 +178,8 @@ backend branché sur un moteur RUSTFORGE-X passerait par le pont optionnel d'AXI
 
 ## 12. Décisions à prendre par Killian, et suite
 
-1. Étendre C-53 aux appels graphiques et à un moteur Vulkan, ou créer un composant
-   dédié : ADR daté (contrat 1.4).
+1. Spécifier M11 par un ADR : étendre C-53 aux appels graphiques et à un moteur Vulkan,
+   ou créer un composant dédié (contrat 1.4).
 2. Choisir, ou non, une bibliothèque native tierce (`wgpu`, `ash`) : contrat 5.
 3. Fixer la ou les versions de Minecraft visées, et la position vis-à-vis du Vulkan de
    Mojang.

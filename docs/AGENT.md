@@ -134,7 +134,7 @@ feat(C-17): work stealing deque [R-420, T-260]
 
 ---
 
-## 5. Ordre d'implémentation (jalons M0..M10)
+## 5. Ordre d'implémentation (jalons M0..M11)
 
 Chaque jalon produit un **JAR installable et jouable**. Aucun jalon ne laisse le
 projet dans un état non fonctionnel.
@@ -152,6 +152,7 @@ projet dans un état non fonctionnel.
 | M8 | SDK | C-39 |
 | M9 | Durcissement | sécurité, confinement, watchdog |
 | M10 | Stabilisation | release candidate |
+| M11 | Refonte du moteur de rendu, après la 1.0.0 | spécifiée par ADR avant tout code — ADR-031, `docs/design/C-53-exploration-rendu-vulkan.md` |
 
 Détail complet et Definition of Done : CDC PARTIES 29 et 30.
 
