@@ -164,6 +164,33 @@ public final class DigestRecorder {
     private int readyAt = -1;
     private Deque<String> pending;
     private boolean finished;
+    private boolean squareForced;
+
+    /**
+     * Marque le carré comme forcé, sans attendre que ses chunks soient générés.
+     *
+     * <p>{@code /forceload add} charge chaque chunk de façon SYNCHRONE, dans le tick qui
+     * exécute la commande. Le serveur prend alors du retard sur son horaire, et le chien
+     * de garde ne mesure pas un tick isolé mais ce retard cumulé, qui ne se rattrape pas
+     * d'un tick lent à l'autre. Étaler les commandes n'y changeait rien : une référence
+     * sans RUSTFORGE-X a été arrêtée après 120 s de retard accumulé sur six bandes.
+     *
+     * <p>{@code setChunkForced} pose le ticket de forçage et rend la main : les threads de
+     * génération travaillent en arrière-plan, le serveur continue à vingt ticks par
+     * seconde, et {@link #countReady} attend que les chunks soient complets. C'est aussi
+     * plus proche du jeu réel, où la génération est asynchrone. Le carré forcé est le même
+     * — {@link LoadProfile#forcedChunkRange} — et {@code forceload remove all} le libère
+     * comme s'il avait été posé par la commande.
+     */
+    private void forceSquare(ServerLevel level) {
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                level.setChunkForced(x, z, true);
+            }
+        }
+        LOGGER.info("{} : {} chunks marqués forcés, génération en arrière-plan.",
+                scenario.id, expected());
+    }
 
     private DigestRecorder(Path out, String label, Scenario scenario, int settleTicks,
             int timeoutTicks) {
@@ -216,7 +243,12 @@ public final class DigestRecorder {
             return;
         }
         if (seen == APPLY_AT_TICK) {
-            pending = new ArrayDeque<>(LoadProfile.commandsFor(LoadProfile.WORLDGEN));
+            // Les `forceload add` sont retirés de la file et remplacés par forceSquare :
+            // voir sa documentation. Le reste du profil — figer le jeu, vider les forçages
+            // précédents — passe par les commandes, comme pour les profils de charge.
+            pending = new ArrayDeque<>(LoadProfile.commandsFor(LoadProfile.WORLDGEN).stream()
+                    .filter(command -> !command.startsWith("forceload add"))
+                    .toList());
             appliedAt = seen;
         }
         if (pending == null) {
@@ -230,6 +262,11 @@ public final class DigestRecorder {
             // RUSTFORGE-X l'a franchi et le serveur a été arrêté. Une bande par tick reste
             // très en deçà, quelle que soit la charge.
             LoadProfile.pump(server, new ArrayDeque<>(java.util.List.of(pending.poll())));
+            return;
+        }
+        if (!squareForced) {
+            forceSquare(server.overworld());
+            squareForced = true;
             return;
         }
         if (seen % POLL_EVERY_TICKS != 0) {
