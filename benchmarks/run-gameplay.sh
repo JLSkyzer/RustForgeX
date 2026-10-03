@@ -68,9 +68,11 @@ errors() {
     grep '/ERROR\]' "$1" | sed -E 's/^\[[0-9:]+\] \[[^]]*\/ERROR\] //; s/[0-9]+/N/g' | sort -u
 }
 
-FIRST="${SCENARIOS%%,*}"
-echo "Échauffement : une exécution de $FIRST, écartée."
-run "$FIRST" warmup false
+# L'échauffement est toujours une génération G-03, la plus courte : son rôle est de
+# réchauffer les caches de la machine (jars des mods, système de fichiers), pas de
+# jouer le scénario. Son résultat est écarté.
+echo "Échauffement : une exécution de g03, écartée."
+run g03 warmup false
 
 IFS=',' read -r -a LIST <<< "$SCENARIOS"
 for scenario in "${LIST[@]}"; do

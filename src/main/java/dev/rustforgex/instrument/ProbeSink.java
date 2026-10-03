@@ -116,12 +116,38 @@ public final class ProbeSink {
 
         int touchedLen;
 
+        /**
+         * Thread propriétaire, en référence faible.
+         *
+         * <p>Sert à savoir s'il est mort, pour rendre sa place à un autre (voir
+         * {@link ProbeSink#recycleDeadThreadId()}). Faible, pour ne pas retenir en
+         * mémoire des milliers de threads terminés.
+         */
+        final java.lang.ref.WeakReference<Thread> owner;
+
         ThreadState(int threadId, String threadName, ByteBuffer buffer, int probeCapacity) {
             this.threadId = threadId;
             this.threadName = threadName;
             this.buffer = buffer;
             this.counts = new int[probeCapacity];
             this.touched = new int[probeCapacity];
+            this.owner = new java.lang.ref.WeakReference<>(Thread.currentThread());
+        }
+
+        /**
+         * Marqueur d'un thread que le natif a refusé de doter d'un tampon.
+         *
+         * <p>Identifiant négatif, aucun tampon. Son époque dit quand le refus a eu lieu :
+         * on ne retente qu'au tick suivant (voir {@link ProbeSink#admit}).
+         */
+        static ThreadState refused() {
+            return new ThreadState(REFUSED, Thread.currentThread().getName(), null, 0);
+        }
+
+        /** @return {@code true} si le thread propriétaire est terminé */
+        boolean ownerDead() {
+            Thread thread = owner.get();
+            return thread == null || !thread.isAlive();
         }
 
         /**
@@ -149,6 +175,12 @@ public final class ProbeSink {
      * coûter le strict minimum, elle a lieu à chaque appel sondé.
      */
     private final ThreadLocal<ThreadState> state = new ThreadLocal<>();
+
+    /** Identifiant d'un {@link ThreadState#refused() marqueur de refus}. */
+    private static final int REFUSED = -1;
+
+    /** Threads ayant repris la place d'un thread terminé. */
+    private final AtomicLong recycledThreads = new AtomicLong();
 
     private final NativeBridge bridge;
     private final long handle;
@@ -300,8 +332,8 @@ public final class ProbeSink {
      */
     public boolean count(int probeId) {
         ThreadState current = state.get();
-        if (current == null) {
-            current = attach();
+        if (current == null || current.threadId == REFUSED) {
+            current = admit(current);
             if (current == null) {
                 return false;
             }
@@ -348,8 +380,8 @@ public final class ProbeSink {
 
     public boolean record(int probeId, byte kind, short contextHash, long timestampNs, long value) {
         ThreadState current = state.get();
-        if (current == null) {
-            current = attach();
+        if (current == null || current.threadId == REFUSED) {
+            current = admit(current);
             if (current == null) {
                 return false;
             }
@@ -406,7 +438,10 @@ public final class ProbeSink {
      */
     public int flush() {
         long epoch = tickEpoch + 1L;
-        ThreadState current = state.get();
+        ThreadState state0 = state.get();
+        // Un thread refusé n'a pas de tampon à vider, et son marqueur ne doit pas recevoir
+        // la nouvelle époque : il retenterait alors son admission un tick trop tard.
+        ThreadState current = state0 == null || state0.threadId == REFUSED ? null : state0;
         int used = 0;
         if (current != null) {
             // L'epoque courante, pas la suivante : le reversement ecrit des
@@ -539,8 +574,68 @@ public final class ProbeSink {
      *
      * @return l'état du thread, ou {@code null} s'il ne peut pas être sondé
      */
+    /**
+     * Admet le thread courant dans le puits, ou rend {@code null} s'il ne peut l'être.
+     *
+     * <h2>Pourquoi un refus doit être retenu</h2>
+     *
+     * <p>Le natif refuse un tampon quand son plafond de threads est atteint. Ce refus
+     * n'était pas retenu : chaque appel sondé suivant de ce thread retentait la
+     * traversée, sous le verrou global du natif. Le pool commun de Java crée et détruit
+     * des threads sans cesse ; une fois le plafond rempli, chaque nouveau thread
+     * repassait par le natif <strong>à chaque appel sondé</strong>. Le test G-03 l'a
+     * montré : quatorze threads de génération de terrain bloqués sur ce verrou, une
+     * génération quatre à cinq fois plus lente, et le chien de garde du serveur qui l'a
+     * arrêté après un tick de 120 secondes.
+     *
+     * <p>Un thread refusé garde désormais un marqueur, et ne retente qu'une fois par tick.
+     *
+     * @param previous marqueur de refus antérieur, ou {@code null} au premier appel
+     * @return l'état du thread admis, ou {@code null} s'il reste refusé
+     */
+    private ThreadState admit(ThreadState previous) {
+        long epoch = tickEpoch;
+        if (previous != null && previous.epoch == epoch) {
+            return null;
+        }
+        ThreadState created = attach();
+        if (created != null) {
+            return created;
+        }
+        ThreadState marker = previous != null ? previous : ThreadState.refused();
+        marker.epoch = epoch;
+        state.set(marker);
+        return null;
+    }
+
+    /**
+     * Reprend l'identifiant d'un thread terminé, s'il y en a un.
+     *
+     * <p>Le natif garde un tampon par identifiant et n'en rend jamais. Sans recyclage, les
+     * soixante-quatre places se remplissaient de threads morts, et plus aucun thread
+     * vivant n'était sondé. Un identifiant repris retrouve son tampon natif tel quel :
+     * aucune nouvelle réservation, et les enregistrements non remis du thread mort sont
+     * perdus — la limite déjà assumée d'un thread qui se tait (ADR-029).
+     *
+     * <p>Parcourt la liste des états : appelée à l'attachement seulement, jamais dans le
+     * chemin d'appel. {@code remove} sur une liste à copie sur écriture ne réussit que
+     * pour un seul appelant : deux threads ne peuvent pas reprendre la même place.
+     *
+     * @return l'identifiant repris, ou {@code -1}
+     */
+    private int recycleDeadThreadId() {
+        for (ThreadState candidate : attached) {
+            if (candidate.ownerDead() && attached.remove(candidate)) {
+                recycledThreads.incrementAndGet();
+                return candidate.threadId;
+            }
+        }
+        return -1;
+    }
+
     private ThreadState attach() {
-        int threadId = nextThreadId.getAndIncrement();
+        int recycled = recycleDeadThreadId();
+        int threadId = recycled >= 0 ? recycled : nextThreadId.getAndIncrement();
         ByteBuffer buffer = bridge.probeBufferAcquire(handle, threadId);
         if (buffer == null) {
             // Budget mémoire atteint, ou trop de threads déjà suivis : ce thread ne
@@ -598,9 +693,14 @@ public final class ProbeSink {
         return flushBudgetExceeded.get();
     }
 
-    /** @return le nombre de threads que le natif a refusé de doter d'un tampon */
+    /** @return le nombre de refus du natif, retentatives d'un même thread comprises */
     public long refusedThreads() {
         return refusedThreads.get();
+    }
+
+    /** @return le nombre de threads ayant repris la place d'un thread terminé */
+    public long recycledThreads() {
+        return recycledThreads.get();
     }
 
     /**

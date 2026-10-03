@@ -31,8 +31,12 @@ class ProbeSinkTest {
         int bufferBytes = 1024;
         int maxThreads = 8;
 
+        /** Traversées de frontière pour obtenir un tampon, refusées comprises. */
+        int acquireCalls;
+
         @Override
         public ByteBuffer probeBufferAcquire(long handle, int threadId) {
+            acquireCalls++;
             if (buffers.size() >= maxThreads && !buffers.containsKey(threadId)) {
                 return null;
             }
@@ -330,7 +334,89 @@ class ProbeSinkTest {
         @Override
         public void close() {
             executor.shutdownNow();
+            try {
+                // Attendre la fin réelle du thread : un test de recyclage en dépend.
+                executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
+    }
+
+    /**
+     * G-03 l'a révélé en production : un refus du natif n'était pas retenu, et chaque
+     * appel sondé d'un thread refusé retraversait la frontière sous le verrou global.
+     * Quatorze threads de génération de terrain s'y bousculaient, la génération devenait
+     * quatre à cinq fois plus lente, et le chien de garde arrêtait le serveur.
+     */
+    @Test
+    @DisplayName("G-03 : un thread refusé ne retraverse pas la frontière à chaque appel")
+    void arefusedThreadDoesNotCrossTheBoundaryOnEveryCall() {
+        FakeBridge bridge = new FakeBridge();
+        bridge.maxThreads = 1;
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(16);
+        assertTrue(sink.count(1), "le premier thread prend la seule place");
+
+        try (Worker worker = new Worker("ForkJoinPool.commonPool-worker-1")) {
+            worker.run(() -> {
+                for (int i = 0; i < 1_000; i++) {
+                    assertFalse(sink.count(2));
+                }
+            });
+        }
+
+        assertEquals(2, bridge.acquireCalls,
+                "une traversée pour le premier thread, une seule pour le refusé — pas mille");
+    }
+
+    @Test
+    @DisplayName("Un thread refusé retente une fois par tick, pas davantage")
+    void arefusedThreadRetriesOncePerTick() {
+        FakeBridge bridge = new FakeBridge();
+        bridge.maxThreads = 1;
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(16);
+        sink.count(1);
+
+        try (Worker worker = new Worker("thread-refuse")) {
+            worker.run(() -> sink.count(2));
+            sink.flush();
+            worker.run(() -> {
+                for (int i = 0; i < 100; i++) {
+                    sink.count(2);
+                }
+            });
+        }
+
+        assertEquals(3, bridge.acquireCalls, "une tentative de plus au tick suivant");
+    }
+
+    /**
+     * Le natif garde un tampon par identifiant et n'en rend jamais. Sans recyclage, ses
+     * soixante-quatre places se remplissaient de threads morts — le pool commun en crée
+     * et en détruit des milliers — et plus aucun thread vivant n'était sondé.
+     */
+    @Test
+    @DisplayName("La place d'un thread terminé est reprise par un nouveau thread")
+    void adeadThreadsSlotIsTakenOverByANewThread() {
+        FakeBridge bridge = new FakeBridge();
+        bridge.maxThreads = 1;
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(16);
+
+        try (Worker first = new Worker("thread-ephemere")) {
+            first.run(() -> assertTrue(sink.count(1)));
+        }
+
+        try (Worker second = new Worker("thread-suivant")) {
+            second.run(() -> assertTrue(sink.count(2),
+                    "la place du thread terminé doit être reprise, pas refusée"));
+        }
+
+        assertEquals(1, bridge.buffers.size(), "le tampon natif est réutilisé, pas doublé");
+        assertEquals(1L, sink.recycledThreads());
+        assertEquals(0L, sink.refusedThreads());
     }
 
     /**

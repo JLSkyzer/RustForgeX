@@ -245,6 +245,18 @@ public final class DigestRecorder {
         minZ = spawnZ - G01_RADIUS;
         maxZ = spawnZ + G01_RADIUS;
         appliedAt = 0;
+        // Sans joueur, rien ne garantit que ces chunks soient chargés : sur le serveur de
+        // banc, servercore désactive même les chunks d'apparition
+        // (`disable-spawn-chunks: true`), et la première exécution de G-01 a relu zéro
+        // chunk sur 289. On les recharge donc depuis le disque : c'est l'état persistant du
+        // monde après cinq minutes de tick à vide. Ils ont été générés au démarrage
+        // (« Preparing spawn area »), sur un rayon plus large que celui relu ici : les
+        // relire ne génère rien.
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                level.getChunk(x, z);
+            }
+        }
         finish(server, level, countReady(level), false);
     }
 
