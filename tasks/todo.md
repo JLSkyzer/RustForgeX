@@ -720,8 +720,12 @@ donc ouvert.
             Corrigé (`9405d35`) : 81 s contre 73 à 82 s pour les références
       - [x] **G-03 et G-01 passent** (ADR-032) : égalité stricte au-dessus de Y = 160 et
             Y = 112, biomes et structures ; mêmes erreurs ; aucun chien de garde
-      - [ ] G-08 (sauvegarde, rechargement, comparaison) et les autres scénarios
-            G-02..G-15 ; G-02, G-10 et G-15 demandent des clients
+      - [x] **G-08** (ADR-032) : blocs et biomes font un aller-retour parfait, avec et
+            sans RF-X. Structures : 2 chunks diffèrent, les mêmes chez la référence
+      - [ ] **G-08, entités de bloc** : le jeu ne les relit pas à l'identique (21 et 28
+            chunks pour les références), RF-X 34 — non concluant. Identifier le type
+            d'entité en cause par une empreinte par entité dans les chunks en écart
+      - [ ] Les autres scénarios G-02..G-15 ; G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :
