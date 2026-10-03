@@ -1,8 +1,10 @@
 # C-53 et au-delà — rendu multi-thread et moteur Vulkan : note d'exploration
 
-Statut : **exploration, rien n'est décidé ni implémenté.** Discussion entre Killian et
-l'assistant du 2026-10-03, tenue depuis une session AXION ENGINE et consignée ici à la
-demande de Killian, pour qu'une session dédiée à RUSTFORGE-X l'analyse en détail.
+Statut : **exploration, rien n'est décidé ni implémenté — à ne prendre en compte qu'après
+la fin complète du cahier des charges v1.0** (décision de Killian, 2026-10-03). D'ici là,
+rien ici ne doit infléchir C-53 ni aucun jalon. Discussion entre Killian et l'assistant du
+2026-10-03, tenue depuis une session AXION ENGINE et consignée ici à la demande de
+Killian, pour qu'une session dédiée à RUSTFORGE-X l'analyse en détail le moment venu.
 
 Cahier des charges concerné : C-53 Client Render Prep (PARTIE 16.7, `EXPERIMENTAL`, M7),
 R-830, C-47 GPU Offload (`FUTURE`), R-100, R-102, R-700, INV-02, INV-12, H-02, H-04,
