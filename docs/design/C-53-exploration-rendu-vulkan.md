@@ -357,6 +357,11 @@ Transposé à RUSTFORGE-X en 1.20.1 :
   Minecraft reprend la fenêtre de l'écran précoce : `Window` appelle
   `ImmediateWindowHandler.setupMinecraftWindow` (relevé dans le jeu patché).
 
+**Launchers — décision de Killian (2026-10-03).** Les essais se font d'abord avec
+CurseForge. Si d'autres launchers échouent, le support est annoncé limité à CurseForge et à
+un éventuel launcher dédié à l'architecture. Un tel launcher passerait lui-même les
+arguments JVM et les bibliothèques : la relance y deviendrait inutile.
+
 ### 13.10 Règles de la v1.0 à revoir dans l'ADR de M11
 
 Écrites avant ce choix de route, elles protègent la 1.0 et ne se lèvent pas en silence :
