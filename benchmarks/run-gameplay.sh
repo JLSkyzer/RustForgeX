@@ -66,22 +66,40 @@ main() {
     cp "$proj/build/libs/rustforgex-1.0-SNAPSHOT.jar" \
        "$proj/build/libs/rustforgex-launch-1.0-SNAPSHOT.jar" "$server/mods/" || return 1
 
-    # run <scenario> <étiquette> <true|false>
+    # run <scenario> <étiquette> <true|false> [load]
+    #
+    # Sans quatrième argument, l'exécution part d'un monde neuf. Avec « load » (G-08,
+    # seconde phase), elle REPREND le monde de la phase précédente — qu'il ne faut alors
+    # surtout pas supprimer — et écrit son empreinte sous `<scenario>-<étiquette>-load`.
     run() {
-        local scenario=$1 label=$2 enabled=$3
+        local scenario=$1 label=$2 enabled=$3 phase=${4:-save}
         local world="gp-$scenario-$label"
-        echo "$(date +%H:%M:%S) == $scenario / $label : RUSTFORGE-X $enabled"
-        rm -rf "${server:?}/$world"
+        local name="$scenario-$label"
+        if [ "$phase" = load ]; then
+            name="$name-load"
+        else
+            rm -rf "${server:?}/$world"
+        fi
+        echo "$(date +%H:%M:%S) == $name : RUSTFORGE-X $enabled"
         ( cd "$server" && "$java" \
             -Drustforgex.bench.scenario="$scenario" \
-            -Drustforgex.bench.digest.out="$out/$scenario-$label.json" \
-            -Drustforgex.bench.label="$scenario-$label" \
+            -Drustforgex.bench.g08.phase="$phase" \
+            -Drustforgex.bench.digest.out="$out/$name.json" \
+            -Drustforgex.bench.label="$name" \
             -Drustforgex.general.enabled="$enabled" \
-            "@user_jvm_args.txt" "@$af" nogui --world "$world" ) > "$out/$scenario-$label.log" 2>&1
-        if [ -f "$out/$scenario-$label.json" ]; then
+            "@user_jvm_args.txt" "@$af" nogui --world "$world" ) > "$out/$name.log" 2>&1
+        if [ -f "$out/$name.json" ]; then
             echo "$(date +%H:%M:%S)    fini"
         else
-            echo "$(date +%H:%M:%S)    ÉCHEC : aucune empreinte. Journal : $out/$scenario-$label.log"
+            echo "$(date +%H:%M:%S)    ÉCHEC : aucune empreinte. Journal : $out/$name.log"
+        fi
+    }
+
+    # Une configuration d'un scénario ; pour G-08, la sauvegarde puis le rechargement.
+    play() {
+        run "$1" "$2" "$3"
+        if [ "$1" = g08 ]; then
+            run "$1" "$2" "$3" load
         fi
     }
 
@@ -100,9 +118,9 @@ main() {
     local list scenario label log status=0 verdict
     IFS=',' read -r -a list <<< "$scenarios"
     for scenario in "${list[@]}"; do
-        run "$scenario" ref1 false
-        run "$scenario" rfx true
-        run "$scenario" ref2 false
+        play "$scenario" ref1 false
+        play "$scenario" rfx true
+        play "$scenario" ref2 false
     done
 
     for scenario in "${list[@]}"; do
@@ -112,6 +130,18 @@ main() {
             "$out/$scenario-ref1.json" "$out/$scenario-ref2.json" "$out/$scenario-rfx.json"
         verdict=$?
         [ "$verdict" -gt "$status" ] && status=$verdict
+
+        if [ "$scenario" = g08 ]; then
+            # Le critère propre à G-08 : chaque aller-retour, référence comme candidat,
+            # doit rendre exactement l'état sauvegardé.
+            for label in ref1 rfx ref2; do
+                echo "── aller-retour $label"
+                cargo run -q -p rfx-bench -- roundtrip \
+                    "$out/g08-$label.json" "$out/g08-$label-load.json"
+                verdict=$?
+                [ "$verdict" -gt "$status" ] && status=$verdict
+            done
+        fi
 
         echo "── erreurs"
         for label in ref1 rfx ref2; do

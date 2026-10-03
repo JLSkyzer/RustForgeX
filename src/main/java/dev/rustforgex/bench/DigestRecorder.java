@@ -89,7 +89,9 @@ public final class DigestRecorder {
         /** Génération de 2 000 chunks, comparée à la référence. */
         G03("G-03"),
         /** Démarrage, chargement du monde, cinq minutes de tick à vide. */
-        G01("G-01");
+        G01("G-01"),
+        /** Sauvegarde, arrêt, rechargement, comparaison d'état. */
+        G08("G-08");
 
         final String id;
 
@@ -98,7 +100,11 @@ public final class DigestRecorder {
         }
 
         static Scenario of(String value) {
-            return "g01".equalsIgnoreCase(value == null ? "" : value.trim()) ? G01 : G03;
+            String v = value == null ? "" : value.trim();
+            if ("g01".equalsIgnoreCase(v)) {
+                return G01;
+            }
+            return "g08".equalsIgnoreCase(v) ? G08 : G03;
         }
     }
 
@@ -130,6 +136,20 @@ public final class DigestRecorder {
     private final Path out;
     private final String label;
     private final Scenario scenario;
+
+    /**
+     * Phase de G-08 : {@code save} (défaut) ou {@code load}.
+     *
+     * <p>G-08 se joue en deux démarrages du même monde. Le premier génère comme G-03,
+     * prend l'empreinte, puis sauvegarde dans le même tick ; le second relit les mêmes
+     * chunks depuis le disque, sans les faire tourner, et reprend l'empreinte. Ce que le
+     * jeu sauvegarde doit être exactement ce qu'il relit : aucun hasard ici, l'égalité
+     * est stricte.
+     */
+    public static final String PROPERTY_G08_PHASE = "rustforgex.bench.g08.phase";
+
+    private final boolean reloadPhase =
+            "load".equalsIgnoreCase(System.getProperty(PROPERTY_G08_PHASE, "save").trim());
     private final int settleTicks;
     private final int timeoutTicks;
 
@@ -187,6 +207,10 @@ public final class DigestRecorder {
         if (server == null) {
             return;
         }
+        if (scenario == Scenario.G08 && reloadPhase) {
+            tickReload(server);
+            return;
+        }
         if (scenario == Scenario.G01) {
             tickIdle(server);
             return;
@@ -229,6 +253,41 @@ public final class DigestRecorder {
      * bloc. Sans joueur, ni apparition naturelle ni tick aléatoire n'ont lieu : le jeu les
      * réserve aux chunks proches d'un joueur.
      */
+    /**
+     * G-08, phase de sauvegarde : appelée dans le même tick que l'empreinte.
+     *
+     * <p>Rien ne doit tourner entre l'empreinte et l'écriture sur disque, sans quoi un
+     * écoulement d'eau ou un tick planifié ferait différer l'état sauvegardé de l'état
+     * relevé, et la comparaison accuserait la sauvegarde d'un écart qui n'est pas d'elle.
+     * Les commandes s'exécutent ici, de façon synchrone. Les chunks forcés sont libérés
+     * d'abord : au rechargement, rien ne doit les remettre en mouvement avant qu'on les
+     * relise.
+     */
+    private void saveForReload(MinecraftServer server) {
+        LoadProfile.pump(server,
+                new ArrayDeque<>(java.util.List.of("forceload remove all", "save-all flush")));
+        LOGGER.info("G-08 : état relevé puis sauvegardé dans le même tick.");
+    }
+
+    /**
+     * G-08, phase de rechargement : relit le carré depuis le disque, au premier tick.
+     *
+     * <p>{@code getChunk} charge un chunk complet sans le faire tourner : son niveau de
+     * ticket reste en deçà du seuil des chunks actifs. On relit donc l'état sauvegardé,
+     * pas ce qu'il deviendrait après quelques ticks.
+     */
+    private void tickReload(MinecraftServer server) {
+        finished = true;
+        ServerLevel level = server.overworld();
+        appliedAt = 0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                level.getChunk(x, z);
+            }
+        }
+        finish(server, level, countReady(level), false);
+    }
+
     private void tickIdle(MinecraftServer server) {
         if (seen < G01_TICKS) {
             return;
@@ -283,6 +342,9 @@ public final class DigestRecorder {
             Tables tables = digestAll(level);
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
             write(level, ready, timedOut, digestMs, tables);
+            if (scenario == Scenario.G08 && !reloadPhase) {
+                saveForReload(server);
+            }
             LOGGER.info("{} terminé : empreinte de {} chunks en {} ms, dans {}.",
                     scenario.id, ready, digestMs, out.toAbsolutePath());
         } catch (IOException | RuntimeException e) {

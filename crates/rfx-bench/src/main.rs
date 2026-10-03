@@ -130,10 +130,65 @@ fn main() {
         "micro" => micro(),
         "macro" => macro_level(),
         "digest" => digest_level(),
+        "roundtrip" => roundtrip_level(),
         other => {
-            eprintln!("niveau inconnu « {other} » — attendu : micro | macro | digest");
+            eprintln!("niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip");
             std::process::exit(2);
         }
+    }
+}
+
+/// Test de gameplay G-08 : l'etat relu apres rechargement est-il celui qui a ete
+/// sauvegarde ? Egalite stricte. Code de sortie : `0` fidele, `1` ecart, `2` invalide.
+///
+/// `rfx-bench roundtrip <empreinte-avant-sauvegarde> <empreinte-apres-rechargement>`
+fn roundtrip_level() {
+    let paths: Vec<String> = std::env::args().skip(2).collect();
+    if paths.len() != 2 {
+        eprintln!("usage : rfx-bench roundtrip <sauvegarde> <rechargement>");
+        std::process::exit(2);
+    }
+    let load = |path: &str| -> digest_diff::DigestFile {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("{path} : illisible ({e})");
+            std::process::exit(2);
+        });
+        serde_json::from_str(&text).unwrap_or_else(|e| {
+            eprintln!("{path} : format inattendu ({e})");
+            std::process::exit(2);
+        })
+    };
+    let (saved, reloaded) = (load(&paths[0]), load(&paths[1]));
+    let result = digest_diff::round_trip(&saved, &reloaded);
+
+    println!(
+        "aller-retour « {} » -> « {} » (RUSTFORGE-X {}) : {} chunks compares",
+        saved.label,
+        reloaded.label,
+        if saved.rfx_active { "actif" } else { "inactif" },
+        result.compared
+    );
+    for problem in &result.invalid {
+        println!("INVALIDE : {problem}");
+    }
+    if result.components.is_empty() {
+        println!("aucun ecart");
+    }
+    for (name, count) in &result.components {
+        println!("    {name:<16} {count} chunks en ecart");
+    }
+    for (chunk, name) in &result.examples {
+        println!("    exemple : {chunk:<10} {name}");
+    }
+    if !result.invalid.is_empty() {
+        println!("VERDICT : aller-retour invalide");
+        std::process::exit(2);
+    }
+    if result.passed() {
+        println!("VERDICT : etat relu identique a l'etat sauvegarde");
+    } else {
+        println!("VERDICT : ECART entre l'etat sauvegarde et l'etat relu");
+        std::process::exit(1);
     }
 }
 

@@ -368,9 +368,134 @@ fn section_strata(
     Some(strata)
 }
 
+/// Resultat d'un aller-retour sauvegarde puis rechargement (G-08).
+///
+/// Contrairement a la generation, l'aller-retour n'a aucune raison d'etre aleatoire :
+/// ce que le jeu ecrit sur disque doit etre exactement ce qu'il relit. L'egalite est donc
+/// exigee strictement, sans loi ni seuil — un seul ecart suffit a echouer.
+#[derive(Debug, Clone, Default)]
+pub struct RoundTrip {
+    /// Raisons d'invalidite ; un aller-retour invalide ne passe pas.
+    pub invalid: Vec<String>,
+    /// Chunks presents des deux cotes.
+    pub compared: usize,
+    /// Chunks en ecart, par composante — sections de blocs comprises.
+    pub components: Vec<(String, usize)>,
+    /// Quelques chunks en ecart, pour le diagnostic : `(chunk, composante)`.
+    pub examples: Vec<(String, String)>,
+}
+
+impl RoundTrip {
+    /// `true` si l'aller-retour est valide et parfaitement fidele.
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        self.invalid.is_empty() && self.components.iter().all(|(_, n)| *n == 0)
+    }
+}
+
+/// Compare l'etat releve avant la sauvegarde a l'etat relu apres le rechargement.
+#[must_use]
+pub fn round_trip(saved: &DigestFile, reloaded: &DigestFile) -> RoundTrip {
+    const EXAMPLES: usize = 20;
+    let mut result = RoundTrip {
+        invalid: validity(&[saved, reloaded]),
+        ..RoundTrip::default()
+    };
+    let with_sections = saved.block_sections.is_some() && reloaded.block_sections.is_some();
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    let mut note = |name: String, chunk: &str, result: &mut RoundTrip| {
+        if !counts.contains_key(&name) {
+            order.push(name.clone());
+        }
+        *counts.entry(name.clone()).or_insert(0) += 1;
+        if result.examples.len() < EXAMPLES {
+            result.examples.push((chunk.to_owned(), name));
+        }
+    };
+
+    for (chunk, a) in &saved.chunks {
+        let (Some(a), Some(Some(b))) = (a, reloaded.chunks.get(chunk)) else {
+            continue;
+        };
+        result.compared += 1;
+        for (i, name) in saved.components.iter().enumerate() {
+            if with_sections && name == "blocks" {
+                continue;
+            }
+            if a.get(i) != b.get(i) {
+                note(name.clone(), chunk, &mut result);
+            }
+        }
+        if with_sections {
+            let sections = |f: &DigestFile| {
+                f.block_sections
+                    .as_ref()
+                    .and_then(|s| s.get(chunk).cloned().flatten())
+            };
+            if let (Some(sa), Some(sb)) = (sections(saved), sections(reloaded)) {
+                let min_y = i64::from(saved.min_section_y.unwrap_or(0));
+                for (i, (x, y)) in sa.iter().zip(sb.iter()).enumerate() {
+                    if x != y {
+                        let height = (min_y + i64::try_from(i).unwrap_or(0)) * 16;
+                        note(format!("blocks@y{height}"), chunk, &mut result);
+                    }
+                }
+            }
+        }
+    }
+    result.components = order
+        .into_iter()
+        .map(|name| {
+            let n = counts.get(&name).copied().unwrap_or(0);
+            (name, n)
+        })
+        .collect();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// L'aller-retour exige l'egalite stricte : un seul ecart, meme dans une section,
+    /// suffit a echouer, et il est nomme.
+    #[test]
+    fn a_round_trip_names_every_divergent_section() {
+        let saved = with_sections(
+            file("save", &[("0,0", Some(SAME)), ("0,1", Some(SAME))]),
+            &[("0,0", ["s0", "s1", "s2"]), ("0,1", ["s0", "s1", "s2"])],
+        );
+        let reloaded = with_sections(
+            file("load", &[("0,0", Some(SAME)), ("0,1", Some(SAME))]),
+            &[("0,0", ["s0", "s1", "s2"]), ("0,1", ["s0", "X", "s2"])],
+        );
+
+        let result = round_trip(&saved, &reloaded);
+
+        assert!(result.invalid.is_empty(), "{:?}", result.invalid);
+        assert_eq!(result.compared, 2);
+        assert_eq!(result.components, vec![("blocks@y-48".to_owned(), 1)]);
+        assert!(!result.passed());
+    }
+
+    #[test]
+    fn a_faithful_round_trip_passes() {
+        let s = [("0,0", ["s0", "s1", "s2"])];
+        let saved = with_sections(file("save", &[("0,0", Some(SAME))]), &s);
+        let reloaded = with_sections(file("load", &[("0,0", Some(SAME))]), &s);
+
+        assert!(round_trip(&saved, &reloaded).passed());
+    }
+
+    #[test]
+    fn a_round_trip_against_another_scenario_is_invalid() {
+        let saved = file("save", &[("0,0", Some(SAME))]);
+        let mut reloaded = file("load", &[("0,0", Some(SAME))]);
+        reloaded.test = "G-01".to_owned();
+
+        assert!(!round_trip(&saved, &reloaded).passed());
+    }
 
     fn file(label: &str, chunks: &[(&str, Option<[&str; 4]>)]) -> DigestFile {
         DigestFile {
