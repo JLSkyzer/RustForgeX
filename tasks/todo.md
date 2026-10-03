@@ -780,7 +780,8 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
 
 ## Points en attente d'arbitrage utilisateur
 
-- **Licence définitive** (ADR-010) : `LICENSE` est aujourd'hui « tous droits réservés »,
+- ~~**Licence définitive** (ADR-010)~~ — **décidée le 2026-10-03 : Apache 2.0** (ADR-010),
+  avec `NOTICE` pour l'attribution. Ancienne note : `LICENSE` était « tous droits réservés »,
   cohérent avec `mod_license`. Hors périmètre de décision de l'agent (contrat 5).
 - **Remote git** : le dépôt est local, aucun remote configuré, aucun push effectué.
 

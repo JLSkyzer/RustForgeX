@@ -63,6 +63,8 @@ documenter des fonctionnalités inexistantes.
 
 ## Licence
 
-Tous droits réservés. Voir [`LICENSE`](LICENSE).
+Distribué sous licence [Apache 2.0](LICENSE). Toute redistribution, modifiée ou non,
+doit conserver le fichier [`NOTICE`](NOTICE), qui crédite JLSkyzer / Erinium Group
+(licence Apache, section 4 d). Décision consignée dans ADR-010.
 
 RUSTFORGE-X ne redistribue ni Minecraft, ni Forge, ni aucun mod ou asset tiers.

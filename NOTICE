@@ -1,0 +1,45 @@
+RUSTFORGE-X
+Copyright 2026 JLSkyzer / Erinium Group
+
+This product includes software developed by JLSkyzer / Erinium Group
+(https://github.com/JLSkyzer/RustForgeX).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+Under section 4(d) of the Apache License, any redistribution of this work or of a
+derivative work must retain this NOTICE file, or reproduce its attribution notices.
+
+---
+
+RUSTFORGE-X does not redistribute Minecraft, Minecraft Forge, or any third-party mod or
+asset. Minecraft is a trademark of Mojang Studios. This project is not affiliated with,
+nor endorsed by, Mojang Studios or Microsoft.
+
+---
+
+Third-party software embedded in the native library (rfx_native), as reported by
+`cargo tree -p rfx-ffi -e normal`. Build-time procedural macros are not embedded and are
+not listed. Each component's license text is distributed with its source on crates.io.
+
+  bytes            MIT
+  cesu8            Apache-2.0 / MIT
+  cfg-if           MIT OR Apache-2.0
+  ciborium         Apache-2.0
+  ciborium-io      Apache-2.0
+  ciborium-ll      Apache-2.0
+  combine          MIT
+  half             MIT OR Apache-2.0
+  jni              MIT / Apache-2.0
+  jni-sys          MIT OR Apache-2.0
+  log              MIT OR Apache-2.0
+  memchr           Unlicense OR MIT
+  serde            MIT OR Apache-2.0
+  serde_core       MIT OR Apache-2.0
+  thiserror        MIT OR Apache-2.0
+  windows-sys      MIT OR Apache-2.0
+  windows-targets  MIT OR Apache-2.0
+  xxhash-rust      BSL-1.0
+  zerocopy         BSD-2-Clause OR Apache-2.0 OR MIT
+
+The Java side adds no runtime dependency to the mod JAR. The Gradle wrapper
+(gradle/wrapper/gradle-wrapper.jar) is a build tool, licensed under Apache-2.0.

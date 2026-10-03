@@ -62,11 +62,19 @@ Partout ailleurs, `unsafe` est interdit par configuration du crate
 
 Le projet limite volontairement ses dépendances. À ce jalon :
 
-| Dépendance | Rôle | Licence |
+| Dépendance directe | Rôle | Licence |
 |---|---|---|
 | `serde` | dérivation de sérialisation | MIT ou Apache-2.0 |
 | `ciborium` | encodage CBOR côté natif | Apache-2.0 |
 | `jni` | types et conventions d'appel JNI | MIT ou Apache-2.0 |
+| `xxhash-rust` | hachage des identifiants d'unités de travail | BSL-1.0 |
+
+Ces dépendances en entraînent d'autres, transitives. La liste **complète** de ce que
+la bibliothèque native embarque, avec la licence de chaque composant, est tenue dans
+[`NOTICE`](NOTICE) ; elle se régénère par `cargo tree -p rfx-ffi -e normal`. Toutes
+sont sous licence permissive compatible avec Apache 2.0 (MIT, Apache-2.0, BSL-1.0,
+BSD-2-Clause, Unlicense). Cette table ne nommait que trois dépendances quand la
+bibliothèque en embarquait une vingtaine, dont `xxhash-rust`, absente.
 
 Côté Java, **aucune dépendance d'exécution** n'est ajoutée au JAR : l'encodage CBOR et
 la lecture du fichier de configuration sont écrits dans le projet, restreints au

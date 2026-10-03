@@ -253,8 +253,8 @@ class FoundationsTest {
         assertFalse(Files.readString(license, StandardCharsets.UTF_8).isBlank(), "LICENSE vide");
 
         String declared = buildProperty("mod_license");
-        assertEquals("All Rights Reserved", declared,
-                "mod_license a changé : mettre à jour LICENSE et rédiger ADR-010");
+        assertEquals("Apache-2.0", declared,
+                "mod_license a changé : mettre à jour LICENSE, NOTICE et ADR-010");
     }
 
     @Test
