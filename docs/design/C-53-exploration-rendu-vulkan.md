@@ -186,6 +186,71 @@ backend branché sur un moteur RUSTFORGE-X passerait par le pont optionnel d'AXI
 4. Avant tout code : appliquer le protocole du §9 ; puis prototyper la capture de
    `ModelPart` vers un tampon d'enregistrement, mesurée par C-36.
 
+## 13. Principe de M11 fixé par Killian (2026-10-03)
+
+- Le rechargement des ressources passe aussi par le moteur.
+- Toute méthode de Minecraft et de Forge qui finit par un appel OpenGL — pour un rendu ou
+  autre chose — est redirigée vers le moteur, qui répartit le travail sur les threads.
+- À la fin, OpenGL ne sert plus qu'aux mods qui l'appellent en brut, par LWJGL, au lieu de
+  passer par les fonctions de Minecraft ou de Forge.
+
+### 13.1 Le point d'entrée : Blaze3D
+
+Relevé dans le jar 1.20.1 (`joined-1.20.1-20230612.114412-srg.jar`, pool de constantes) :
+`GlStateManager` référence directement `org.lwjgl.opengl.GL11` à `GL32C` — c'est l'enveloppe
+des appels OpenGL de vanilla. Autour de lui, présents dans le même jar : `RenderSystem`,
+`BufferUploader`, `VertexBuffer`, `NativeImage`, `TextureUtil`, `RenderTarget`. Rediriger ce
+petit groupe capte Minecraft, Forge et tout mod qui passe par eux ; c'est, de mémoire, le
+procédé de VulkanMod.
+
+### 13.2 Deux niveaux, deux rôles
+
+- **Niveau bas, la compatibilité** : traduire ces appels en Vulkan. Tout continue de
+  fonctionner, mais les commandes arrivent dans l'ordre, depuis le fil de rendu : ce niveau
+  change de backend, il ne répartit pas le travail.
+- **Niveau haut, la performance** : reprendre des systèmes entiers, que le moteur prépare
+  en parallèle en gardant la géométrie sur la carte. Les plus lourds dans un gros modpack
+  (de mémoire du rendu 1.20.1) :
+  - **terrain** : un appel de dessin par section de chunk et par type de rendu, et les
+    faces translucides proches retriées sur le CPU ;
+  - **block entities** : souvent redessinées entières à chaque frame, alors que leur
+    géométrie bouge peu ;
+  - **entités** : le travail par sommet du §6, animation comprise ;
+  - **items dans les interfaces** : terminaux et listes d'items, un modèle à la fois ;
+  - **texte**, et **particules**, mises à jour et dessinées une par une ;
+  - **changements d'état** : un tampon vidé à chaque changement de type de rendu ; Vulkan
+    précompile ses états (*pipelines*) et peut lier toutes les textures en une fois ;
+  - **pression mémoire** : beaucoup de petits objets alloués par frame, qui nourrissent le
+    ramasse-miettes et ses micro-saccades.
+- **Répartition** : C-17 (scheduler, work stealing, ADR-005) équilibre dynamiquement, ce qui
+  vaut mieux qu'un partage égal fixé d'avance. Le code Java des mods reste hors des
+  workers : INV-06 interdit à un worker tout verrou JVM et tout moniteur Java.
+
+### 13.3 Rechargement des ressources
+
+- Vanilla décode déjà ses PNG en natif : `NativeImage` appelle `stbi_load_from_memory` de
+  STBImage (relevé dans le jar). Le gain ne viendra donc pas du décodage, mais de ce qui
+  reste en Java et en série — assemblage des atlas, cuisson des modèles — et du
+  parallélisme. Une partie du rechargement tourne déjà sur des exécuteurs d'arrière-plan
+  (de mémoire).
+- Les accroches des mods (événements de cuisson des modèles, chargeurs de modèles propres,
+  assemblage des atlas) sont du code Java qui s'exécute au milieu du rechargement : leur
+  ordre et leur fil restent garantis.
+
+### 13.4 OpenGL pour les seuls mods en brut
+
+Deux voies, à arbitrer dans l'ADR de spécification de M11 :
+
+- **Garder un vrai contexte OpenGL et composer.** Le moteur rend en Vulkan ; les dessins
+  OpenGL des mods sont composés dans la frame par interop (`GL_EXT_memory_object`,
+  `GL_EXT_semaphore`). Un mod qui dessine dans le monde attend le tampon de profondeur du
+  monde : il faut le partager, avec une synchronisation au milieu de la frame à chaque
+  passage. Impossible sur macOS.
+- **Émuler OpenGL sur Vulkan pour ces mods**, à la manière de Zink, en donnant à LWJGL ses
+  propres fonctions OpenGL (de mémoire, LWJGL laisse choisir la bibliothèque OpenGL qu'il
+  charge). Plus d'OpenGL du tout, macOS compris par MoltenVK ; en échange, un émulateur à
+  écrire ou à intégrer, et une exécution série pour ces mods.
+
 ---
 
 ## Sources
