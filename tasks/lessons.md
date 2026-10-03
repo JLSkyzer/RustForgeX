@@ -794,3 +794,19 @@ session ; seuls restent les JDK provisionnés par Gradle (`~/.gradle/jdks`).
   compter sur eux. Faute de Java système, `JAVA_HOME` pointe sur
   `~/.gradle/jdks/eclipse_adoptium-17-amd64-windows/jdk-17.0.20.1+1` pour Gradle, et le
   serveur de banc tourne avec `eclipse_adoptium-21-amd64-windows.2` (21.0.8).
+
+### 2026-10-03 | Une installation MSI pour toute la machine a échoué sans jamais demander l'élévation | Cause : `/quiet` supprime toute interface, donc aussi l'invite UAC ; le MSI échoue (1925, puis 1603) au lieu de demander | Règle : depuis un processus non élevé, `/passive` et non `/quiet`, et vérifier l'état après chaque paquet
+
+Mise à jour de l'entrée précédente : la machine a maintenant des JDK système, installés
+le 2026-10-03 à la demande de l'utilisateur — Temurin 8, 17, 19, 25 et Zulu 15, sous
+`C:\Program Files\Eclipse Adoptium\` et `C:\Program Files\Zulu\`. **Temurin 17 est le
+Java par défaut** (`JAVA_HOME` machine, seule entrée Java du `PATH` machine). Un terminal
+ouvert avant l'installation ne le voit pas ; Gradle exige toujours Java 17 pour ce dépôt.
+
+Deux constats :
+- winget passe `ADDLOCAL=ALL` à ces MSI : PATH, JAVA_HOME, JavaSoft et association
+  `.jar` pour chaque JDK. `--override` remplace ces arguments ; `--custom` s'y ajoute.
+- le MSI Zulu 15 a créé l'association `.jar` au niveau machine malgré
+  `ADDLOCAL=ZuluInstallation` seul. Ce que dit `ADDLOCAL` ne suffit pas à prédire ce
+  qu'un MSI écrit : relever l'état avant et après chaque paquet l'a montré, et c'est la
+  seule façon de le savoir.
