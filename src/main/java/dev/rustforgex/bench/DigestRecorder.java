@@ -21,7 +21,8 @@ import java.util.Deque;
 import java.util.Locale;
 
 /**
- * C-36 : exécution d'un test de gameplay G-03, de la génération à l'empreinte.
+ * C-36 : exécution d'un test de gameplay — G-03 (génération) ou G-01 (cinq minutes de
+ * tick à vide) — jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -62,6 +63,45 @@ public final class DigestRecorder {
     /** Ticks accordés à la génération avant de prendre l'empreinte malgré tout. */
     public static final String PROPERTY_TIMEOUT = "rustforgex.bench.digest.timeout";
 
+    /** Scénario joué : {@code g03} (défaut) ou {@code g01}. */
+    public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
+
+    /**
+     * G-01 : « démarrage serveur dédié, chargement du monde, 5 minutes de tick à vide ».
+     *
+     * <p>Six mille ticks : cinq minutes au rythme nominal de vingt par seconde. Compter en
+     * ticks plutôt qu'en secondes rend les exécutions comparables même si l'une rame : le
+     * jeu y a fait exactement le même nombre de pas.
+     */
+    static final int G01_TICKS = 6_000;
+
+    /**
+     * Demi-côté du carré relu par G-01, en chunks, autour du chunk d'apparition.
+     *
+     * <p>Sans joueur, seuls les chunks d'apparition restent chargés, dans un rayon d'une
+     * dizaine de chunks. Huit reste à l'intérieur avec de la marge : un chunk absent rend
+     * la comparaison invalide, il ne la fausse pas.
+     */
+    static final int G01_RADIUS = 8;
+
+    /** Les scénarios de la PARTIE 20.3.4 que ce harnais sait jouer. */
+    enum Scenario {
+        /** Génération de 2 000 chunks, comparée à la référence. */
+        G03("G-03"),
+        /** Démarrage, chargement du monde, cinq minutes de tick à vide. */
+        G01("G-01");
+
+        final String id;
+
+        Scenario(String id) {
+            this.id = id;
+        }
+
+        static Scenario of(String value) {
+            return "g01".equalsIgnoreCase(value == null ? "" : value.trim()) ? G01 : G03;
+        }
+    }
+
     /**
      * Repos par défaut : dix secondes de jeu.
      *
@@ -89,10 +129,15 @@ public final class DigestRecorder {
 
     private final Path out;
     private final String label;
+    private final Scenario scenario;
     private final int settleTicks;
     private final int timeoutTicks;
-    private final int firstChunk;
-    private final int lastChunk;
+
+    /** Carré relu, bornes incluses. Fixé à l'armement pour G-03, au chargement pour G-01. */
+    private int minX;
+    private int maxX;
+    private int minZ;
+    private int maxZ;
 
     private int seen;
     private int appliedAt = -1;
@@ -100,14 +145,18 @@ public final class DigestRecorder {
     private Deque<String> pending;
     private boolean finished;
 
-    private DigestRecorder(Path out, String label, int settleTicks, int timeoutTicks) {
+    private DigestRecorder(Path out, String label, Scenario scenario, int settleTicks,
+            int timeoutTicks) {
         this.out = out;
         this.label = label;
+        this.scenario = scenario;
         this.settleTicks = settleTicks;
         this.timeoutTicks = timeoutTicks;
         int[] range = LoadProfile.forcedChunkRange(LoadProfile.WORLDGEN_CHUNKS);
-        this.firstChunk = range[0];
-        this.lastChunk = range[1];
+        this.minX = range[0];
+        this.maxX = range[1];
+        this.minZ = range[0];
+        this.maxZ = range[1];
     }
 
     /** Arme l'enregistreur si {@link #PROPERTY_OUT} est renseignée. */
@@ -116,13 +165,15 @@ public final class DigestRecorder {
         if (target.isBlank()) {
             return;
         }
+        Scenario scenario = Scenario.of(System.getProperty(PROPERTY_SCENARIO));
         DigestRecorder recorder = new DigestRecorder(Path.of(target.trim()),
                 System.getProperty(MacroRecorder.PROPERTY_LABEL, "unlabelled"),
+                scenario,
                 intProperty(PROPERTY_SETTLE, DEFAULT_SETTLE_TICKS),
                 intProperty(PROPERTY_TIMEOUT, DEFAULT_TIMEOUT_TICKS));
         MinecraftForge.EVENT_BUS.register(recorder);
-        LOGGER.info("Test G-03 armé : génération de {} chunks, empreinte dans {}. "
-                + "Le serveur s'arrêtera ensuite.", LoadProfile.WORLDGEN_CHUNKS, target);
+        LOGGER.info("Test {} armé, empreinte dans {}. Le serveur s'arrêtera ensuite.",
+                scenario.id, target);
     }
 
     /** Fait avancer le scénario d'un pas, en fin de tick. */
@@ -134,6 +185,10 @@ public final class DigestRecorder {
         seen++;
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
+            return;
+        }
+        if (scenario == Scenario.G01) {
+            tickIdle(server);
             return;
         }
         if (seen == APPLY_AT_TICK) {
@@ -166,15 +221,41 @@ public final class DigestRecorder {
         }
     }
 
+    /**
+     * G-01 : on ne touche à rien, on laisse tourner, on regarde.
+     *
+     * <p>Rien n'est figé — c'est la différence avec G-03. Les règles du jeu sont celles
+     * d'un serveur réel au repos : cycle jour-nuit, météo, ticks planifiés, entités de
+     * bloc. Sans joueur, ni apparition naturelle ni tick aléatoire n'ont lieu : le jeu les
+     * réserve aux chunks proches d'un joueur.
+     */
+    private void tickIdle(MinecraftServer server) {
+        if (seen < G01_TICKS) {
+            return;
+        }
+        finished = true;
+        ServerLevel level = server.overworld();
+        // Le carré est centré sur le chunk d'apparition, connu seulement une fois le monde
+        // chargé. Il est écrit dans le fichier par ses clés : deux mondes à apparitions
+        // différentes ne couvriraient pas les mêmes chunks, et la comparaison le dirait.
+        int spawnX = level.getSharedSpawnPos().getX() >> 4;
+        int spawnZ = level.getSharedSpawnPos().getZ() >> 4;
+        minX = spawnX - G01_RADIUS;
+        maxX = spawnX + G01_RADIUS;
+        minZ = spawnZ - G01_RADIUS;
+        maxZ = spawnZ + G01_RADIUS;
+        appliedAt = 0;
+        finish(server, level, countReady(level), false);
+    }
+
     private int expected() {
-        int side = lastChunk - firstChunk + 1;
-        return side * side;
+        return (maxX - minX + 1) * (maxZ - minZ + 1);
     }
 
     private int countReady(ServerLevel level) {
         int ready = 0;
-        for (int x = firstChunk; x <= lastChunk; x++) {
-            for (int z = firstChunk; z <= lastChunk; z++) {
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
                 if (level.getChunkSource().getChunkNow(x, z) != null) {
                     ready++;
                 }
@@ -190,10 +271,11 @@ public final class DigestRecorder {
             Tables tables = digestAll(level);
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
             write(level, ready, timedOut, digestMs, tables);
-            LOGGER.info("G-03 terminé : empreinte de {} chunks en {} ms, dans {}.",
-                    ready, digestMs, out.toAbsolutePath());
+            LOGGER.info("{} terminé : empreinte de {} chunks en {} ms, dans {}.",
+                    scenario.id, ready, digestMs, out.toAbsolutePath());
         } catch (IOException | RuntimeException e) {
-            LOGGER.error("G-03 : empreinte ou écriture impossible, exécution perdue", e);
+            LOGGER.error("{} : empreinte ou écriture impossible, exécution perdue",
+                    scenario.id, e);
         }
         MinecraftForge.EVENT_BUS.unregister(this);
         server.halt(false);
@@ -214,8 +296,8 @@ public final class DigestRecorder {
         StringBuilder chunks = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 96);
         StringBuilder sections = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 480);
         boolean first = true;
-        for (int x = firstChunk; x <= lastChunk; x++) {
-            for (int z = firstChunk; z <= lastChunk; z++) {
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
                 String key = "    \"" + x + ',' + z + "\": ";
                 chunks.append(first ? "\n" : ",\n").append(key);
                 sections.append(first ? "\n" : ",\n").append(key);
@@ -257,7 +339,8 @@ public final class DigestRecorder {
                 tables.chunks().length() + tables.sections().length() + 1024);
         json.append("{\n");
         json.append("  \"schema\": ").append(SCHEMA).append(",\n");
-        json.append("  \"test\": \"G-03\",\n");
+        json.append("  \"test\": \"").append(scenario.id).append("\",\n");
+        json.append("  \"ticks\": ").append(seen).append(",\n");
         json.append("  \"label\": \"").append(escape(label)).append("\",\n");
         json.append("  \"rfx_active\": ").append(active).append(",\n");
         json.append("  \"methods_probed\": ").append(probed).append(",\n");

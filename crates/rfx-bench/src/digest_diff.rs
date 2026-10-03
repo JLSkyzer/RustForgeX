@@ -30,6 +30,9 @@ use serde::Deserialize;
 /// Fichier d'empreinte, tel qu'ecrit par `DigestRecorder`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DigestFile {
+    /// Scenario de la PARTIE 20.3.4, par exemple `"G-03"`.
+    #[serde(default)]
+    pub test: String,
     /// Etiquette de l'execution.
     pub label: String,
     /// `true` si RUSTFORGE-X etait actif.
@@ -79,6 +82,12 @@ pub fn validity(files: &[&DigestFile]) -> Vec<String> {
                 } else {
                     ""
                 }
+            ));
+        }
+        if file.test != first.test {
+            problems.push(format!(
+                "scenarios differents : « {} » pour « {} », « {} » pour « {} »",
+                first.test, first.label, file.test, file.label
             ));
         }
         if file.seed != first.seed {
@@ -365,6 +374,7 @@ mod tests {
 
     fn file(label: &str, chunks: &[(&str, Option<[&str; 4]>)]) -> DigestFile {
         DigestFile {
+            test: "G-03".to_owned(),
             label: label.to_owned(),
             rfx_active: false,
             methods_probed: 0,
@@ -488,6 +498,16 @@ mod tests {
 
         assert_eq!(verdict.noisy_tests(), 2);
         assert!((verdict.alpha() - ALPHA / 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn different_scenarios_make_the_comparison_invalid() {
+        let r1 = file("r1", &[("0,0", Some(SAME))]);
+        let r2 = file("r2", &[("0,0", Some(SAME))]);
+        let mut c = file("c", &[("0,0", Some(SAME))]);
+        c.test = "G-01".to_owned();
+
+        assert!(!judge(&r1, &r2, &c).invalid.is_empty());
     }
 
     #[test]
