@@ -287,6 +287,47 @@ Deux voies, à arbitrer dans l'ADR de spécification de M11 :
   l'écran de chargement précoce de Forge crée la fenêtre avec son contexte OpenGL avant
   Minecraft : M11 doit le remplacer, ou recréer la fenêtre après le chargement.
 
+### 13.7 Mods OpenGL bruts : les détecter, les transformer
+
+- **Détection au lancement**, générique (INV-12) : les classes qui référencent
+  `org.lwjgl.opengl` dans leur bytecode. C-41 analyse déjà les mods.
+- **Transformation au chargement**, comme C-04 pose ses sondes (ASM) : chaque appel
+  `GL11.glXxx(…)` d'une classe de mod est redirigé vers l'implémentation OpenGL du moteur.
+  Le mod n'en sait rien.
+- **Limites** : ce que le bytecode ne montre pas — réflexion, `MethodHandle`, pointeurs de
+  fonction obtenus à l'exécution, code natif propre au mod — échappe, d'où un repli
+  nécessaire. Le code OpenGL de ces mods s'exécute toujours dans l'ordre : émulé par le
+  moteur, pas parallélisé.
+
+### 13.8 Le jar LWJGL et le « faux pilote »
+
+- `org.lwjgl.opengl` vient de `lwjgl-opengl-3.3.1.jar`, dépendance de Minecraft installée
+  par le launcher (relevé dans le cache Gradle) : une fine liaison vers l'OpenGL du pilote,
+  pas OpenGL lui-même.
+- Modifier ce jar est fragile : chaque launcher en a sa copie et contrôle ses bibliothèques
+  (de mémoire), et ce serait redistribuer une bibliothèque tierce modifiée.
+- Même effet sans toucher un fichier : LWJGL 3.3.1 laisse choisir la bibliothèque OpenGL
+  qu'il charge (option `org.lwjgl.opengl.libname`, relevée dans sa classe
+  `Configuration`). Lui donner une bibliothèque native du moteur qui implémente OpenGL sur
+  Vulkan — le modèle de Zink — capte tous les appels, bruts compris. À poser avant la
+  création de la fenêtre : argument JVM du profil de lancement, ou accroche précoce.
+- Sans OpenGL réel, c'est le moteur qui présente l'image finale. Forge expose deux réglages
+  de son écran de chargement précoce dans `config/fml.toml`, `earlyWindowControl` et
+  `earlyWindowProvider` (relevé) : de quoi le couper, voire le remplacer (à vérifier).
+- Coût : une implémentation d'OpenGL sur Vulkan, au moins du sous-ensemble qu'emploient
+  les mods — un chantier de l'ampleur de Zink, ou Zink lui-même intégré (bibliothèque
+  native tierce, contrat 5).
+
+### 13.9 Règles de la v1.0 à revoir dans l'ADR de M11
+
+Écrites avant ce choix de route, elles protègent la 1.0 et ne se lèvent pas en silence :
+
+- PARTIE 0 : la « réécriture de Minecraft » est hors portée de la V1.0 ;
+- PARTIE 2 : RUSTFORGE-X n'est pas « un remplacement de Minecraft » ;
+- R-310 : l'instrumentation ne modifie pas la sémantique observable — une redirection
+  d'appel n'est admissible que si l'émulation est fidèle ;
+- C-53 et R-830 (§2).
+
 ---
 
 ## Sources
