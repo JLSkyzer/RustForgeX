@@ -318,7 +318,38 @@ Deux voies, à arbitrer dans l'ADR de spécification de M11 :
   les mods — un chantier de l'ampleur de Zink, ou Zink lui-même intégré (bibliothèque
   native tierce, contrat 5).
 
-### 13.9 Règles de la v1.0 à revoir dans l'ADR de M11
+### 13.9 Relancer le jeu : la piste Cleanroom (proposée par Killian)
+
+Relevé le 2026-10-03 dans les sources de CleanroomRelauncher (GitHub,
+`CleanroomMC/CleanroomRelauncher`), le mod qui fait passer une instance Forge 1.12.2 sur
+Cleanroom :
+
+- c'est un coremod (`RelauncherEntryPoint implements IFMLLoadingPlugin`), et son fichier
+  commence par `!` pour que Forge le charge en premier (README) ;
+- `CleanroomRelauncher` construit une nouvelle ligne de commande Java (`-cp` vers les
+  bibliothèques de Cleanroom, mises en cache dans `~/.cleanroom/`), la lance par
+  `ProcessBuilder` avec `inheritIO()`, attend sa fin (`waitFor()`), puis termine le
+  processus d'origine avec le même code de sortie (`ExitVMBypass.exit`) ;
+- le launcher n'est pas modifié : il lance une JVM, qui lance le vrai jeu et lui passe sa
+  console.
+
+Transposé à RUSTFORGE-X en 1.20.1 :
+
+- relancer la même commande, augmentée de `-Dorg.lwjgl.opengl.libname` vers la
+  bibliothèque du moteur et du réglage de l'écran de chargement précoce. Dans la JVM
+  relancée, le moteur est là avant toute fenêtre : « être premier » est résolu par
+  construction ;
+- sans téléchargement, puisque INV-15 interdit le réseau : tout voyage dans le jar, comme la
+  bibliothèque native aujourd'hui (C-03) ;
+- à vérifier : reconstituer fidèlement la ligne de commande de ModLauncher (Java 17 donne
+  `ProcessHandle.current().info()`), marquer la JVM relancée pour ne pas boucler, réserver
+  la relance au client, mesurer le coût du double démarrage, essayer chaque launcher ;
+- point d'accroche le plus précoce en 1.20.1 : les services ModLauncher trouvés dans
+  `mods/` (`ModDirTransformerDiscoverer`, présent dans `fmlloader-1.20.1-47.4.23`).
+  Minecraft reprend la fenêtre de l'écran précoce : `Window` appelle
+  `ImmediateWindowHandler.setupMinecraftWindow` (relevé dans le jeu patché).
+
+### 13.10 Règles de la v1.0 à revoir dans l'ADR de M11
 
 Écrites avant ce choix de route, elles protègent la 1.0 et ne se lèvent pas en silence :
 
@@ -335,3 +366,6 @@ Deux voies, à arbitrer dans l'ADR de spécification de M11 :
 - [minecraft.net — Another step towards Vibrant Visuals for Java Edition](https://www.minecraft.net/en-us/article/another-step-towards-vibrant-visuals-for-java-edition)
 - [Neowin — Minecraft Java Edition is upgrading to Vulkan, but it's not great news for mods](https://www.neowin.net/news/minecraft-java-edition-is-upgrading-to-vulkan-but-its-not-great-news-for-mods/)
 - [VulkanMod — GitHub](https://github.com/xCollateral/VulkanMod)
+- [CleanroomRelauncher — GitHub](https://github.com/CleanroomMC/CleanroomRelauncher)
+  (README et sources lus le 2026-10-03)
+- [Cleanroom — installation du client](https://cleanroommc.com/wiki/end-user-guide/installation/install-client)
