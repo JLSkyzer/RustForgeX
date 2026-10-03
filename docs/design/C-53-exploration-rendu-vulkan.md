@@ -196,12 +196,22 @@ backend branché sur un moteur RUSTFORGE-X passerait par le pont optionnel d'AXI
 
 ### 13.1 Le point d'entrée : Blaze3D
 
-Relevé dans le jar 1.20.1 (`joined-1.20.1-20230612.114412-srg.jar`, pool de constantes) :
-`GlStateManager` référence directement `org.lwjgl.opengl.GL11` à `GL32C` — c'est l'enveloppe
-des appels OpenGL de vanilla. Autour de lui, présents dans le même jar : `RenderSystem`,
-`BufferUploader`, `VertexBuffer`, `NativeImage`, `TextureUtil`, `RenderTarget`. Rediriger ce
-petit groupe capte Minecraft, Forge et tout mod qui passe par eux ; c'est, de mémoire, le
-procédé de VulkanMod.
+Relevé le 2026-10-03 dans le jeu patché par Forge 47.4.23
+(`forge-1.20.1-47.4.23_mapped_official_1.20.1.jar`, 8 614 classes, pool de constantes) :
+**huit classes seulement** référencent `org.lwjgl.opengl`.
+
+- Sept sont de Blaze3D : `GlStateManager` (et `GlStateManager$BooleanState`), qui porte
+  l'état et les appels de dessin (`GL11` à `GL32C`) ; `Window`, qui crée le contexte ;
+  `GlDebug` ; `TimerQuery` et ses deux classes internes (minuteurs GPU). Tout le reste —
+  `RenderSystem`, `BufferUploader`, `VertexBuffer`, `NativeImage`, `TextureUtil`,
+  `RenderTarget` — passe par `GlStateManager`.
+- Une est de Forge : `ForgeLoadingOverlay` (`GL30C`).
+- Hors de ce jar, l'écran de chargement précoce de Forge
+  (`fmlearlydisplay-1.20.1-47.4.23.jar`) appelle OpenGL en brut dans 9 de ses 26 classes
+  (`GL32C`) ; `fmlcore` et `javafmllanguage` n'en ont aucune.
+
+Rediriger `GlStateManager` capte donc Minecraft, Forge hors écrans de chargement, et tout
+mod qui passe par eux ; c'est, de mémoire, le procédé de VulkanMod.
 
 ### 13.2 Deux niveaux, deux rôles
 
@@ -250,6 +260,32 @@ Deux voies, à arbitrer dans l'ADR de spécification de M11 :
   propres fonctions OpenGL (de mémoire, LWJGL laisse choisir la bibliothèque OpenGL qu'il
   charge). Plus d'OpenGL du tout, macOS compris par MoltenVK ; en échange, un émulateur à
   écrire ou à intégrer, et une exécution série pour ces mods.
+
+### 13.5 Repli par capacité, macOS compris
+
+- Principe de Killian : sur macOS, Minecraft garde OpenGL, et le moteur ne prend effet que
+  sur ce que la machine permet.
+- À décider par **capacité détectée** (C-45), pas par nom de système : la même règle couvre
+  un PC Windows ou Linux sans Vulkan, avec un pilote défaillant, ou sans les extensions
+  d'interop.
+- Ce qui reste utile sans Vulkan : la préparation parallèle côté CPU — culling, maillages,
+  données d'instances, rechargement des ressources — qui alimente OpenGL. macOS profite
+  donc du multi-cœur, pas de la soumission Vulkan. OpenGL 4.1 y limite les techniques : ni
+  compute shaders ni dessin indirect multiple (de mémoire).
+
+### 13.6 Windows et Linux : presque tout, pas automatiquement tout
+
+- Vulkan disponible et pilote fiable : à détecter, avec repli (§13.5).
+- La couche de traduction doit reproduire toute la sémantique de Blaze3D : stencil, copies
+  de framebuffer, relectures (cartes et minimaps), minuteurs GPU.
+- Shaders GLSL des mods (`ShaderInstance`) et shaderpacks : à traduire vers SPIR-V.
+- Mods OpenGL bruts : détectables sans liste de noms (INV-12), par leur bytecode — une
+  classe qui référence `org.lwjgl.opengl`, comme le relevé du §13.1.
+- Fenêtre : GLFW ne crée pas de surface Vulkan sur une fenêtre dotée d'un contexte OpenGL
+  (documentation GLFW, de mémoire). Tant qu'un mod OpenGL brut est présent, c'est donc
+  OpenGL qui présente la frame, Vulkan rendant hors écran dans des images partagées. Et
+  l'écran de chargement précoce de Forge crée la fenêtre avec son contexte OpenGL avant
+  Minecraft : M11 doit le remplacer, ou recréer la fenêtre après le chargement.
 
 ---
 
