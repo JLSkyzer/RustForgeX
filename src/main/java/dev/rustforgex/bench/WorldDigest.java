@@ -166,6 +166,41 @@ public final class WorldDigest {
      * l'ordre d'insertion des clés : deux coffres au même contenu ont la même empreinte,
      * quel que soit l'ordre dans lequel le jeu a rempli leurs champs.
      */
+    /**
+     * Diagnostic : chaque entité de bloc du chunk, avec son type et l'empreinte de
+     * chacun des champs de premier niveau de son NBT.
+     *
+     * <p>L'empreinte globale dit qu'une entité a changé ; celle-ci dit laquelle, et quel
+     * champ. G-08 a montré que le jeu ne relit pas toutes ses entités de bloc à
+     * l'identique : c'est l'outil qui désigne le mod et le champ en cause.
+     *
+     * @param chunk chunk à l'état {@code FULL}
+     * @return une entrée par entité, triée par position : {@code "x,y,z|type|clé=hash;…"}
+     */
+    public static List<String> blockEntityDetails(LevelChunk chunk) {
+        List<String> details = new ArrayList<>();
+        for (Map.Entry<BlockPos, BlockEntity> entry : chunk.getBlockEntities().entrySet()) {
+            BlockPos pos = entry.getKey();
+            ResourceLocation type = net.minecraft.world.level.block.entity.BlockEntityType
+                    .getKey(entry.getValue().getType());
+            CompoundTag saved = entry.getValue().saveWithFullMetadata();
+            List<String> keys = new ArrayList<>(saved.getAllKeys());
+            keys.sort(Comparator.naturalOrder());
+            StringBuilder line = new StringBuilder();
+            line.append(pos.getX()).append(',').append(pos.getY()).append(',')
+                    .append(pos.getZ()).append('|').append(type == null ? "?" : type)
+                    .append('|');
+            for (int i = 0; i < keys.size(); i++) {
+                net.minecraft.nbt.Tag value = saved.get(keys.get(i));
+                line.append(i == 0 ? "" : ";").append(keys.get(i)).append('=')
+                        .append(Integer.toHexString(value == null ? 0 : value.hashCode()));
+            }
+            details.add(line.toString());
+        }
+        details.sort(Comparator.naturalOrder());
+        return details;
+    }
+
     static long blockEntities(LevelChunk chunk) {
         List<Map.Entry<BlockPos, BlockEntity>> entries =
                 new ArrayList<>(chunk.getBlockEntities().entrySet());

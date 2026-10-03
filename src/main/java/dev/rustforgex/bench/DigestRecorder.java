@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -405,21 +406,38 @@ public final class DigestRecorder {
      * @param chunks une ligne par chunk : ses quatre empreintes, ou {@code null}
      * @param sections une ligne par chunk : l'empreinte de chacune de ses sections
      */
-    private record Tables(String chunks, String sections) {
+    private record Tables(String chunks, String sections, String details) {
     }
+
+    /** Diagnostic des entités de bloc (type et champ par champ), désactivé par défaut. */
+    public static final String PROPERTY_DETAILS = "rustforgex.bench.digest.details";
+
+    private final boolean details =
+            Boolean.parseBoolean(System.getProperty(PROPERTY_DETAILS, "false").trim());
 
     /** Une ligne par chunk dans chaque table, ou {@code null} s'il n'est pas chargé. */
     private Tables digestAll(ServerLevel level) {
         StringBuilder chunks = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 96);
         StringBuilder sections = new StringBuilder(LoadProfile.WORLDGEN_CHUNKS * 480);
+        StringBuilder detailTable = new StringBuilder();
         boolean first = true;
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
                 String key = "    \"" + x + ',' + z + "\": ";
                 chunks.append(first ? "\n" : ",\n").append(key);
                 sections.append(first ? "\n" : ",\n").append(key);
-                first = false;
                 LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
+                if (details && chunk != null && !chunk.getBlockEntities().isEmpty()) {
+                    detailTable.append(detailTable.length() == 0 ? "\n" : ",\n").append(key)
+                            .append('[');
+                    List<String> entries = WorldDigest.blockEntityDetails(chunk);
+                    for (int i = 0; i < entries.size(); i++) {
+                        detailTable.append(i == 0 ? "\"" : ", \"")
+                                .append(escape(entries.get(i))).append('"');
+                    }
+                    detailTable.append(']');
+                }
+                first = false;
                 if (chunk == null) {
                     // Absent n'est pas une empreinte : une valeur inventée ici se ferait
                     // passer pour un chunk généré (R-660).
@@ -442,7 +460,7 @@ public final class DigestRecorder {
                 sections.append(']');
             }
         }
-        return new Tables(chunks.toString(), sections.toString());
+        return new Tables(chunks.toString(), sections.toString(), detailTable.toString());
     }
 
     private void write(ServerLevel level, int ready, boolean timedOut, long digestMs,
@@ -475,7 +493,13 @@ public final class DigestRecorder {
         // Ordonnée de la première section : sans elle, l'indice d'une section dans la
         // table ne dirait pas à quelle hauteur se trouve un écart.
         json.append("  \"min_section_y\": ").append(level.getMinSection()).append(",\n");
-        json.append("  \"block_sections\": {").append(tables.sections()).append("\n  }\n");
+        json.append("  \"block_sections\": {").append(tables.sections()).append("\n  }");
+        if (details) {
+            // Diagnostic des entités de bloc : une liste par chunk qui en porte.
+            json.append(",\n  \"block_entity_details\": {").append(tables.details())
+                    .append("\n  }");
+        }
+        json.append('\n');
         json.append("}\n");
 
         Path parent = out.toAbsolutePath().getParent();

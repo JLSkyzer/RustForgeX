@@ -6,6 +6,7 @@
 #
 # scenarios : liste séparée par des virgules, parmi g03 et g01 (défaut : g03,g01).
 # Variable JAVA : binaire java à employer (défaut : java du PATH).
+# Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ.
 #
 # Chaque scénario est joué trois fois sur un monde neuf, à la même graine : deux
 # références sans RUSTFORGE-X, un candidat avec. `rfx-bench digest` juge ensuite si le
@@ -84,6 +85,7 @@ main() {
         ( cd "$server" && "$java" \
             -Drustforgex.bench.scenario="$scenario" \
             -Drustforgex.bench.g08.phase="$phase" \
+            -Drustforgex.bench.digest.details="${DETAILS:-false}" \
             -Drustforgex.bench.digest.out="$out/$name.json" \
             -Drustforgex.bench.label="$name" \
             -Drustforgex.general.enabled="$enabled" \
