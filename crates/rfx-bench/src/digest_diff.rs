@@ -57,6 +57,10 @@ pub struct DigestFile {
     /// Empreinte des blocs de chaque section, par chunk (schema 2).
     #[serde(default)]
     pub block_sections: Option<BTreeMap<String, Option<Vec<String>>>>,
+    /// Entites de bloc de chaque chunk qui en porte, une ligne
+    /// `"x,y,z|type|champ=empreinte;..."` par entite (diagnostic, G-08).
+    #[serde(default)]
+    pub block_entity_details: Option<BTreeMap<String, Option<Vec<String>>>>,
 }
 
 /// Raisons pour lesquelles une comparaison ne vaut rien. Vide si elle est valide.
@@ -383,6 +387,69 @@ pub struct RoundTrip {
     pub components: Vec<(String, usize)>,
     /// Quelques chunks en ecart, pour le diagnostic : `(chunk, composante)`.
     pub examples: Vec<(String, String)>,
+    /// Classes de changement et leur effectif, cle de `judge_round_trips`.
+    ///
+    /// Une classe localisee porte son chunk : `"structures @ -13,1"`,
+    /// `"blocks@y32 @ 4,7"`. Les entites de bloc, quand leur detail est present, sont
+    /// classees par type et champ, toutes positions confondues :
+    /// `"block_entity lootr:lootr_chest .tileId"`. Ce n'est pas le nom d'un mod qui
+    /// decide de quoi que ce soit (INV-12) : la classe n'est qu'une etiquette, et seule
+    /// sa presence chez les references compte.
+    pub changes: BTreeMap<String, usize>,
+    /// `true` si les deux empreintes portaient le detail des entites de bloc.
+    pub detailed: bool,
+}
+
+/// Entites de bloc d'un chunk, par position : `(type, champ -> empreinte)`.
+type ChunkEntities = BTreeMap<String, (String, BTreeMap<String, String>)>;
+
+fn chunk_entities(file: &DigestFile, chunk: &str) -> ChunkEntities {
+    let mut out = ChunkEntities::new();
+    let lines = file
+        .block_entity_details
+        .as_ref()
+        .and_then(|d| d.get(chunk))
+        .and_then(Option::as_ref);
+    for line in lines.into_iter().flatten() {
+        let mut parts = line.splitn(3, '|');
+        let (Some(pos), Some(kind)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let fields = parts
+            .next()
+            .unwrap_or("")
+            .split(';')
+            .filter_map(|f| f.split_once('='))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        out.insert(pos.to_owned(), (kind.to_owned(), fields));
+    }
+    out
+}
+
+/// Classes de changement des entites de bloc d'un chunk entre sauvegarde et relecture.
+fn entity_changes(saved: &ChunkEntities, reloaded: &ChunkEntities) -> Vec<String> {
+    let mut out = Vec::new();
+    let positions: BTreeSet<&String> = saved.keys().chain(reloaded.keys()).collect();
+    for pos in positions {
+        match (saved.get(pos), reloaded.get(pos)) {
+            (Some((kind, _)), None) => out.push(format!("block_entity {kind} <disparue>")),
+            (None, Some((kind, _))) => out.push(format!("block_entity {kind} <apparue>")),
+            (Some((k1, _)), Some((k2, _))) if k1 != k2 => {
+                out.push(format!("block_entity {k1} <devenue {k2}>"));
+            }
+            (Some((kind, f1)), Some((_, f2))) => {
+                let names: BTreeSet<&String> = f1.keys().chain(f2.keys()).collect();
+                for name in names {
+                    if f1.get(name) != f2.get(name) {
+                        out.push(format!("block_entity {kind} .{name}"));
+                    }
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    out
 }
 
 impl RoundTrip {
@@ -402,6 +469,8 @@ pub fn round_trip(saved: &DigestFile, reloaded: &DigestFile) -> RoundTrip {
         ..RoundTrip::default()
     };
     let with_sections = saved.block_sections.is_some() && reloaded.block_sections.is_some();
+    result.detailed =
+        saved.block_entity_details.is_some() && reloaded.block_entity_details.is_some();
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     let mut note = |name: String, chunk: &str, result: &mut RoundTrip| {
@@ -409,6 +478,12 @@ pub fn round_trip(saved: &DigestFile, reloaded: &DigestFile) -> RoundTrip {
             order.push(name.clone());
         }
         *counts.entry(name.clone()).or_insert(0) += 1;
+        if !(result.detailed && name == "block_entities") {
+            *result
+                .changes
+                .entry(format!("{name} @ {chunk}"))
+                .or_insert(0) += 1;
+        }
         if result.examples.len() < EXAMPLES {
             result.examples.push((chunk.to_owned(), name));
         }
@@ -425,6 +500,22 @@ pub fn round_trip(saved: &DigestFile, reloaded: &DigestFile) -> RoundTrip {
             }
             if a.get(i) != b.get(i) {
                 note(name.clone(), chunk, &mut result);
+                if result.detailed && name == "block_entities" {
+                    let changes = entity_changes(
+                        &chunk_entities(saved, chunk),
+                        &chunk_entities(reloaded, chunk),
+                    );
+                    // Empreinte du chunk differente sans aucun champ en cause : rien
+                    // n'explique l'ecart, il reste localise et donc strict.
+                    let changes = if changes.is_empty() {
+                        vec![format!("block_entities @ {chunk} <sans detail>")]
+                    } else {
+                        changes
+                    };
+                    for class in changes {
+                        *result.changes.entry(class).or_insert(0) += 1;
+                    }
+                }
             }
         }
         if with_sections {
@@ -452,6 +543,103 @@ pub fn round_trip(saved: &DigestFile, reloaded: &DigestFile) -> RoundTrip {
         })
         .collect();
     result
+}
+
+/// Une classe de changement d'aller-retour et son effectif dans chaque execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeClass {
+    /// Etiquette de la classe, voir `RoundTrip::changes`.
+    pub key: String,
+    /// Effectif dans l'aller-retour de la premiere reference.
+    pub reference: usize,
+    /// Effectif dans l'aller-retour de la seconde reference.
+    pub second: usize,
+    /// Effectif dans l'aller-retour du candidat.
+    pub candidate: usize,
+}
+
+impl ChangeClass {
+    /// `true` si le jeu produit deja ce changement sans RUSTFORGE-X.
+    #[must_use]
+    pub fn tolerated(&self) -> bool {
+        self.reference > 0 || self.second > 0
+    }
+
+    /// `true` si seul le candidat produit ce changement : il lui est imputable.
+    #[must_use]
+    pub fn attributable(&self) -> bool {
+        self.candidate > 0 && !self.tolerated()
+    }
+}
+
+/// Verdict de G-08 sur trois allers-retours : deux references, un candidat.
+#[derive(Debug, Clone, Default)]
+pub struct RoundTripVerdict {
+    /// Raisons d'invalidite ; un verdict invalide ne passe pas.
+    pub invalid: Vec<String>,
+    /// Toutes les classes de changement observees, dans l'ordre de leur etiquette.
+    pub classes: Vec<ChangeClass>,
+}
+
+impl RoundTripVerdict {
+    /// `true` si la comparaison est valide et qu'aucun changement n'est imputable.
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        self.invalid.is_empty() && !self.classes.iter().any(ChangeClass::attributable)
+    }
+}
+
+/// Juge l'aller-retour du candidat contre celui des deux references (G-08).
+///
+/// L'egalite stricte de `round_trip` echoue aussi pour les references : certains mods
+/// reecrivent une partie de leurs entites de bloc a chaque rechargement (ADR-032). Un
+/// changement n'est donc imputable au candidat que si sa **classe** n'apparait dans
+/// aucun aller-retour de reference. Une classe localisee (un chunk, une section) reste
+/// stricte ; une entite de bloc est classee par type et par champ, puisque les
+/// conteneurs concernes ne sont pas aux memes positions d'un monde a l'autre.
+///
+/// Limite assumee : une classe toleree l'est entierement, quel que soit son effectif
+/// chez le candidat. Un defaut qui ne toucherait que des champs deja instables chez
+/// les references passerait inapercu ; les effectifs sont rapportes pour le voir.
+///
+/// Le detail des entites de bloc est exige : sans lui, leurs changements seraient
+/// localises par chunk, et le hasard de la generation les ferait echouer a tort.
+#[must_use]
+pub fn judge_round_trips(
+    reference: (&DigestFile, &DigestFile),
+    second: (&DigestFile, &DigestFile),
+    candidate: (&DigestFile, &DigestFile),
+) -> RoundTripVerdict {
+    let mut verdict = RoundTripVerdict {
+        invalid: validity(&[reference.0, second.0, candidate.0]),
+        ..RoundTripVerdict::default()
+    };
+    let trips = [reference, second, candidate].map(|(s, r)| round_trip(s, r));
+    for (trip, (saved, _)) in trips.iter().zip([reference, second, candidate]) {
+        for problem in &trip.invalid {
+            verdict
+                .invalid
+                .push(format!("aller-retour « {} » : {problem}", saved.label));
+        }
+        if !trip.detailed {
+            verdict.invalid.push(format!(
+                "aller-retour « {} » : detail des entites de bloc absent (DETAILS=true)",
+                saved.label
+            ));
+        }
+    }
+    let keys: BTreeSet<&String> = trips.iter().flat_map(|t| t.changes.keys()).collect();
+    let count = |i: usize, key: &String| trips[i].changes.get(key).copied().unwrap_or(0);
+    verdict.classes = keys
+        .into_iter()
+        .map(|key| ChangeClass {
+            key: key.clone(),
+            reference: count(0, key),
+            second: count(1, key),
+            candidate: count(2, key),
+        })
+        .collect();
+    verdict
 }
 
 #[cfg(test)]
@@ -523,7 +711,194 @@ mod tests {
                 .collect(),
             min_section_y: None,
             block_sections: None,
+            block_entity_details: None,
         }
+    }
+
+    fn with_details(mut f: DigestFile, details: &[(&str, &[&str])]) -> DigestFile {
+        f.block_entity_details = Some(
+            details
+                .iter()
+                .map(|(k, lines)| {
+                    (
+                        (*k).to_owned(),
+                        Some(lines.iter().map(|l| (*l).to_owned()).collect()),
+                    )
+                })
+                .collect(),
+        );
+        f
+    }
+
+    /// Le digest d'un chunk dont l'empreinte des entites de bloc a change.
+    const BE_CHANGED: [&str; 4] = ["a", "b", "X", "d"];
+
+    /// Un aller-retour sur deux chunks : une entite de bloc dans `chunk`, decrite par
+    /// `line_before` a la sauvegarde et `line_after` a la relecture. L'empreinte du chunk
+    /// ne change que si les deux lignes different.
+    fn chest_trip(
+        label: &str,
+        chunk: &str,
+        line_before: &str,
+        line_after: &str,
+    ) -> (DigestFile, DigestFile) {
+        let chunks = |changed: bool| {
+            ["0,0", "0,1"]
+                .iter()
+                .map(|k| {
+                    let digest = if changed && *k == chunk {
+                        BE_CHANGED
+                    } else {
+                        SAME
+                    };
+                    (*k, Some(digest))
+                })
+                .collect::<Vec<_>>()
+        };
+        let saved = with_details(file(label, &chunks(false)), &[(chunk, &[line_before])]);
+        let reloaded = with_details(
+            file(label, &chunks(line_before != line_after)),
+            &[(chunk, &[line_after])],
+        );
+        (saved, reloaded)
+    }
+
+    fn pair(t: &(DigestFile, DigestFile)) -> (&DigestFile, &DigestFile) {
+        (&t.0, &t.1)
+    }
+
+    /// Le bruit d'un mod : le meme champ du meme type change chez les references et
+    /// chez le candidat, a des positions differentes. Rien n'est imputable.
+    #[test]
+    fn a_field_unstable_in_the_references_is_tolerated_wherever_it_changes() {
+        let r1 = chest_trip(
+            "r1",
+            "0,0",
+            "1,64,1|ex:chest|Items=1;Id=7",
+            "1,64,1|ex:chest|Items=2;Id=7",
+        );
+        let r2 = chest_trip(
+            "r2",
+            "0,1",
+            "3,70,20|ex:chest|Items=5;Id=7",
+            "3,70,20|ex:chest|Items=6;Id=7",
+        );
+        let c = chest_trip(
+            "c",
+            "0,1",
+            "9,40,30|ex:chest|Items=1;Id=7",
+            "9,40,30|ex:chest|Items=9;Id=7",
+        );
+
+        let verdict = judge_round_trips(pair(&r1), pair(&r2), pair(&c));
+
+        assert!(verdict.invalid.is_empty(), "{:?}", verdict.invalid);
+        assert_eq!(
+            verdict.classes,
+            vec![ChangeClass {
+                key: "block_entity ex:chest .Items".to_owned(),
+                reference: 1,
+                second: 1,
+                candidate: 1,
+            }]
+        );
+        assert!(verdict.passed());
+    }
+
+    /// Un autre champ du meme type, stable chez les references, reste strict.
+    #[test]
+    fn a_field_stable_in_the_references_is_strict_even_in_a_noisy_type() {
+        let r1 = chest_trip(
+            "r1",
+            "0,0",
+            "1,64,1|ex:chest|Items=1;Id=7",
+            "1,64,1|ex:chest|Items=2;Id=7",
+        );
+        let r2 = chest_trip(
+            "r2",
+            "0,0",
+            "1,64,1|ex:chest|Items=1;Id=7",
+            "1,64,1|ex:chest|Items=1;Id=7",
+        );
+        let c = chest_trip(
+            "c",
+            "0,0",
+            "1,64,1|ex:chest|Items=1;Id=7",
+            "1,64,1|ex:chest|Items=1;Id=8",
+        );
+
+        let verdict = judge_round_trips(pair(&r1), pair(&r2), pair(&c));
+
+        let attributable: Vec<&str> = verdict
+            .classes
+            .iter()
+            .filter(|c| c.attributable())
+            .map(|c| c.key.as_str())
+            .collect();
+        assert_eq!(attributable, vec!["block_entity ex:chest .Id"]);
+        assert!(!verdict.passed());
+    }
+
+    /// Une entite que le candidat perd au rechargement lui est imputable.
+    #[test]
+    fn an_entity_lost_only_by_the_candidate_is_attributable() {
+        let stable = "1,64,1|ex:furnace|Burn=1";
+        let r1 = chest_trip("r1", "0,0", stable, stable);
+        let r2 = chest_trip("r2", "0,0", stable, stable);
+        let mut c = chest_trip("c", "0,0", stable, stable);
+        c.1 = with_details(
+            file("c", &[("0,0", Some(BE_CHANGED)), ("0,1", Some(SAME))]),
+            &[],
+        );
+
+        let verdict = judge_round_trips(pair(&r1), pair(&r2), pair(&c));
+
+        assert_eq!(verdict.classes.len(), 1);
+        assert_eq!(verdict.classes[0].key, "block_entity ex:furnace <disparue>");
+        assert!(verdict.classes[0].attributable());
+        assert!(!verdict.passed());
+    }
+
+    /// Une classe localisee ne tolere que le meme chunk : une structure qui change
+    /// partout au meme endroit est toleree, ailleurs elle est imputable.
+    #[test]
+    fn a_located_change_is_tolerated_only_at_the_same_place() {
+        let stable = "1,64,1|ex:furnace|Burn=1";
+        let structure_changed = |label: &str, chunk: &str| {
+            let mut t = chest_trip(label, "0,0", stable, stable);
+            if let Some(Some(d)) = t.1.chunks.get_mut(chunk) {
+                d[3] = "S".to_owned();
+            }
+            t
+        };
+        let r1 = structure_changed("r1", "0,0");
+        let r2 = structure_changed("r2", "0,0");
+
+        let same_place = structure_changed("c", "0,0");
+        assert!(judge_round_trips(pair(&r1), pair(&r2), pair(&same_place)).passed());
+
+        let elsewhere = structure_changed("c", "0,1");
+        let verdict = judge_round_trips(pair(&r1), pair(&r2), pair(&elsewhere));
+        assert!(!verdict.passed());
+        assert!(verdict
+            .classes
+            .iter()
+            .any(|c| c.key == "structures @ 0,1" && c.attributable()));
+    }
+
+    /// Sans le detail des entites de bloc, le jugement n'est pas rendu.
+    #[test]
+    fn round_trips_without_entity_details_are_invalid() {
+        let plain = |label: &str| {
+            let f = file(label, &[("0,0", Some(SAME))]);
+            (f.clone(), f)
+        };
+        let (r1, r2, c) = (plain("r1"), plain("r2"), plain("c"));
+
+        let verdict = judge_round_trips(pair(&r1), pair(&r2), pair(&c));
+
+        assert_eq!(verdict.invalid.len(), 3, "{:?}", verdict.invalid);
+        assert!(!verdict.passed());
     }
 
     const SAME: [&str; 4] = ["a", "b", "c", "d"];

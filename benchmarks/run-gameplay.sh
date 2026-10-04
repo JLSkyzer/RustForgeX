@@ -4,9 +4,10 @@
 #
 #   ./benchmarks/run-gameplay.sh <racine_du_serveur> [scenarios]
 #
-# scenarios : liste séparée par des virgules, parmi g03 et g01 (défaut : g03,g01).
+# scenarios : liste séparée par des virgules, parmi g03, g01 et g08 (défaut : g03,g01).
 # Variable JAVA : binaire java à employer (défaut : java du PATH).
-# Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ.
+# Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ —
+# toujours actif pour g08, dont le jugement en dépend.
 #
 # Chaque scénario est joué trois fois sur un monde neuf, à la même graine : deux
 # références sans RUSTFORGE-X, un candidat avec. `rfx-bench digest` juge ensuite si le
@@ -76,6 +77,9 @@ main() {
         local scenario=$1 label=$2 enabled=$3 phase=${4:-save}
         local world="gp-$scenario-$label"
         local name="$scenario-$label"
+        # G-08 juge les entités de bloc par type et par champ : leur détail est requis.
+        local details="${DETAILS:-false}"
+        [ "$scenario" = g08 ] && details=true
         if [ "$phase" = load ]; then
             name="$name-load"
         else
@@ -85,7 +89,7 @@ main() {
         ( cd "$server" && "$java" \
             -Drustforgex.bench.scenario="$scenario" \
             -Drustforgex.bench.g08.phase="$phase" \
-            -Drustforgex.bench.digest.details="${DETAILS:-false}" \
+            -Drustforgex.bench.digest.details="$details" \
             -Drustforgex.bench.digest.out="$out/$name.json" \
             -Drustforgex.bench.label="$name" \
             -Drustforgex.general.enabled="$enabled" \
@@ -134,15 +138,17 @@ main() {
         [ "$verdict" -gt "$status" ] && status=$verdict
 
         if [ "$scenario" = g08 ]; then
-            # Le critère propre à G-08 : chaque aller-retour, référence comme candidat,
-            # doit rendre exactement l'état sauvegardé.
-            for label in ref1 rfx ref2; do
-                echo "── aller-retour $label"
-                cargo run -q -p rfx-bench -- roundtrip \
-                    "$out/g08-$label.json" "$out/g08-$label-load.json"
-                verdict=$?
-                [ "$verdict" -gt "$status" ] && status=$verdict
-            done
+            # Le critère propre à G-08 : l'aller-retour du candidat ne doit rien changer
+            # que celui des références ne change déjà. L'égalité stricte échoue aussi
+            # pour elles — des mods réécrivent leurs entités de bloc au rechargement —,
+            # d'où un jugement par classe de changement (ADR-032).
+            echo "── allers-retours"
+            cargo run -q -p rfx-bench -- roundtrips \
+                "$out/g08-ref1.json" "$out/g08-ref1-load.json" \
+                "$out/g08-ref2.json" "$out/g08-ref2-load.json" \
+                "$out/g08-rfx.json" "$out/g08-rfx-load.json"
+            verdict=$?
+            [ "$verdict" -gt "$status" ] && status=$verdict
         fi
 
         echo "── erreurs"

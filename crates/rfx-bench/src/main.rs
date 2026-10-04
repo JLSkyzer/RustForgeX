@@ -131,8 +131,12 @@ fn main() {
         "macro" => macro_level(),
         "digest" => digest_level(),
         "roundtrip" => roundtrip_level(),
+        "roundtrips" => roundtrips_level(),
         other => {
-            eprintln!("niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip");
+            eprintln!(
+                "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
+                 | roundtrips"
+            );
             std::process::exit(2);
         }
     }
@@ -188,6 +192,85 @@ fn roundtrip_level() {
         println!("VERDICT : etat relu identique a l'etat sauvegarde");
     } else {
         println!("VERDICT : ECART entre l'etat sauvegarde et l'etat relu");
+        std::process::exit(1);
+    }
+}
+
+/// Test de gameplay G-08 : l'aller-retour du candidat change-t-il quelque chose que
+/// celui des references ne change jamais ? Code de sortie : `0` rien d'imputable, `1`
+/// changement imputable au candidat, `2` comparaison invalide.
+///
+/// `rfx-bench roundtrips <ref1-sauv> <ref1-relu> <ref2-sauv> <ref2-relu> <cand-sauv>
+/// <cand-relu>`
+fn roundtrips_level() {
+    let paths: Vec<String> = std::env::args().skip(2).collect();
+    if paths.len() != 6 {
+        eprintln!(
+            "usage : rfx-bench roundtrips <ref1-sauv> <ref1-relu> <ref2-sauv> <ref2-relu> \
+             <cand-sauv> <cand-relu>"
+        );
+        std::process::exit(2);
+    }
+    let load = |path: &str| -> digest_diff::DigestFile {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("{path} : illisible ({e})");
+            std::process::exit(2);
+        });
+        serde_json::from_str(&text).unwrap_or_else(|e| {
+            eprintln!("{path} : format inattendu ({e})");
+            std::process::exit(2);
+        })
+    };
+    let files: Vec<digest_diff::DigestFile> = paths.iter().map(|p| load(p)).collect();
+    let verdict = digest_diff::judge_round_trips(
+        (&files[0], &files[1]),
+        (&files[2], &files[3]),
+        (&files[4], &files[5]),
+    );
+
+    println!(
+        "allers-retours : references « {} » et « {} », candidat « {} » (RUSTFORGE-X {})",
+        files[0].label,
+        files[2].label,
+        files[4].label,
+        if files[4].rfx_active {
+            "actif"
+        } else {
+            "inactif"
+        }
+    );
+    if verdict.classes.is_empty() {
+        println!("aucun changement, dans aucun aller-retour");
+    } else {
+        println!(
+            "{:<60}{:>7}{:>7}{:>7}  verdict",
+            "classe de changement", "ref1", "ref2", "cand."
+        );
+    }
+    for c in &verdict.classes {
+        let state = if c.attributable() {
+            "IMPUTABLE au candidat"
+        } else if c.candidate == 0 {
+            "references seules"
+        } else {
+            "toleree, deja produite par le jeu"
+        };
+        println!(
+            "{:<60}{:>7}{:>7}{:>7}  {state}",
+            c.key, c.reference, c.second, c.candidate
+        );
+    }
+    for problem in &verdict.invalid {
+        println!("INVALIDE : {problem}");
+    }
+    if !verdict.invalid.is_empty() {
+        println!("VERDICT : comparaison invalide");
+        std::process::exit(2);
+    }
+    if verdict.passed() {
+        println!("VERDICT : l'aller-retour du candidat ne change rien que le jeu ne change deja");
+    } else {
+        println!("VERDICT : CHANGEMENT imputable au candidat");
         std::process::exit(1);
     }
 }
