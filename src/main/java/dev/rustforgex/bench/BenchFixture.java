@@ -37,6 +37,15 @@ public interface BenchFixture {
     int launchSteps();
 
     /**
+     * {@code true} si le lancement peut commencer à ce tick. Un ouvrage dont une partie
+     * suit l'horloge absolue du jeu — un capteur mis à jour tous les vingt ticks — attend
+     * d'être en phase avec elle, pour vivre les mêmes ticks dans chaque exécution.
+     */
+    default boolean canLaunch(ServerLevel level) {
+        return true;
+    }
+
+    /**
      * Une étape de lancement, au tick {@code step} après la pose (de 1 à
      * {@link #launchSteps()}).
      *

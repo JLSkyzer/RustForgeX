@@ -23,8 +23,9 @@ import java.util.Locale;
 
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
- * tick à vide), G-06 (circuit de redstone), G-08 (sauvegarde et rechargement) ou G-12
- * (crafting et conteneurs) — jusqu'à l'empreinte de l'état.
+ * tick à vide), G-06 (circuit de redstone), G-08 (sauvegarde et rechargement), G-12
+ * (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements planifiés) —
+ * jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -66,8 +67,8 @@ public final class DigestRecorder {
     public static final String PROPERTY_TIMEOUT = "rustforgex.bench.digest.timeout";
 
     /**
-     * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08} ou
-     * {@code g12}.
+     * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08},
+     * {@code g12} ou {@code g14}.
      */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
@@ -98,6 +99,9 @@ public final class DigestRecorder {
      */
     static final int G12_TICKS = 8_000;
 
+    /** Durée de G-14 après le lancement : 21 événements planifiés, jusqu'à 10 500. */
+    static final int G14_TICKS = 11_000;
+
     /**
      * Durée d'un test à ouvrage (G-06, G-12), pour le mettre au point plus vite ; sinon
      * {@value #G06_TICKS} pour G-06 et {@value #G12_TICKS} pour G-12. Deux fichiers de
@@ -122,7 +126,9 @@ public final class DigestRecorder {
         /** Circuit de redstone (horloges, comparateur, pistons) sur 10 000 ticks. */
         G06("G-06"),
         /** Crafting, inventaires, conteneurs. */
-        G12("G-12");
+        G12("G-12"),
+        /** Météo, cycle jour/nuit, événements planifiés. */
+        G14("G-14");
 
         final String id;
 
@@ -137,6 +143,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g14".equalsIgnoreCase(v)) {
+                return G14;
             }
             if ("g12".equalsIgnoreCase(v)) {
                 return G12;
@@ -279,7 +288,8 @@ public final class DigestRecorder {
             tickIdle(server);
             return;
         }
-        if (scenario == Scenario.G06 || scenario == Scenario.G12) {
+        if (scenario == Scenario.G06 || scenario == Scenario.G12
+                || scenario == Scenario.G14) {
             tickFixture(server);
             return;
         }
@@ -373,17 +383,23 @@ public final class DigestRecorder {
     }
 
     /**
-     * G-06 et G-12 : un ouvrage posé dans le monde et regardé tourner, déroulé par
+     * G-06, G-12 et G-14 : un ouvrage posé dans le monde et regardé tourner, déroulé par
      * {@link FixtureRun}. G-12 juge en plus toutes les recettes d'atelier
      * ({@link CraftingSweep}), étalées sur les premiers ticks.
      */
     private void tickFixture(MinecraftServer server) {
         ServerLevel level = server.overworld();
         if (seen == APPLY_AT_TICK) {
-            BenchFixture fixture = scenario == Scenario.G06
-                    ? new RedstoneCircuit() : new ContainerLine();
-            int ticks = intProperty(PROPERTY_FIXTURE_TICKS,
-                    scenario == Scenario.G06 ? G06_TICKS : G12_TICKS);
+            BenchFixture fixture = switch (scenario) {
+                case G06 -> new RedstoneCircuit();
+                case G14 -> new WeatherClock();
+                default -> new ContainerLine();
+            };
+            int ticks = intProperty(PROPERTY_FIXTURE_TICKS, switch (scenario) {
+                case G06 -> G06_TICKS;
+                case G14 -> G14_TICKS;
+                default -> G12_TICKS;
+            });
             minX = fixture.minChunk();
             maxX = fixture.maxChunk();
             minZ = fixture.minChunk();

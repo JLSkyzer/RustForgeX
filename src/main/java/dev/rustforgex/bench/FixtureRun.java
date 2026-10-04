@@ -63,6 +63,7 @@ final class FixtureRun {
     private int readyAt = -1;
     private int builtAt = -1;
     private int startedAt = -1;
+    private int launchStep;
     private int failures;
     private boolean timedOut;
     private boolean done;
@@ -120,9 +121,12 @@ final class FixtureRun {
             return false;
         }
         if (startedAt < 0) {
-            int step = age - builtAt;
-            failures += fixture.launch(level, step);
-            if (step >= fixture.launchSteps()) {
+            if (launchStep == 0 && !fixture.canLaunch(level)) {
+                return false;
+            }
+            launchStep++;
+            failures += fixture.launch(level, launchStep);
+            if (launchStep >= fixture.launchSteps()) {
                 start(level);
             }
             return false;

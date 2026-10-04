@@ -4,7 +4,7 @@
 #
 #   ./benchmarks/run-gameplay.sh <racine_du_serveur> [scenarios]
 #
-# scenarios : liste séparée par des virgules, parmi g03, g01, g06, g08 et g12
+# scenarios : liste séparée par des virgules, parmi g03, g01, g06, g08, g12 et g14
 # (défaut : g03,g01).
 # Variable JAVA : binaire java à employer (défaut : java du PATH).
 # Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ —
