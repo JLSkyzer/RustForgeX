@@ -139,9 +139,9 @@ main() {
         [ "$verdict" -gt "$status" ] && status=$verdict
 
         # Les passes d'éléments se jugent à part — recettes de G-12 (-craft), commandes
-        # de G-11 (-commands) : un élément par ligne, ce ne sont pas des chunks.
+        # de G-11 (-commands), voyageurs de G-04 (-travellers) : ce ne sont pas des chunks.
         local suffix
-        for suffix in craft commands; do
+        for suffix in craft commands travellers; do
             [ -f "$out/$scenario-ref1-$suffix.json" ] || continue
             echo "── passe $suffix"
             cargo run -q -p rfx-bench -- digest "$out/$scenario-ref1-$suffix.json" \

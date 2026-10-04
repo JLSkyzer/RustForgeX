@@ -412,10 +412,11 @@ public final class DigestRecorder {
         ServerLevel level = server.overworld();
         if (seen == APPLY_AT_TICK) {
             CommandBench commands = new CommandBench();
+            DimensionHop hop = new DimensionHop();
             BenchFixture fixture = switch (scenario) {
                 case G06 -> new RedstoneCircuit();
                 case G11 -> commands;
-                case G04 -> new DimensionHop();
+                case G04 -> hop;
                 case G14 -> new WeatherClock();
                 default -> new ContainerLine();
             };
@@ -434,6 +435,7 @@ public final class DigestRecorder {
             fixtureRun.force(server, level);
             sweep = switch (scenario) {
                 case G11 -> new CommandSweep(commands);
+                case G04 -> hop.trail();
                 case G12 -> new CraftingSweep();
                 default -> null;
             };

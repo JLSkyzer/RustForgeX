@@ -179,19 +179,97 @@ public final class DimensionHop implements BenchFixture {
         return watch.everyPartMoved();
     }
 
-    /** La zone de l'Overworld, puis chaque voyageur, dimension par dimension. */
+    /**
+     * La zone de l'Overworld seule ; les voyageurs sont relevés au même instant, chacun à
+     * part, par {@link Trail}.
+     *
+     * <p>Chaque voyageur est une composante distincte : des mods tirent au hasard une
+     * partie des données d'un mob à son invocation (difficulté de Scaling Health, réglages
+     * d'Enhanced AI dans {@code ForgeData}, constaté sur deux lancements). Hachés ensemble,
+     * ce bruit aurait rendu bruité le relevé entier ; séparés, le cochon est jugé bruité et
+     * les trois autres voyageurs gardent l'égalité stricte.
+     */
     @Override
     public long digest(ServerLevel level, LevelChunk chunk) {
-        StringBuilder state = new StringBuilder();
-        state.append(WorldDigest.region(chunk, minY(), maxY()));
+        List<String> row = new ArrayList<>();
+        for (int i = 0; i < TRAVELLERS.size(); i++) {
+            row.add(ResultSweep.hash(locate(level, i)));
+        }
+        trail.rows.add(row);
+        return WorldDigest.region(chunk, minY(), maxY());
+    }
+
+    /** Dimension et données du voyageur {@code index}, ou « absent ». */
+    private static String locate(ServerLevel level, int index) {
         for (Stop stop : STOPS) {
-            state.append("\n#").append(stop.key().location());
             for (Entity entity : travellers(level, stop)) {
-                state.append('\n').append(EntityType.getKey(entity.getType())).append(' ')
-                        .append(describe(entity));
+                if (entity.getTags().contains(TAG + "_" + index)) {
+                    return stop.key().location() + " " + EntityType.getKey(entity.getType())
+                            + " " + describe(entity);
+                }
             }
         }
-        return Long.parseUnsignedLong(ResultSweep.hash(state.toString()), 16);
+        return "absent";
+    }
+
+    private final Trail trail = new Trail();
+
+    /** La passe qui écrit l'état des voyageurs, un relevé par ligne. */
+    ResultSweep trail() {
+        return trail;
+    }
+
+    /**
+     * État des voyageurs à chaque relevé : une ligne par instant, une composante par
+     * voyageur. Rien à parcourir : les lignes sont ajoutées par {@link #digest}.
+     */
+    private static final class Trail implements ResultSweep {
+
+        private final List<List<String>> rows = new ArrayList<>();
+
+        @Override
+        public String suffix() {
+            return "-travellers";
+        }
+
+        @Override
+        public List<String> components() {
+            return List.of("armor_stand", "pig", "chest_minecart", "item_display");
+        }
+
+        @Override
+        public void start(ServerLevel level) {
+            // Rien à relever d'avance.
+        }
+
+        @Override
+        public boolean step(ServerLevel level) {
+            return true;
+        }
+
+        @Override
+        public int expected() {
+            return rows.size();
+        }
+
+        @Override
+        public int judged() {
+            return rows.size();
+        }
+
+        @Override
+        public boolean finished() {
+            return true;
+        }
+
+        @Override
+        public String json() {
+            List<String> keys = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                keys.add("relevé-" + i);
+            }
+            return ResultSweep.table(keys, rows);
+        }
     }
 
     /** Les voyageurs présents dans une dimension, triés par leur marque individuelle. */
@@ -209,23 +287,34 @@ public final class DimensionHop implements BenchFixture {
     }
 
     /**
-     * Données d'un voyageur, stables d'une exécution à l'autre : sans son UUID, et avec
-     * ses attributs triés par nom — le jeu les écrit dans l'ordre d'une table indexée par
-     * l'identité des objets, qui change à chaque lancement.
+     * Données d'un voyageur, stables d'une exécution à l'autre : sans son UUID, tiré au
+     * hasard à l'invocation.
+     *
+     * <p>Les attributs sont réduits à ce qui est déterministe : le nom de chaque attribut,
+     * et le nom de chacun de ses modificateurs, triés. Le jeu les écrit dans l'ordre d'un
+     * {@code HashMap} indexé par des objets sans {@code hashCode} propre ; et des mods en
+     * tirent au hasard la base, le montant et l'UUID à l'invocation d'un mob (constaté
+     * sur deux lancements : Enhanced AI, Scaling Health). Ce qui reste — quels
+     * modificateurs, combien — suffit à voir un modificateur ajouté ou perdu.
      */
     static String describe(Entity entity) {
         CompoundTag data = entity.saveWithoutId(new CompoundTag());
         data.remove("UUID");
         if (data.contains("Attributes", Tag.TAG_LIST)) {
             ListTag attributes = data.getList("Attributes", Tag.TAG_COMPOUND);
-            List<CompoundTag> sorted = new ArrayList<>();
+            List<String> kept = new ArrayList<>();
             for (int i = 0; i < attributes.size(); i++) {
-                sorted.add(attributes.getCompound(i));
+                CompoundTag attribute = attributes.getCompound(i);
+                ListTag modifiers = attribute.getList("Modifiers", Tag.TAG_COMPOUND);
+                List<String> names = new ArrayList<>();
+                for (int k = 0; k < modifiers.size(); k++) {
+                    names.add(modifiers.getCompound(k).getString("Name"));
+                }
+                names.sort(Comparator.naturalOrder());
+                kept.add(attribute.getString("Name") + names);
             }
-            sorted.sort(Comparator.comparing(attribute -> attribute.getString("Name")));
-            ListTag ordered = new ListTag();
-            ordered.addAll(sorted);
-            data.put("Attributes", ordered);
+            kept.sort(Comparator.naturalOrder());
+            data.putString("Attributes", String.join(";", kept));
         }
         return data.toString();
     }
