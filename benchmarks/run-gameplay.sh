@@ -4,7 +4,7 @@
 #
 #   ./benchmarks/run-gameplay.sh <racine_du_serveur> [scenarios]
 #
-# scenarios : liste séparée par des virgules, parmi g03, g01, g06, g08, g12 et g14
+# scenarios : liste séparée par des virgules, parmi g01, g03, g06, g08, g11, g12, g14
 # (défaut : g03,g01).
 # Variable JAVA : binaire java à employer (défaut : java du PATH).
 # Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ —
@@ -138,14 +138,17 @@ main() {
         verdict=$?
         [ "$verdict" -gt "$status" ] && status=$verdict
 
-        if [ "$scenario" = g12 ]; then
-            # Le crafting se juge à part : une recette par élément, une seule composante.
-            echo "── recettes d'atelier"
-            cargo run -q -p rfx-bench -- digest "$out/g12-ref1-craft.json" \
-                "$out/g12-ref2-craft.json" "$out/g12-rfx-craft.json"
+        # Les passes d'éléments se jugent à part — recettes de G-12 (-craft), commandes
+        # de G-11 (-commands) : un élément par ligne, ce ne sont pas des chunks.
+        local suffix
+        for suffix in craft commands; do
+            [ -f "$out/$scenario-ref1-$suffix.json" ] || continue
+            echo "── passe $suffix"
+            cargo run -q -p rfx-bench -- digest "$out/$scenario-ref1-$suffix.json" \
+                "$out/$scenario-ref2-$suffix.json" "$out/$scenario-rfx-$suffix.json"
             verdict=$?
             [ "$verdict" -gt "$status" ] && status=$verdict
-        fi
+        done
 
         if [ "$scenario" = g08 ]; then
             # Le critère propre à G-08 : l'aller-retour du candidat ne doit rien changer

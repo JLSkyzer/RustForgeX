@@ -63,6 +63,6 @@ class PartWatchTest {
         Path out = Path.of("runs", "gameplay", "g12-ref1.json");
 
         assertEquals(Path.of("runs", "gameplay", "g12-ref1-craft.json"),
-                DigestRecorder.craftPath(out));
+                DigestRecorder.sweepPath(out, "-craft"));
     }
 }

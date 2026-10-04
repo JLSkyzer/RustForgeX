@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * C-36 : crafting du test G-12 — chaque recette d'atelier du modpack, posée sur sa propre
@@ -40,7 +39,7 @@ import java.util.Locale;
  * identifiant de registre, nombre, et données par leur empreinte — jamais par l'identité
  * d'un objet Java, qui change à chaque lancement.
  */
-final class CraftingSweep {
+final class CraftingSweep implements ResultSweep {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("rustforgex-bench");
 
@@ -49,32 +48,40 @@ final class CraftingSweep {
 
     private final List<CraftingRecipe> recipes = new ArrayList<>();
     private final List<String> ids = new ArrayList<>();
-    private final List<String> hashes = new ArrayList<>();
+    private final List<List<String>> hashes = new ArrayList<>();
     private int matched;
     private int errors;
     private int next;
     private boolean reported;
 
+    @Override
+    public String suffix() {
+        return "-craft";
+    }
+
+    @Override
+    public List<String> components() {
+        return List.of("craft");
+    }
+
     /** Relève les recettes d'atelier chargées, triées par identifiant. */
-    void start(ServerLevel level) {
+    @Override
+    public void start(ServerLevel level) {
         recipes.addAll(level.getRecipeManager().getAllRecipesFor(RecipeType.CRAFTING));
         recipes.sort(Comparator.comparing(recipe -> recipe.getId().toString()));
         LOGGER.info("G-12 : {} recettes d'atelier à juger.", recipes.size());
     }
 
-    /**
-     * Juge les recettes suivantes, au plus {@value #PER_TICK}.
-     *
-     * @return {@code true} quand toutes l'ont été
-     */
-    boolean step(ServerLevel level) {
+    /** Juge les recettes suivantes, au plus {@value #PER_TICK}. */
+    @Override
+    public boolean step(ServerLevel level) {
         int end = Math.min(recipes.size(), next + PER_TICK);
         for (; next < end; next++) {
             CraftingRecipe recipe = recipes.get(next);
             ids.add(recipe.getId().toString());
-            hashes.add(String.format(Locale.ROOT, "%016x", fnv(judge(recipe, level))));
+            hashes.add(List.of(ResultSweep.hash(judge(recipe, level))));
         }
-        boolean finished = next >= recipes.size();
+        boolean finished = finished();
         if (finished && !reported) {
             reported = true;
             LOGGER.info("G-12 : {} recettes jugées, {} reconnues par leur propre grille, "
@@ -149,37 +156,24 @@ final class CraftingSweep {
                 .append(stack.getTag() == null ? 0 : stack.getTag().hashCode());
     }
 
-    /** FNV-1a sur 64 bits des caractères : stable d'un lancement de la JVM à l'autre. */
-    private static long fnv(String text) {
-        long hash = 0xcbf29ce484222325L;
-        for (int i = 0; i < text.length(); i++) {
-            hash ^= text.charAt(i);
-            hash *= 0x100000001b3L;
-        }
-        return hash;
-    }
-
-    int expected() {
+    @Override
+    public int expected() {
         return recipes.size();
     }
 
-    int judged() {
+    @Override
+    public int judged() {
         return ids.size();
     }
 
-    boolean finished() {
+    @Override
+    public boolean finished() {
         return next >= recipes.size();
     }
 
-    /** Table JSON : une ligne par recette, son empreinte comme unique composante. */
-    String recipesJson() {
-        StringBuilder table = new StringBuilder(ids.size() * 64);
-        for (int i = 0; i < ids.size(); i++) {
-            table.append(i == 0 ? "\n" : ",\n").append("    \"")
-                    .append(ids.get(i).replace("\\", "\\\\").replace("\"", "\\\""))
-                    .append("\": [\"").append(hashes.get(i)).append("\"]");
-        }
-        return table.toString();
+    @Override
+    public String json() {
+        return ResultSweep.table(ids, hashes);
     }
 
     /** Menu fictif : la grille d'atelier en exige un, aucun joueur ne l'ouvre. */

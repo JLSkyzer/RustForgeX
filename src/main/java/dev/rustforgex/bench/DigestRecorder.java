@@ -23,9 +23,9 @@ import java.util.Locale;
 
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
- * tick à vide), G-06 (circuit de redstone), G-08 (sauvegarde et rechargement), G-12
- * (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements planifiés) —
- * jusqu'à l'empreinte de l'état.
+ * tick à vide), G-06 (circuit de redstone), G-08 (sauvegarde et rechargement), G-11
+ * (commandes), G-12 (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements
+ * planifiés) — jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -68,7 +68,7 @@ public final class DigestRecorder {
 
     /**
      * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08},
-     * {@code g12} ou {@code g14}.
+     * {@code g11}, {@code g12} ou {@code g14}.
      */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
@@ -103,6 +103,12 @@ public final class DigestRecorder {
     static final int G14_TICKS = 11_000;
 
     /**
+     * Durée de G-11 après l'exécution des commandes : rien n'y bouge, deux empreintes
+     * suffisent à voir que leur effet sur le monde tient.
+     */
+    static final int G11_TICKS = 1_000;
+
+    /**
      * Durée d'un test à ouvrage (G-06, G-12), pour le mettre au point plus vite ; sinon
      * {@value #G06_TICKS} pour G-06 et {@value #G12_TICKS} pour G-12. Deux fichiers de
      * durées différentes n'ont pas les mêmes composantes, et la comparaison le dit.
@@ -113,7 +119,7 @@ public final class DigestRecorder {
     private FixtureRun fixtureRun;
 
     /** Crafting de G-12 ; {@code null} pour les autres tests. */
-    private CraftingSweep sweep;
+    private ResultSweep sweep;
 
     /** Les scénarios de la PARTIE 20.3.4 que ce harnais sait jouer. */
     enum Scenario {
@@ -128,7 +134,9 @@ public final class DigestRecorder {
         /** Crafting, inventaires, conteneurs. */
         G12("G-12"),
         /** Météo, cycle jour/nuit, événements planifiés. */
-        G14("G-14");
+        G14("G-14"),
+        /** Commandes vanilla et de mods. */
+        G11("G-11");
 
         final String id;
 
@@ -143,6 +151,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g11".equalsIgnoreCase(v)) {
+                return G11;
             }
             if ("g14".equalsIgnoreCase(v)) {
                 return G14;
@@ -289,7 +300,7 @@ public final class DigestRecorder {
             return;
         }
         if (scenario == Scenario.G06 || scenario == Scenario.G12
-                || scenario == Scenario.G14) {
+                || scenario == Scenario.G14 || scenario == Scenario.G11) {
             tickFixture(server);
             return;
         }
@@ -383,20 +394,24 @@ public final class DigestRecorder {
     }
 
     /**
-     * G-06, G-12 et G-14 : un ouvrage posé dans le monde et regardé tourner, déroulé par
-     * {@link FixtureRun}. G-12 juge en plus toutes les recettes d'atelier
-     * ({@link CraftingSweep}), étalées sur les premiers ticks.
+     * G-06, G-11, G-12 et G-14 : un ouvrage posé dans le monde et regardé tourner,
+     * déroulé par {@link FixtureRun}. G-12 juge en plus toutes les recettes d'atelier
+     * ({@link CraftingSweep}), G-11 toutes les commandes enregistrées
+     * ({@link CommandSweep}), étalées sur les premiers ticks.
      */
     private void tickFixture(MinecraftServer server) {
         ServerLevel level = server.overworld();
         if (seen == APPLY_AT_TICK) {
+            CommandBench commands = new CommandBench();
             BenchFixture fixture = switch (scenario) {
                 case G06 -> new RedstoneCircuit();
+                case G11 -> commands;
                 case G14 -> new WeatherClock();
                 default -> new ContainerLine();
             };
             int ticks = intProperty(PROPERTY_FIXTURE_TICKS, switch (scenario) {
                 case G06 -> G06_TICKS;
+                case G11 -> G11_TICKS;
                 case G14 -> G14_TICKS;
                 default -> G12_TICKS;
             });
@@ -406,8 +421,12 @@ public final class DigestRecorder {
             maxZ = fixture.maxChunk();
             fixtureRun = new FixtureRun(fixture, scenario.id, ticks, timeoutTicks);
             fixtureRun.force(server, level);
-            if (scenario == Scenario.G12) {
-                sweep = new CraftingSweep();
+            sweep = switch (scenario) {
+                case G11 -> new CommandSweep(commands);
+                case G12 -> new CraftingSweep();
+                default -> null;
+            };
+            if (sweep != null) {
                 sweep.start(level);
             }
             appliedAt = seen;
@@ -478,15 +497,15 @@ public final class DigestRecorder {
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
             write(out, label, level, expected(), ready, timedOut, digestMs, tables);
             if (sweep != null) {
-                // Le crafting se juge à part : ses recettes et les chunks de l'ouvrage ne
-                // sont pas les mêmes éléments, et une recette bruitée ne doit pas rendre
-                // bruitée la comparaison des conteneurs.
-                Path craft = craftPath(out);
-                write(craft, label + "-craft", level, sweep.expected(), sweep.judged(),
-                        !sweep.finished(), 0L, new Tables(List.of("craft"),
-                                sweep.recipesJson(), null, "", List.of(), 0, false));
-                LOGGER.info("{} : verdicts de {} recettes dans {}.", scenario.id,
-                        sweep.judged(), craft.toAbsolutePath());
+                // Les éléments d'une passe — recettes, commandes — se jugent à part : ce
+                // ne sont pas des chunks, et un élément bruité ne doit pas rendre bruitée
+                // la comparaison de l'ouvrage.
+                Path target = sweepPath(out, sweep.suffix());
+                write(target, label + sweep.suffix(), level, sweep.expected(), sweep.judged(),
+                        !sweep.finished(), 0L, new Tables(sweep.components(), sweep.json(),
+                                null, "", List.of(), 0, false));
+                LOGGER.info("{} : verdicts de {} éléments dans {}.", scenario.id,
+                        sweep.judged(), target.toAbsolutePath());
             }
             if (scenario == Scenario.G08 && !reloadPhase) {
                 saveForReload(server);
@@ -512,11 +531,11 @@ public final class DigestRecorder {
             String details, List<String> activity, int failures, boolean inert) {
     }
 
-    /** {@code g12-ref1.json} → {@code g12-ref1-craft.json}, dans le même dossier. */
-    static Path craftPath(Path out) {
+    /** {@code g12-ref1.json} et {@code -craft} → {@code g12-ref1-craft.json}, à côté. */
+    static Path sweepPath(Path out, String suffix) {
         String name = out.getFileName().toString();
         String stem = name.endsWith(".json") ? name.substring(0, name.length() - 5) : name;
-        return out.resolveSibling(stem + "-craft.json");
+        return out.resolveSibling(stem + suffix + ".json");
     }
 
     /** Les quatre composantes d'un chunk, dans l'ordre de {@link WorldDigest.ChunkDigest}. */
