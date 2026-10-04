@@ -23,8 +23,8 @@ import java.util.Locale;
 
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
- * tick à vide), G-06 (circuit de redstone) ou G-08 (sauvegarde et rechargement) —
- * jusqu'à l'empreinte de l'état.
+ * tick à vide), G-06 (circuit de redstone), G-08 (sauvegarde et rechargement) ou G-12
+ * (crafting et conteneurs) — jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -65,7 +65,10 @@ public final class DigestRecorder {
     /** Ticks accordés à la génération avant de prendre l'empreinte malgré tout. */
     public static final String PROPERTY_TIMEOUT = "rustforgex.bench.digest.timeout";
 
-    /** Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06} ou {@code g08}. */
+    /**
+     * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08} ou
+     * {@code g12}.
+     */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
     /**
@@ -90,34 +93,23 @@ public final class DigestRecorder {
     static final int G06_TICKS = 10_000;
 
     /**
-     * Durée de G-06, pour mettre le circuit au point plus vite ; {@value #G06_TICKS} par
-     * défaut. Deux fichiers de durées différentes n'ont pas les mêmes composantes, et la
-     * comparaison le dit.
+     * Durée de G-12 après la pose de la ligne de conteneurs, en ticks : la cuisson de 32
+     * minerais en prend 6 400, avec de la marge.
      */
-    public static final String PROPERTY_G06_TICKS = "rustforgex.bench.g06.ticks";
-
-    private final int g06Ticks = intProperty(PROPERTY_G06_TICKS, G06_TICKS);
+    static final int G12_TICKS = 8_000;
 
     /**
-     * Intervalle entre deux empreintes de G-06, en ticks.
-     *
-     * <p>Premier, pour ne tomber en phase avec aucune horloge du circuit : une empreinte
-     * prise toujours au même point d'un cycle ferait paraître immobile un circuit qui
-     * tourne, et le journal d'activité ne prouverait plus rien.
+     * Durée d'un test à ouvrage (G-06, G-12), pour le mettre au point plus vite ; sinon
+     * {@value #G06_TICKS} pour G-06 et {@value #G12_TICKS} pour G-12. Deux fichiers de
+     * durées différentes n'ont pas les mêmes composantes, et la comparaison le dit.
      */
-    static final int G06_SNAPSHOT_EVERY = 499;
+    public static final String PROPERTY_FIXTURE_TICKS = "rustforgex.bench.fixture.ticks";
 
-    /** Repos de G-06 entre les chunks prêts et la pose du circuit, en ticks. */
-    static final int G06_SETTLE_TICKS = 100;
+    /** Déroulé de l'ouvrage de G-06 ou G-12 ; {@code null} pour les autres tests. */
+    private FixtureRun fixtureRun;
 
-    /** Empreintes de G-06 : une par intervalle, plus celle de la fin. */
-    private final List<long[]> g06Snapshots = new java.util.ArrayList<>();
-    private final List<String> g06Names = new java.util.ArrayList<>();
-    private final List<String> g06Activity = new java.util.ArrayList<>();
-    private final RedstoneCircuit.Watch g06Watch = new RedstoneCircuit.Watch();
-    private int g06Start = -1;
-    private int g06BuiltAt = -1;
-    private int g06Failed;
+    /** Crafting de G-12 ; {@code null} pour les autres tests. */
+    private CraftingSweep sweep;
 
     /** Les scénarios de la PARTIE 20.3.4 que ce harnais sait jouer. */
     enum Scenario {
@@ -128,7 +120,9 @@ public final class DigestRecorder {
         /** Sauvegarde, arrêt, rechargement, comparaison d'état. */
         G08("G-08"),
         /** Circuit de redstone (horloges, comparateur, pistons) sur 10 000 ticks. */
-        G06("G-06");
+        G06("G-06"),
+        /** Crafting, inventaires, conteneurs. */
+        G12("G-12");
 
         final String id;
 
@@ -143,6 +137,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g12".equalsIgnoreCase(v)) {
+                return G12;
             }
             return "g08".equalsIgnoreCase(v) ? G08 : G03;
         }
@@ -282,8 +279,8 @@ public final class DigestRecorder {
             tickIdle(server);
             return;
         }
-        if (scenario == Scenario.G06) {
-            tickRedstone(server);
+        if (scenario == Scenario.G06 || scenario == Scenario.G12) {
+            tickFixture(server);
             return;
         }
         if (seen == APPLY_AT_TICK) {
@@ -376,108 +373,38 @@ public final class DigestRecorder {
     }
 
     /**
-     * G-06 : forcer quatre chunks, attendre qu'ils tournent, poser le circuit, le lancer,
-     * le regarder tous les {@value #G06_SNAPSHOT_EVERY} ticks pendant
-     * {@value #G06_TICKS} ticks.
-     *
-     * <p>Tout est compté à partir du lancement, jamais de l'heure du serveur : la
-     * génération des chunks ne prend pas le même temps d'une exécution à l'autre, mais
-     * le circuit vit exactement les mêmes ticks.
-     *
-     * <p>Les chunks doivent <strong>tourner</strong>, pas seulement être chargés : un
-     * chunk complet dont les entités ne sont pas encore chargées garde ses ticks
-     * planifiés en attente, et le circuit démarrerait plus tard dans une exécution que
-     * dans l'autre.
+     * G-06 et G-12 : un ouvrage posé dans le monde et regardé tourner, déroulé par
+     * {@link FixtureRun}. G-12 juge en plus toutes les recettes d'atelier
+     * ({@link CraftingSweep}), étalées sur les premiers ticks.
      */
-    private void tickRedstone(MinecraftServer server) {
+    private void tickFixture(MinecraftServer server) {
         ServerLevel level = server.overworld();
         if (seen == APPLY_AT_TICK) {
-            minX = RedstoneCircuit.MIN_CHUNK;
-            maxX = RedstoneCircuit.MAX_CHUNK;
-            minZ = RedstoneCircuit.MIN_CHUNK;
-            maxZ = RedstoneCircuit.MAX_CHUNK;
-            level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_RANDOMTICKING)
-                    .set(0, server);
-            level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING)
-                    .set(false, server);
-            forceSquare(level);
+            BenchFixture fixture = scenario == Scenario.G06
+                    ? new RedstoneCircuit() : new ContainerLine();
+            int ticks = intProperty(PROPERTY_FIXTURE_TICKS,
+                    scenario == Scenario.G06 ? G06_TICKS : G12_TICKS);
+            minX = fixture.minChunk();
+            maxX = fixture.maxChunk();
+            minZ = fixture.minChunk();
+            maxZ = fixture.maxChunk();
+            fixtureRun = new FixtureRun(fixture, scenario.id, ticks, timeoutTicks);
+            fixtureRun.force(server, level);
+            if (scenario == Scenario.G12) {
+                sweep = new CraftingSweep();
+                sweep.start(level);
+            }
             appliedAt = seen;
             return;
         }
-        if (appliedAt < 0) {
+        if (fixtureRun == null) {
             return;
         }
-        if (readyAt < 0) {
-            if (countTicking(level) == expected()) {
-                readyAt = seen;
-                LOGGER.info("G-06 : chunks prêts en {} ticks, repos de {} ticks.",
-                        seen - appliedAt, G06_SETTLE_TICKS);
-            } else if (seen - appliedAt >= timeoutTicks) {
-                finished = true;
-                finish(server, level, countReady(level), true);
-            }
-            return;
-        }
-        int sinceReady = seen - readyAt;
-        if (sinceReady < G06_SETTLE_TICKS) {
-            return;
-        }
-        if (sinceReady == G06_SETTLE_TICKS) {
-            g06Failed = RedstoneCircuit.build(level);
-            g06BuiltAt = seen;
-            return;
-        }
-        if (seen == g06BuiltAt + 1) {
-            g06Failed += RedstoneCircuit.trigger(level, true);
-            return;
-        }
-        if (seen == g06BuiltAt + 2) {
-            g06Failed += RedstoneCircuit.trigger(level, false);
-            g06Start = seen;
-            g06Watch.observe(level);
-            LOGGER.info("G-06 : circuit posé et lancé, {} pose(s) refusée(s).", g06Failed);
-            return;
-        }
-        int t = seen - g06Start;
-        g06Watch.observe(level);
-        if (t % G06_SNAPSHOT_EVERY == 0 || t == g06Ticks) {
-            snapshotRedstone(level, t);
-        }
-        if (t >= g06Ticks) {
+        boolean swept = sweep == null || sweep.step(level);
+        if (fixtureRun.tick(level) && swept) {
             finished = true;
-            finish(server, level, countReady(level), false);
+            finish(server, level, fixtureRun.ready(level), fixtureRun.timedOut());
         }
-    }
-
-    /** Une empreinte de la boîte du circuit, chunk par chunk, et son activité. */
-    private void snapshotRedstone(ServerLevel level, int t) {
-        long[] perChunk = new long[expected()];
-        int i = 0;
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
-                perChunk[i++] = chunk == null ? 0L : WorldDigest.region(chunk,
-                        RedstoneCircuit.FLOOR_Y, RedstoneCircuit.TOP_Y);
-            }
-        }
-        g06Snapshots.add(perChunk);
-        g06Names.add("t" + t);
-        String activity = g06Watch.summary();
-        g06Activity.add("t" + t + " : " + activity);
-        LOGGER.info("G-06 t={} : changements d'état {}", t, activity);
-    }
-
-    /** Chunks du carré qui font tourner leurs blocs et entités de bloc. */
-    private int countTicking(ServerLevel level) {
-        int ticking = 0;
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                if (level.shouldTickBlocksAt(net.minecraft.world.level.ChunkPos.asLong(x, z))) {
-                    ticking++;
-                }
-            }
-        }
-        return ticking;
     }
 
     private void tickIdle(MinecraftServer server) {
@@ -531,9 +458,20 @@ public final class DigestRecorder {
     private void finish(MinecraftServer server, ServerLevel level, int ready, boolean timedOut) {
         try {
             long start = System.nanoTime();
-            Tables tables = scenario == Scenario.G06 ? redstoneTables() : digestAll(level);
+            Tables tables = fixtureRun != null ? fixtureTables() : digestAll(level);
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
-            write(level, ready, timedOut, digestMs, tables);
+            write(out, label, level, expected(), ready, timedOut, digestMs, tables);
+            if (sweep != null) {
+                // Le crafting se juge à part : ses recettes et les chunks de l'ouvrage ne
+                // sont pas les mêmes éléments, et une recette bruitée ne doit pas rendre
+                // bruitée la comparaison des conteneurs.
+                Path craft = craftPath(out);
+                write(craft, label + "-craft", level, sweep.expected(), sweep.judged(),
+                        !sweep.finished(), 0L, new Tables(List.of("craft"),
+                                sweep.recipesJson(), null, "", List.of(), 0, false));
+                LOGGER.info("{} : verdicts de {} recettes dans {}.", scenario.id,
+                        sweep.judged(), craft.toAbsolutePath());
+            }
             if (scenario == Scenario.G08 && !reloadPhase) {
                 saveForReload(server);
             }
@@ -555,7 +493,14 @@ public final class DigestRecorder {
      * @param sections une ligne par chunk : l'empreinte de chacune de ses sections
      */
     private record Tables(List<String> components, String chunks, String sections,
-            String details, List<String> activity) {
+            String details, List<String> activity, int failures, boolean inert) {
+    }
+
+    /** {@code g12-ref1.json} → {@code g12-ref1-craft.json}, dans le même dossier. */
+    static Path craftPath(Path out) {
+        String name = out.getFileName().toString();
+        String stem = name.endsWith(".json") ? name.substring(0, name.length() - 5) : name;
+        return out.resolveSibling(stem + "-craft.json");
     }
 
     /** Les quatre composantes d'un chunk, dans l'ordre de {@link WorldDigest.ChunkDigest}. */
@@ -563,27 +508,12 @@ public final class DigestRecorder {
             List.of("blocks", "biomes", "block_entities", "structures");
 
     /**
-     * G-06 : une composante par empreinte, nommée par son instant ({@code t499} …). Pas
-     * de sections : l'empreinte ne couvre que la boîte du circuit.
+     * G-06, G-12 : une composante par empreinte, nommée par son instant ({@code t499} …).
+     * Pas de sections : l'empreinte ne couvre que la tranche de l'ouvrage.
      */
-    private Tables redstoneTables() {
-        StringBuilder chunks = new StringBuilder();
-        int i = 0;
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                chunks.append(i == 0 ? "\n" : ",\n").append("    \"").append(x).append(',')
-                        .append(z).append("\": [");
-                for (int k = 0; k < g06Snapshots.size(); k++) {
-                    chunks.append(k == 0 ? "\"" : ", \"")
-                            .append(String.format(Locale.ROOT, "%016x", g06Snapshots.get(k)[i]))
-                            .append('"');
-                }
-                chunks.append(']');
-                i++;
-            }
-        }
-        return new Tables(List.copyOf(g06Names), chunks.toString(), null, "",
-                List.copyOf(g06Activity));
+    private Tables fixtureTables() {
+        return new Tables(fixtureRun.components(), fixtureRun.chunksJson(), null, "",
+                fixtureRun.activity(), fixtureRun.failures(), fixtureRun.inert());
     }
 
     /** Diagnostic des entités de bloc (type et champ par champ), désactivé par défaut. */
@@ -638,11 +568,19 @@ public final class DigestRecorder {
             }
         }
         return new Tables(STATE_COMPONENTS, chunks.toString(), sections.toString(),
-                detailTable.toString(), List.of());
+                detailTable.toString(), List.of(), 0, false);
     }
 
-    private void write(ServerLevel level, int ready, boolean timedOut, long digestMs,
-            Tables tables) throws IOException {
+    /**
+     * Écrit un fichier d'empreinte.
+     *
+     * @param target fichier à écrire
+     * @param runLabel étiquette de l'exécution dans ce fichier
+     * @param expected éléments attendus — chunks, ou recettes pour le crafting de G-12
+     * @param ready éléments effectivement relevés
+     */
+    private void write(Path target, String runLabel, ServerLevel level, int expected,
+            int ready, boolean timedOut, long digestMs, Tables tables) throws IOException {
         RfxRuntime runtime = RfxRuntime.instance();
         boolean active = runtime != null && runtime.active();
         long probed = runtime == null || runtime.instrumentation() == null
@@ -654,22 +592,21 @@ public final class DigestRecorder {
         json.append("  \"schema\": ").append(SCHEMA).append(",\n");
         json.append("  \"test\": \"").append(scenario.id).append("\",\n");
         json.append("  \"ticks\": ").append(seen).append(",\n");
-        json.append("  \"label\": \"").append(escape(label)).append("\",\n");
+        json.append("  \"label\": \"").append(escape(runLabel)).append("\",\n");
         json.append("  \"rfx_active\": ").append(active).append(",\n");
         json.append("  \"methods_probed\": ").append(probed).append(",\n");
         json.append("  \"seed\": ").append(level.getSeed()).append(",\n");
-        json.append("  \"chunks_expected\": ").append(expected()).append(",\n");
+        json.append("  \"chunks_expected\": ").append(expected).append(",\n");
         json.append("  \"chunks_ready\": ").append(ready).append(",\n");
         json.append("  \"timed_out\": ").append(timedOut).append(",\n");
         json.append("  \"ready_after_ticks\": ")
                 .append(readyAt < 0 ? -1 : readyAt - appliedAt).append(",\n");
         json.append("  \"settle_ticks\": ").append(settleTicks).append(",\n");
         json.append("  \"digest_ms\": ").append(digestMs).append(",\n");
-        json.append("  \"placement_failures\": ").append(g06Failed).append(",\n");
+        json.append("  \"placement_failures\": ").append(tables.failures()).append(",\n");
         // Un ouvrage dont une partie n'a jamais bougé ne prouve rien : la comparaison le
-        // déclare invalide plutôt que de juger trois circuits morts égaux.
-        json.append("  \"inert\": ")
-                .append(scenario == Scenario.G06 && !g06Watch.everyPartMoved()).append(",\n");
+        // déclare invalide plutôt que de juger trois ouvrages morts égaux.
+        json.append("  \"inert\": ").append(tables.inert()).append(",\n");
         json.append("  \"components\": ").append(stringArray(tables.components()))
                 .append(",\n");
         json.append("  \"activity\": ").append(stringArray(tables.activity())).append(",\n");
@@ -689,11 +626,11 @@ public final class DigestRecorder {
         json.append('\n');
         json.append("}\n");
 
-        Path parent = out.toAbsolutePath().getParent();
+        Path parent = target.toAbsolutePath().getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Files.writeString(out, json.toString(), StandardCharsets.UTF_8);
+        Files.writeString(target, json.toString(), StandardCharsets.UTF_8);
     }
 
     private static String stringArray(List<String> values) {

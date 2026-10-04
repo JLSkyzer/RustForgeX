@@ -3,7 +3,6 @@ package dev.rustforgex.bench;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
@@ -13,15 +12,15 @@ import net.minecraft.world.level.block.DispenserBlock;
 import net.minecraft.world.level.block.HopperBlock;
 import net.minecraft.world.level.block.ObserverBlock;
 import net.minecraft.world.level.block.RepeaterBlock;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.DispenserBlockEntity;
 import net.minecraft.world.level.block.piston.PistonBaseBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+
+import static dev.rustforgex.bench.FixtureBlocks.flag;
+import static dev.rustforgex.bench.FixtureBlocks.place;
 
 /**
  * C-36 : circuit de redstone du test G-06 — « circuit de redstone complexe (horloge,
@@ -54,53 +53,47 @@ import java.util.Locale;
  *   <li><strong>horloge à observateurs</strong> : deux observateurs face à face,
  *       impulsion tous les deux ticks, qui commandent une lampe et un second piston.
  * </ol>
- *
- * <p>Les blocs sont posés par l'API du jeu, pas par des commandes : une commande mal
- * formée échoue sans exception, et le test jugerait un circuit mort. Ici chaque pose
- * est relue, et {@link #build} dit combien n'ont pas pris.
  */
-public final class RedstoneCircuit {
-
-    /** Chunks du circuit, bornes incluses. */
-    public static final int MIN_CHUNK = 0;
-
-    /** Chunks du circuit, bornes incluses. */
-    public static final int MAX_CHUNK = 1;
+public final class RedstoneCircuit implements BenchFixture {
 
     /** Dalle de pierre ; le circuit est posé juste au-dessus. */
-    public static final int FLOOR_Y = 199;
+    static final int FLOOR_Y = 199;
 
     /** Haut de la boîte vidée et hachée. */
-    public static final int TOP_Y = 203;
+    static final int TOP_Y = 203;
 
     private static final int Y = FLOOR_Y + 1;
-
-    private static final int MIN_BLOCK = MIN_CHUNK * 16;
-
-    private static final int MAX_BLOCK = MAX_CHUNK * 16 + 15;
 
     /** Bloc de redstone posé un tick pour lancer l'impulsion de l'anneau. */
     private static final BlockPos TRIGGER = new BlockPos(1, Y, 2);
 
-    private RedstoneCircuit() {
-        throw new AssertionError("classe utilitaire, non instanciable");
+    private final PartWatch watch = new PartWatch("anneau", "piston-anneau", "laine-anneau",
+            "dropper", "entonnoir", "lampe-comparateur", "observateur-horloge",
+            "piston-horloge");
+
+    @Override
+    public int minChunk() {
+        return 0;
     }
 
-    /**
-     * Construit le circuit, dans un seul tick et toujours dans le même ordre.
-     *
-     * @return le nombre de poses qui n'ont pas pris ; zéro attendu
-     */
-    public static int build(ServerLevel level) {
-        int failed = 0;
-        for (int x = MIN_BLOCK; x <= MAX_BLOCK; x++) {
-            for (int z = MIN_BLOCK; z <= MAX_BLOCK; z++) {
-                failed += place(level, new BlockPos(x, FLOOR_Y, z), Blocks.STONE.defaultBlockState());
-                for (int y = Y; y <= TOP_Y; y++) {
-                    failed += place(level, new BlockPos(x, y, z), Blocks.AIR.defaultBlockState());
-                }
-            }
-        }
+    @Override
+    public int maxChunk() {
+        return 1;
+    }
+
+    @Override
+    public int minY() {
+        return FLOOR_Y;
+    }
+
+    @Override
+    public int maxY() {
+        return TOP_Y;
+    }
+
+    @Override
+    public int build(ServerLevel level) {
+        int failed = FixtureBlocks.clearBox(level, this);
 
         // 1. Anneau : bord nord vers l'est, bord est vers le sud, bord sud vers l'ouest,
         // bord ouest vers le nord. Un répéteur reçoit par l'arrière, du côté de son
@@ -151,17 +144,13 @@ public final class RedstoneCircuit {
         failed += place(level, new BlockPos(5, Y, 5), Blocks.COMPARATOR.defaultBlockState()
                 .setValue(ComparatorBlock.FACING, Direction.SOUTH));
         failed += place(level, new BlockPos(5, Y, 4), Blocks.REDSTONE_LAMP.defaultBlockState());
-        BlockEntity dropper = level.getBlockEntity(new BlockPos(4, Y, 6));
-        if (dropper instanceof DispenserBlockEntity container) {
-            container.setItem(0, new ItemStack(Items.COBBLESTONE, 16));
-        } else {
-            failed++;
-        }
+        failed += FixtureBlocks.fill(level, new BlockPos(4, Y, 6),
+                new ItemStack(Items.COBBLESTONE, 16));
 
         // 4. Horloge à observateurs : le second, posé en dernier, déclenche le premier.
         // La lampe reste allumée en continu — elle met quatre ticks à s'éteindre et
         // l'horloge la réalimente tous les deux ticks — : c'est l'observateur, pas
-        // elle, que Watch surveille.
+        // elle, que la surveillance regarde.
         failed += place(level, new BlockPos(20, Y, 4), observer(Direction.EAST));
         failed += place(level, new BlockPos(19, Y, 4), Blocks.REDSTONE_LAMP.defaultBlockState());
         failed += place(level, new BlockPos(22, Y, 4), stickyPiston(Direction.EAST));
@@ -170,108 +159,53 @@ public final class RedstoneCircuit {
         return failed;
     }
 
-    /**
-     * Lance ou coupe l'impulsion de l'anneau : bloc de redstone posé un tick contre la
-     * poussière du coin nord-ouest, puis retiré.
-     *
-     * @return {@code 1} si la pose n'a pas pris, sinon {@code 0}
-     */
-    public static int trigger(ServerLevel level, boolean on) {
-        return place(level, TRIGGER, on ? Blocks.REDSTONE_BLOCK.defaultBlockState()
+    /** Deux étapes : le bloc de redstone posé contre le coin nord-ouest, puis retiré. */
+    @Override
+    public int launchSteps() {
+        return 2;
+    }
+
+    @Override
+    public int launch(ServerLevel level, int step) {
+        return place(level, TRIGGER, step == 1 ? Blocks.REDSTONE_BLOCK.defaultBlockState()
                 : Blocks.AIR.defaultBlockState());
     }
 
-    /**
-     * Compte, tick après tick, les changements d'état de chaque partie du circuit.
-     *
-     * <p>Une égalité stricte entre trois circuits morts ne prouverait rien : ces
-     * compteurs prouvent que chaque partie a tourné. Ils ne servent qu'au journal et au
-     * fichier ; le verdict, lui, porte sur les empreintes.
-     */
-    public static final class Watch {
-
-        private static final String[] NAMES = {"anneau", "piston-anneau", "laine-anneau",
-            "dropper", "entonnoir", "lampe-comparateur", "observateur-horloge", "piston-horloge"};
-
-        private final long[] last = new long[NAMES.length];
-        private final long[] changes = new long[NAMES.length];
-        private boolean primed;
-
-        /** Relève l'état des parties et compte celles qui ont changé depuis le tick précédent. */
-        public void observe(ServerLevel level) {
-            long[] now = {
+    @Override
+    public void observe(ServerLevel level) {
+        watch.record(
                 ringMask(level),
                 flag(level, new BlockPos(7, Y, 4), BlockStateProperties.EXTENDED),
                 level.getBlockState(new BlockPos(7, Y, 6)).is(Blocks.WHITE_WOOL) ? 1 : 0,
-                items(level, new BlockPos(4, Y, 6)),
-                items(level, new BlockPos(5, Y, 6)),
+                FixtureBlocks.contents(level, new BlockPos(4, Y, 6)),
+                FixtureBlocks.contents(level, new BlockPos(5, Y, 6)),
                 flag(level, new BlockPos(5, Y, 4), BlockStateProperties.LIT),
                 flag(level, new BlockPos(20, Y, 4), BlockStateProperties.POWERED),
-                flag(level, new BlockPos(22, Y, 4), BlockStateProperties.EXTENDED),
-            };
-            for (int i = 0; i < now.length; i++) {
-                if (primed && now[i] != last[i]) {
-                    changes[i]++;
-                }
-                last[i] = now[i];
-            }
-            primed = true;
-        }
-
-        /** Les compteurs, par exemple {@code "anneau 812, piston-anneau 28, ..."}. */
-        public String summary() {
-            StringBuilder text = new StringBuilder();
-            for (int i = 0; i < NAMES.length; i++) {
-                text.append(i == 0 ? "" : ", ").append(NAMES[i]).append(' ').append(changes[i]);
-            }
-            return text.toString();
-        }
-
-        /** {@code true} si chaque partie a changé au moins une fois. */
-        public boolean everyPartMoved() {
-            for (long count : changes) {
-                if (count == 0) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private static long ringMask(ServerLevel level) {
-            long mask = 0;
-            int bit = 0;
-            for (int x = 3; x <= 11; x++) {
-                mask |= flag(level, new BlockPos(x, Y, 2), BlockStateProperties.POWERED) << bit++;
-                mask |= flag(level, new BlockPos(x, Y, 8), BlockStateProperties.POWERED) << bit++;
-            }
-            for (int z = 3; z <= 7; z++) {
-                mask |= flag(level, new BlockPos(12, Y, z), BlockStateProperties.POWERED) << bit++;
-                mask |= flag(level, new BlockPos(2, Y, z), BlockStateProperties.POWERED) << bit++;
-            }
-            return mask;
-        }
-
-        private static long flag(ServerLevel level, BlockPos pos,
-                net.minecraft.world.level.block.state.properties.BooleanProperty property) {
-            BlockState state = level.getBlockState(pos);
-            return state.hasProperty(property) && state.getValue(property) ? 1 : 0;
-        }
-
-        private static long items(ServerLevel level, BlockPos pos) {
-            long count = 0;
-            if (level.getBlockEntity(pos) instanceof Container container) {
-                for (int i = 0; i < container.getContainerSize(); i++) {
-                    count += container.getItem(i).getCount();
-                }
-            }
-            return count;
-        }
+                flag(level, new BlockPos(22, Y, 4), BlockStateProperties.EXTENDED));
     }
 
-    /** Pose un état et vérifie qu'il a pris ; {@code 1} sinon. */
-    private static int place(ServerLevel level, BlockPos pos, BlockState state) {
-        level.setBlock(pos, state, Block.UPDATE_ALL);
-        return level.getBlockState(pos).getBlock() == state.getBlock() ? 0 : 1;
+    @Override
+    public String activity() {
+        return watch.summary();
+    }
+
+    @Override
+    public boolean everyPartMoved() {
+        return watch.everyPartMoved();
+    }
+
+    private static long ringMask(ServerLevel level) {
+        long mask = 0;
+        int bit = 0;
+        for (int x = 3; x <= 11; x++) {
+            mask |= flag(level, new BlockPos(x, Y, 2), BlockStateProperties.POWERED) << bit++;
+            mask |= flag(level, new BlockPos(x, Y, 8), BlockStateProperties.POWERED) << bit++;
+        }
+        for (int z = 3; z <= 7; z++) {
+            mask |= flag(level, new BlockPos(12, Y, z), BlockStateProperties.POWERED) << bit++;
+            mask |= flag(level, new BlockPos(2, Y, z), BlockStateProperties.POWERED) << bit++;
+        }
+        return mask;
     }
 
     private static BlockState observer(Direction face) {
