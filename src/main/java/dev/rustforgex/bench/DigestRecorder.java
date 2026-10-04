@@ -22,8 +22,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * C-36 : exécution d'un test de gameplay — G-03 (génération) ou G-01 (cinq minutes de
- * tick à vide) — jusqu'à l'empreinte de l'état.
+ * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
+ * tick à vide), G-06 (circuit de redstone) ou G-08 (sauvegarde et rechargement) —
+ * jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -64,7 +65,7 @@ public final class DigestRecorder {
     /** Ticks accordés à la génération avant de prendre l'empreinte malgré tout. */
     public static final String PROPERTY_TIMEOUT = "rustforgex.bench.digest.timeout";
 
-    /** Scénario joué : {@code g03} (défaut) ou {@code g01}. */
+    /** Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06} ou {@code g08}. */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
     /**
@@ -85,6 +86,39 @@ public final class DigestRecorder {
      */
     static final int G01_RADIUS = 8;
 
+    /** Durée de G-06 après le lancement du circuit, en ticks (PARTIE 20.3.4). */
+    static final int G06_TICKS = 10_000;
+
+    /**
+     * Durée de G-06, pour mettre le circuit au point plus vite ; {@value #G06_TICKS} par
+     * défaut. Deux fichiers de durées différentes n'ont pas les mêmes composantes, et la
+     * comparaison le dit.
+     */
+    public static final String PROPERTY_G06_TICKS = "rustforgex.bench.g06.ticks";
+
+    private final int g06Ticks = intProperty(PROPERTY_G06_TICKS, G06_TICKS);
+
+    /**
+     * Intervalle entre deux empreintes de G-06, en ticks.
+     *
+     * <p>Premier, pour ne tomber en phase avec aucune horloge du circuit : une empreinte
+     * prise toujours au même point d'un cycle ferait paraître immobile un circuit qui
+     * tourne, et le journal d'activité ne prouverait plus rien.
+     */
+    static final int G06_SNAPSHOT_EVERY = 499;
+
+    /** Repos de G-06 entre les chunks prêts et la pose du circuit, en ticks. */
+    static final int G06_SETTLE_TICKS = 100;
+
+    /** Empreintes de G-06 : une par intervalle, plus celle de la fin. */
+    private final List<long[]> g06Snapshots = new java.util.ArrayList<>();
+    private final List<String> g06Names = new java.util.ArrayList<>();
+    private final List<String> g06Activity = new java.util.ArrayList<>();
+    private final RedstoneCircuit.Watch g06Watch = new RedstoneCircuit.Watch();
+    private int g06Start = -1;
+    private int g06BuiltAt = -1;
+    private int g06Failed;
+
     /** Les scénarios de la PARTIE 20.3.4 que ce harnais sait jouer. */
     enum Scenario {
         /** Génération de 2 000 chunks, comparée à la référence. */
@@ -92,7 +126,9 @@ public final class DigestRecorder {
         /** Démarrage, chargement du monde, cinq minutes de tick à vide. */
         G01("G-01"),
         /** Sauvegarde, arrêt, rechargement, comparaison d'état. */
-        G08("G-08");
+        G08("G-08"),
+        /** Circuit de redstone (horloges, comparateur, pistons) sur 10 000 ticks. */
+        G06("G-06");
 
         final String id;
 
@@ -104,6 +140,9 @@ public final class DigestRecorder {
             String v = value == null ? "" : value.trim();
             if ("g01".equalsIgnoreCase(v)) {
                 return G01;
+            }
+            if ("g06".equalsIgnoreCase(v)) {
+                return G06;
             }
             return "g08".equalsIgnoreCase(v) ? G08 : G03;
         }
@@ -243,6 +282,10 @@ public final class DigestRecorder {
             tickIdle(server);
             return;
         }
+        if (scenario == Scenario.G06) {
+            tickRedstone(server);
+            return;
+        }
         if (seen == APPLY_AT_TICK) {
             // Les `forceload add` sont retirés de la file et remplacés par forceSquare :
             // voir sa documentation. Le reste du profil — figer le jeu, vider les forçages
@@ -332,6 +375,111 @@ public final class DigestRecorder {
         finish(server, level, countReady(level), false);
     }
 
+    /**
+     * G-06 : forcer quatre chunks, attendre qu'ils tournent, poser le circuit, le lancer,
+     * le regarder tous les {@value #G06_SNAPSHOT_EVERY} ticks pendant
+     * {@value #G06_TICKS} ticks.
+     *
+     * <p>Tout est compté à partir du lancement, jamais de l'heure du serveur : la
+     * génération des chunks ne prend pas le même temps d'une exécution à l'autre, mais
+     * le circuit vit exactement les mêmes ticks.
+     *
+     * <p>Les chunks doivent <strong>tourner</strong>, pas seulement être chargés : un
+     * chunk complet dont les entités ne sont pas encore chargées garde ses ticks
+     * planifiés en attente, et le circuit démarrerait plus tard dans une exécution que
+     * dans l'autre.
+     */
+    private void tickRedstone(MinecraftServer server) {
+        ServerLevel level = server.overworld();
+        if (seen == APPLY_AT_TICK) {
+            minX = RedstoneCircuit.MIN_CHUNK;
+            maxX = RedstoneCircuit.MAX_CHUNK;
+            minZ = RedstoneCircuit.MIN_CHUNK;
+            maxZ = RedstoneCircuit.MAX_CHUNK;
+            level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_RANDOMTICKING)
+                    .set(0, server);
+            level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING)
+                    .set(false, server);
+            forceSquare(level);
+            appliedAt = seen;
+            return;
+        }
+        if (appliedAt < 0) {
+            return;
+        }
+        if (readyAt < 0) {
+            if (countTicking(level) == expected()) {
+                readyAt = seen;
+                LOGGER.info("G-06 : chunks prêts en {} ticks, repos de {} ticks.",
+                        seen - appliedAt, G06_SETTLE_TICKS);
+            } else if (seen - appliedAt >= timeoutTicks) {
+                finished = true;
+                finish(server, level, countReady(level), true);
+            }
+            return;
+        }
+        int sinceReady = seen - readyAt;
+        if (sinceReady < G06_SETTLE_TICKS) {
+            return;
+        }
+        if (sinceReady == G06_SETTLE_TICKS) {
+            g06Failed = RedstoneCircuit.build(level);
+            g06BuiltAt = seen;
+            return;
+        }
+        if (seen == g06BuiltAt + 1) {
+            g06Failed += RedstoneCircuit.trigger(level, true);
+            return;
+        }
+        if (seen == g06BuiltAt + 2) {
+            g06Failed += RedstoneCircuit.trigger(level, false);
+            g06Start = seen;
+            g06Watch.observe(level);
+            LOGGER.info("G-06 : circuit posé et lancé, {} pose(s) refusée(s).", g06Failed);
+            return;
+        }
+        int t = seen - g06Start;
+        g06Watch.observe(level);
+        if (t % G06_SNAPSHOT_EVERY == 0 || t == g06Ticks) {
+            snapshotRedstone(level, t);
+        }
+        if (t >= g06Ticks) {
+            finished = true;
+            finish(server, level, countReady(level), false);
+        }
+    }
+
+    /** Une empreinte de la boîte du circuit, chunk par chunk, et son activité. */
+    private void snapshotRedstone(ServerLevel level, int t) {
+        long[] perChunk = new long[expected()];
+        int i = 0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
+                perChunk[i++] = chunk == null ? 0L : WorldDigest.region(chunk,
+                        RedstoneCircuit.FLOOR_Y, RedstoneCircuit.TOP_Y);
+            }
+        }
+        g06Snapshots.add(perChunk);
+        g06Names.add("t" + t);
+        String activity = g06Watch.summary();
+        g06Activity.add("t" + t + " : " + activity);
+        LOGGER.info("G-06 t={} : changements d'état {}", t, activity);
+    }
+
+    /** Chunks du carré qui font tourner leurs blocs et entités de bloc. */
+    private int countTicking(ServerLevel level) {
+        int ticking = 0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                if (level.shouldTickBlocksAt(net.minecraft.world.level.ChunkPos.asLong(x, z))) {
+                    ticking++;
+                }
+            }
+        }
+        return ticking;
+    }
+
     private void tickIdle(MinecraftServer server) {
         if (seen < G01_TICKS) {
             return;
@@ -383,7 +531,7 @@ public final class DigestRecorder {
     private void finish(MinecraftServer server, ServerLevel level, int ready, boolean timedOut) {
         try {
             long start = System.nanoTime();
-            Tables tables = digestAll(level);
+            Tables tables = scenario == Scenario.G06 ? redstoneTables() : digestAll(level);
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
             write(level, ready, timedOut, digestMs, tables);
             if (scenario == Scenario.G08 && !reloadPhase) {
@@ -406,7 +554,36 @@ public final class DigestRecorder {
      * @param chunks une ligne par chunk : ses quatre empreintes, ou {@code null}
      * @param sections une ligne par chunk : l'empreinte de chacune de ses sections
      */
-    private record Tables(String chunks, String sections, String details) {
+    private record Tables(List<String> components, String chunks, String sections,
+            String details, List<String> activity) {
+    }
+
+    /** Les quatre composantes d'un chunk, dans l'ordre de {@link WorldDigest.ChunkDigest}. */
+    private static final List<String> STATE_COMPONENTS =
+            List.of("blocks", "biomes", "block_entities", "structures");
+
+    /**
+     * G-06 : une composante par empreinte, nommée par son instant ({@code t499} …). Pas
+     * de sections : l'empreinte ne couvre que la boîte du circuit.
+     */
+    private Tables redstoneTables() {
+        StringBuilder chunks = new StringBuilder();
+        int i = 0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                chunks.append(i == 0 ? "\n" : ",\n").append("    \"").append(x).append(',')
+                        .append(z).append("\": [");
+                for (int k = 0; k < g06Snapshots.size(); k++) {
+                    chunks.append(k == 0 ? "\"" : ", \"")
+                            .append(String.format(Locale.ROOT, "%016x", g06Snapshots.get(k)[i]))
+                            .append('"');
+                }
+                chunks.append(']');
+                i++;
+            }
+        }
+        return new Tables(List.copyOf(g06Names), chunks.toString(), null, "",
+                List.copyOf(g06Activity));
     }
 
     /** Diagnostic des entités de bloc (type et champ par champ), désactivé par défaut. */
@@ -460,7 +637,8 @@ public final class DigestRecorder {
                 sections.append(']');
             }
         }
-        return new Tables(chunks.toString(), sections.toString(), detailTable.toString());
+        return new Tables(STATE_COMPONENTS, chunks.toString(), sections.toString(),
+                detailTable.toString(), List.of());
     }
 
     private void write(ServerLevel level, int ready, boolean timedOut, long digestMs,
@@ -470,8 +648,8 @@ public final class DigestRecorder {
         long probed = runtime == null || runtime.instrumentation() == null
                 ? 0L : runtime.instrumentation().methodsProbed();
 
-        StringBuilder json = new StringBuilder(
-                tables.chunks().length() + tables.sections().length() + 1024);
+        StringBuilder json = new StringBuilder(tables.chunks().length()
+                + (tables.sections() == null ? 0 : tables.sections().length()) + 4096);
         json.append("{\n");
         json.append("  \"schema\": ").append(SCHEMA).append(",\n");
         json.append("  \"test\": \"").append(scenario.id).append("\",\n");
@@ -487,13 +665,22 @@ public final class DigestRecorder {
                 .append(readyAt < 0 ? -1 : readyAt - appliedAt).append(",\n");
         json.append("  \"settle_ticks\": ").append(settleTicks).append(",\n");
         json.append("  \"digest_ms\": ").append(digestMs).append(",\n");
-        json.append("  \"components\": [\"blocks\", \"biomes\", \"block_entities\", "
-                + "\"structures\"],\n");
-        json.append("  \"chunks\": {").append(tables.chunks()).append("\n  },\n");
-        // Ordonnée de la première section : sans elle, l'indice d'une section dans la
-        // table ne dirait pas à quelle hauteur se trouve un écart.
-        json.append("  \"min_section_y\": ").append(level.getMinSection()).append(",\n");
-        json.append("  \"block_sections\": {").append(tables.sections()).append("\n  }");
+        json.append("  \"placement_failures\": ").append(g06Failed).append(",\n");
+        // Un ouvrage dont une partie n'a jamais bougé ne prouve rien : la comparaison le
+        // déclare invalide plutôt que de juger trois circuits morts égaux.
+        json.append("  \"inert\": ")
+                .append(scenario == Scenario.G06 && !g06Watch.everyPartMoved()).append(",\n");
+        json.append("  \"components\": ").append(stringArray(tables.components()))
+                .append(",\n");
+        json.append("  \"activity\": ").append(stringArray(tables.activity())).append(",\n");
+        json.append("  \"chunks\": {").append(tables.chunks()).append("\n  }");
+        if (tables.sections() != null) {
+            // Ordonnée de la première section : sans elle, l'indice d'une section dans la
+            // table ne dirait pas à quelle hauteur se trouve un écart.
+            json.append(",\n  \"min_section_y\": ").append(level.getMinSection());
+            json.append(",\n  \"block_sections\": {").append(tables.sections())
+                    .append("\n  }");
+        }
         if (details) {
             // Diagnostic des entités de bloc : une liste par chunk qui en porte.
             json.append(",\n  \"block_entity_details\": {").append(tables.details())
@@ -507,6 +694,14 @@ public final class DigestRecorder {
             Files.createDirectories(parent);
         }
         Files.writeString(out, json.toString(), StandardCharsets.UTF_8);
+    }
+
+    private static String stringArray(List<String> values) {
+        StringBuilder array = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            array.append(i == 0 ? "\"" : ", \"").append(escape(values.get(i))).append('"');
+        }
+        return array.append(']').toString();
     }
 
     private static String escape(String text) {

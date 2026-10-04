@@ -201,6 +201,47 @@ public final class WorldDigest {
         return details;
     }
 
+    /**
+     * Blocs et entités de bloc d'une tranche horizontale d'un chunk, bornes incluses.
+     *
+     * <p>Pour un test qui ne regarde qu'un ouvrage posé — G-06 — et pas le terrain
+     * généré autour, dont le bruit masquerait tout (ADR-032).
+     */
+    public static long region(LevelChunk chunk, int minY, int maxY) {
+        int baseX = chunk.getPos().getMinBlockX();
+        int baseZ = chunk.getPos().getMinBlockZ();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        long hash = FNV_OFFSET;
+        for (int y = minY; y <= maxY; y++) {
+            for (int z = 0; z < 16; z++) {
+                for (int x = 0; x < 16; x++) {
+                    pos.set(baseX + x, y, baseZ + z);
+                    hash = mix(hash, Block.getId(chunk.getBlockState(pos)));
+                }
+            }
+        }
+        hash = mix(hash, -1);
+        List<Map.Entry<BlockPos, BlockEntity>> entries = new ArrayList<>();
+        for (Map.Entry<BlockPos, BlockEntity> entry : chunk.getBlockEntities().entrySet()) {
+            int y = entry.getKey().getY();
+            if (y >= minY && y <= maxY) {
+                entries.add(entry);
+            }
+        }
+        entries.sort(Map.Entry.comparingByKey(Comparator
+                .comparingInt((BlockPos p) -> p.getY())
+                .thenComparingInt(p -> p.getZ())
+                .thenComparingInt(p -> p.getX())));
+        for (Map.Entry<BlockPos, BlockEntity> entry : entries) {
+            BlockPos at = entry.getKey();
+            hash = mix(hash, at.getX());
+            hash = mix(hash, at.getY());
+            hash = mix(hash, at.getZ());
+            hash = mix(hash, entry.getValue().saveWithFullMetadata().hashCode());
+        }
+        return hash;
+    }
+
     static long blockEntities(LevelChunk chunk) {
         List<Map.Entry<BlockPos, BlockEntity>> entries =
                 new ArrayList<>(chunk.getBlockEntities().entrySet());

@@ -57,6 +57,12 @@ pub struct DigestFile {
     /// Empreinte des blocs de chaque section, par chunk (schema 2).
     #[serde(default)]
     pub block_sections: Option<BTreeMap<String, Option<Vec<String>>>>,
+    /// Poses de blocs refusees en construisant l'ouvrage du test (G-06) ; zero attendu.
+    #[serde(default)]
+    pub placement_failures: u32,
+    /// `true` si une partie de l'ouvrage n'a jamais change d'etat (G-06).
+    #[serde(default)]
+    pub inert: bool,
     /// Entites de bloc de chaque chunk qui en porte, une ligne
     /// `"x,y,z|type|champ=empreinte;..."` par entite (diagnostic, G-08).
     #[serde(default)]
@@ -86,6 +92,19 @@ pub fn validity(files: &[&DigestFile]) -> Vec<String> {
                 } else {
                     ""
                 }
+            ));
+        }
+        if file.placement_failures > 0 {
+            problems.push(format!(
+                "« {} » : {} poses de blocs refusees, l'ouvrage teste est incomplet",
+                file.label, file.placement_failures
+            ));
+        }
+        if file.inert {
+            problems.push(format!(
+                "« {} » : une partie de l'ouvrage n'a jamais change d'etat, l'egalite ne \
+                 prouverait rien",
+                file.label
             ));
         }
         if file.test != first.test {
@@ -712,7 +731,38 @@ mod tests {
             min_section_y: None,
             block_sections: None,
             block_entity_details: None,
+            placement_failures: 0,
+            inert: false,
         }
+    }
+
+    /// Trois circuits morts seraient egaux : un ouvrage inerte invalide la comparaison.
+    #[test]
+    fn an_inert_build_makes_the_comparison_invalid() {
+        let r1 = file("r1", &[("0,0", Some(SAME))]);
+        let mut r2 = file("r2", &[("0,0", Some(SAME))]);
+        let c = file("c", &[("0,0", Some(SAME))]);
+        r2.inert = true;
+
+        let verdict = judge(&r1, &r2, &c);
+
+        assert_eq!(verdict.invalid.len(), 1, "{:?}", verdict.invalid);
+        assert!(!verdict.passed());
+    }
+
+    /// Un ouvrage incomplet (G-06) ne se compare pas : trois circuits a moitie poses
+    /// pourraient etre egaux sans rien prouver.
+    #[test]
+    fn a_refused_placement_makes_the_comparison_invalid() {
+        let r1 = file("r1", &[("0,0", Some(SAME))]);
+        let r2 = file("r2", &[("0,0", Some(SAME))]);
+        let mut c = file("c", &[("0,0", Some(SAME))]);
+        c.placement_failures = 2;
+
+        let verdict = judge(&r1, &r2, &c);
+
+        assert_eq!(verdict.invalid.len(), 1, "{:?}", verdict.invalid);
+        assert!(!verdict.passed());
     }
 
     fn with_details(mut f: DigestFile, details: &[(&str, &[&str])]) -> DigestFile {
