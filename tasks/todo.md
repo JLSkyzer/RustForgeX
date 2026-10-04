@@ -732,7 +732,11 @@ donc ouvert.
             la campagne du 2026-10-04 (passe) et par un défaut injecté (détecté)
       - [x] Campagne G-08 complète par le script, 2026-10-04 03:17–03:45 : statut 0
             (génération, allers-retours et erreurs ; ADR-032)
-      - [ ] Les autres scénarios G-02..G-15 ; G-02, G-10 et G-15 demandent des clients
+      - [x] **G-06 passe en égalité stricte** (ADR-032) : circuit de redstone sur 10 000
+            ticks, 21 empreintes identiques dans les trois exécutions, mêmes compteurs
+            d'activité (anneau 3 500 changements…), mêmes erreurs
+      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09..G-15 ; G-02, G-10 et
+            G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :
