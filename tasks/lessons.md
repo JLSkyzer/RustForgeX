@@ -850,3 +850,10 @@ exécuteurs standard y sont gratuits, et le run relancé est vert sur les cinq j
 Depuis la publication, ce dépôt commite avec l'adresse noreply de GitHub
 (`git config user.email`, local à ce dépôt) : l'adresse personnelle ne figure plus que
 dans l'historique antérieur au 2026-10-03.
+
+### 2026-10-04 | Un test de gameplay a montré un écart de la référence 2 seule, venu de mon test et non du jeu | Cause : un échec voulu (`fill` trop grand) sortait de la zone contrôlée, et son message dépendait du chargement d'un chunk voisin ; une première version jugeait aussi la réussite d'une commande sur la valeur rendue, que `scoreboard objectives remove` met à 0 en réussissant | Règle : tout ce qu'un test d'égalité exécute — succès comme échec voulu — reste dans la zone qu'il contrôle ; l'issue d'une commande se lit dans le rappel de Brigadier, jamais dans sa valeur
+
+Les deux défauts ont été pris par des gardes posées exprès : l'issue attendue de chaque
+commande (le garde a signalé « Removed objective » comme un échec), et le test
+symétrique (un écart de la référence 2 seule ne peut pas venir de RUSTFORGE-X). Avant de
+conclure qu'un écart vient du jeu, relire ce que le test lui-même rend variable.
