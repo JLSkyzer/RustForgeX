@@ -1,6 +1,7 @@
 package dev.rustforgex.bench;
 
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
  * C-36 : ouvrage de test posé dans le monde puis regardé tourner — circuit de G-06,
@@ -53,8 +54,27 @@ public interface BenchFixture {
      */
     int launch(ServerLevel level, int step);
 
+    /**
+     * Actions planifiées de l'ouvrage, au tick {@code t} après le lancement, avant le
+     * relevé — téléportations de G-04. Rien par défaut.
+     *
+     * @return le nombre d'actions qui n'ont pas abouti
+     */
+    default int act(ServerLevel level, int t) {
+        return 0;
+    }
+
     /** Relève l'état des parties de l'ouvrage, une fois par tick après le lancement. */
     void observe(ServerLevel level);
+
+    /**
+     * Empreinte d'un chunk de l'ouvrage : blocs et entités de bloc de sa tranche. Un
+     * ouvrage dont l'état vit aussi ailleurs — des entités qui changent de dimension —
+     * l'y ajoute.
+     */
+    default long digest(ServerLevel level, LevelChunk chunk) {
+        return WorldDigest.region(chunk, minY(), maxY());
+    }
 
     /** Changements d'état comptés par partie, pour le journal et le fichier. */
     String activity();

@@ -132,6 +132,7 @@ final class FixtureRun {
             return false;
         }
         int t = age - startedAt;
+        failures += fixture.act(level, t);
         fixture.observe(level);
         if (t % SNAPSHOT_EVERY == 0 || t == ticks) {
             snapshot(level, t);
@@ -153,8 +154,7 @@ final class FixtureRun {
         for (int x = fixture.minChunk(); x <= fixture.maxChunk(); x++) {
             for (int z = fixture.minChunk(); z <= fixture.maxChunk(); z++) {
                 LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
-                perChunk[i++] = chunk == null ? 0L
-                        : WorldDigest.region(chunk, fixture.minY(), fixture.maxY());
+                perChunk[i++] = chunk == null ? 0L : fixture.digest(level, chunk);
             }
         }
         snapshots.add(perChunk);
