@@ -740,7 +740,10 @@ donc ouvert.
             RF-X (Blue Skies, Sophisticated Storage), aucune n'est imputable
       - [x] **G-14 passe en égalité stricte** (ADR-032) : météo pilotée par 21
             événements planifiés, cycle jour/nuit, 23 empreintes identiques
-      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09, G-10, G-11, G-13, G-15 ;
+      - [x] **G-11 passe** (ADR-032) : 24 commandes vanilla exécutées en égalité
+            stricte ; 263 commandes enregistrées éprouvées sans exécution, deux varient
+            à chaque lancement chez les références (Data Planets, ZPS)
+      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09, G-10, G-13, G-15 ;
             G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
