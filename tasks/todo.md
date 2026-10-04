@@ -730,8 +730,8 @@ donc ouvert.
             changement (entités : type et champ ; le reste : chunk ou section). Une classe
             produite par une référence est tolérée, toute autre est imputable. Vérifié sur
             la campagne du 2026-10-04 (passe) et par un défaut injecté (détecté)
-      - [ ] Rejouer une campagne G-08 complète par le script, quand la machine est libre :
-            le jugement n'a été appliqué qu'à la main sur les fichiers existants
+      - [x] Campagne G-08 complète par le script, 2026-10-04 03:17–03:45 : statut 0
+            (génération, allers-retours et erreurs ; ADR-032)
       - [ ] Les autres scénarios G-02..G-15 ; G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
