@@ -60,6 +60,7 @@ final class CommandSweep implements ResultSweep {
     private final List<CommandNode<CommandSourceStack>> roots = new ArrayList<>();
     private final List<String> keys = new ArrayList<>();
     private final List<List<String>> rows = new ArrayList<>();
+    private final StringBuilder clear = new StringBuilder();
     private CommandDispatcher<CommandSourceStack> dispatcher;
     private int next;
     private boolean reported;
@@ -95,12 +96,15 @@ final class CommandSweep implements ResultSweep {
             CommandNode<CommandSourceStack> root = roots.get(next);
             StringBuilder tree = new StringBuilder();
             describe(root, tree, 0);
+            String suggested = suggestions(root.getName(), console);
+            String help = CommandCapture.run(level.getServer(), level, ORIGIN,
+                    "help " + root.getName()).describe();
             keys.add("root/" + root.getName());
-            rows.add(List.of(ResultSweep.hash(tree.toString()),
-                    ResultSweep.hash(suggestions(root.getName(), console)),
-                    ResultSweep.hash(CommandCapture.run(level.getServer(), level, ORIGIN,
-                            "help " + root.getName()).describe()),
-                    NONE));
+            rows.add(List.of(ResultSweep.hash(tree.toString()), ResultSweep.hash(suggested),
+                    ResultSweep.hash(help), NONE));
+            clear.append("== root/").append(root.getName()).append("\n-- structure\n")
+                    .append(tree).append("\n-- suggestions\n").append(suggested)
+                    .append("\n-- help\n").append(help).append('\n');
         }
         boolean finished = finished();
         if (finished && !reported) {
@@ -173,6 +177,17 @@ final class CommandSweep implements ResultSweep {
     @Override
     public boolean finished() {
         return dispatcher != null && next >= roots.size();
+    }
+
+    /** Structure, suggestions et aide de chaque commande, puis la sortie des exécutées. */
+    @Override
+    public String details() {
+        StringBuilder text = new StringBuilder(clear);
+        for (CommandCapture.Outcome outcome : bench.outcomes()) {
+            text.append("== exec ").append(outcome.command()).append('\n')
+                    .append(outcome.describe()).append('\n');
+        }
+        return text.toString();
     }
 
     /** Les commandes enregistrées, puis les commandes exécutées par {@link CommandBench}. */

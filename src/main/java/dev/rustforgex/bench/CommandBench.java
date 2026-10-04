@@ -69,7 +69,11 @@ public final class CommandBench implements BenchFixture {
             ok("kill @e[tag=rfxbench]"),
             ok("scoreboard objectives remove rfxbench"),
             fails("setblock ~ ~ ~ minecraft:not_a_block"),
-            fails("fill ~ ~ ~ ~100 ~100 ~100 minecraft:stone"),
+            // Échec voulu qui ne dépend que de la zone chargée. Un `fill` trop grand
+            // sortait du monde dans un chunk voisin, chargé ou non selon l'exécution :
+            // le jeu répondait « hors du monde » ou « non chargé » (campagne G-11 du
+            // 2026-10-04, la référence 2 seule différait).
+            fails("clone ~1 ~ ~ ~5 ~2 ~3 ~2 ~ ~"),
             fails("scoreboard players get nobody rfxbench"));
 
     private final List<CommandCapture.Outcome> outcomes = new ArrayList<>();

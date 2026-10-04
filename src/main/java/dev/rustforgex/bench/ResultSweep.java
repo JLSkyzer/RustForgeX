@@ -46,6 +46,14 @@ interface ResultSweep {
     String json();
 
     /**
+     * Ce qui a été haché, en clair, pour comprendre un écart ; vide si la passe n'en
+     * garde rien. N'est écrit qu'en diagnostic ({@code rustforgex.bench.digest.details}).
+     */
+    default String details() {
+        return "";
+    }
+
+    /**
      * Empreinte FNV-1a sur 64 bits des caractères d'une description, en hexadécimal :
      * stable d'un lancement de la JVM à l'autre, contrairement à l'identité d'un objet.
      */

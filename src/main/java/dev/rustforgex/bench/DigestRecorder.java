@@ -506,6 +506,12 @@ public final class DigestRecorder {
                                 null, "", List.of(), 0, false));
                 LOGGER.info("{} : verdicts de {} éléments dans {}.", scenario.id,
                         sweep.judged(), target.toAbsolutePath());
+                String clear = sweep.details();
+                if (details && !clear.isEmpty()) {
+                    Path text = target.resolveSibling(
+                            target.getFileName().toString().replace(".json", "-details.txt"));
+                    Files.writeString(text, clear, StandardCharsets.UTF_8);
+                }
             }
             if (scenario == Scenario.G08 && !reloadPhase) {
                 saveForReload(server);
