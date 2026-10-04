@@ -735,8 +735,11 @@ donc ouvert.
       - [x] **G-06 passe en égalité stricte** (ADR-032) : circuit de redstone sur 10 000
             ticks, 21 empreintes identiques dans les trois exécutions, mêmes compteurs
             d'activité (anneau 3 500 changements…), mêmes erreurs
-      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09..G-15 ; G-02, G-10 et
-            G-15 demandent des clients
+      - [x] **G-12 passe** (ADR-032) : conteneurs en égalité stricte ; 17 549 recettes
+            d'atelier, 87 changent à chaque lancement chez les références comme chez
+            RF-X (Blue Skies, Sophisticated Storage), aucune n'est imputable
+      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09, G-10, G-11, G-13..G-15 ;
+            G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :
