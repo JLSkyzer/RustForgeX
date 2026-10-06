@@ -152,13 +152,19 @@ public final class DimensionHop implements BenchFixture {
             String command = String.format(Locale.ROOT,
                     "execute in %s run tp @e[tag=%s_%d] %.1f %.1f %.1f",
                     next.key().location(), TAG, i, at.x, at.y, at.z);
-            if (!CommandCapture.run(level.getServer(), level, OVERWORLD.arrival(), command)
-                    .succeeded()) {
+            CommandCapture.Outcome outcome =
+                    CommandCapture.run(level.getServer(), level, OVERWORLD.arrival(), command);
+            if (!outcome.succeeded()) {
                 failed++;
+                LOGGER.warn("G-04 t={} : saut refusé, « {} » : {}", t, command,
+                        outcome.describe());
             }
         }
         return failed;
     }
+
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("rustforgex-bench");
 
     @Override
     public void observe(ServerLevel level) {

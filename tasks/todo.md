@@ -743,7 +743,12 @@ donc ouvert.
       - [x] **G-11 passe** (ADR-032) : 24 commandes vanilla exécutées en égalité
             stricte ; 263 commandes enregistrées éprouvées sans exécution, deux varient
             à chaque lancement chez les références (Data Planets, ZPS)
-      - [ ] Les autres scénarios G-02, G-04, G-05, G-07, G-09, G-10, G-13, G-15 ;
+      - [x] **G-04 passe** (ADR-032) : 30 sauts Overworld, Nether, End ; trois
+            voyageurs en égalité stricte, le cochon bruité par les mods chez les
+            références comme chez RF-X
+      - [ ] G-04, point ouvert : un saut vers l'End a été refusé de façon intermittente
+            (2 exécutions sur 8, dont une référence) ; cause non lue, journalisée depuis
+      - [ ] Les autres scénarios G-02, G-05, G-07, G-09, G-10, G-13, G-15 ;
             G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
