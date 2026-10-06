@@ -174,12 +174,25 @@ main() {
                 "$(grep '/ERROR\]' "$log" | grep -ci rustforge)" \
                 "$(grep -c 'ServerHangWatchdog\|single server tick took' "$log")"
         done
-        if diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-rfx.log") > /dev/null; then
-            echo "   messages d'erreur identiques entre référence et candidat"
+        # Critère symétrique, comme pour l'état : un message est imputable au candidat
+        # s'il n'apparaît dans AUCUNE des deux références. Comparer au seul ref1 accusait
+        # le candidat du bruit du jeu — G-09, 2026-10-06 : un « POI data mismatch » dans
+        # ref1, absent de ref2 comme du candidat, avait mis la campagne en échec.
+        local own
+        own="$(comm -23 <(errors "$out/$scenario-rfx.log") \
+            <(sort -u <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-ref2.log")))"
+        if [ -z "$own" ]; then
+            echo "   aucun message d'erreur propre au candidat"
         else
-            echo "   MESSAGES D'ERREUR DIFFÉRENTS :"
-            diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-rfx.log") | head -20
+            echo "   MESSAGES D'ERREUR PROPRES AU CANDIDAT :"
+            printf '%s\n' "$own" | head -20
             status=1
+        fi
+        if ! diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-ref2.log") \
+                > /dev/null; then
+            echo "   (les références diffèrent déjà entre elles : bruit du jeu)"
+            diff <(errors "$out/$scenario-ref1.log") <(errors "$out/$scenario-ref2.log") \
+                | head -10 | sed 's/^/     /'
         fi
     done
     echo "CAMPAGNE TERMINÉE, statut $status"

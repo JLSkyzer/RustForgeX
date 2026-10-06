@@ -748,7 +748,12 @@ donc ouvert.
             références comme chez RF-X
       - [ ] G-04, point ouvert : un saut vers l'End a été refusé de façon intermittente
             (2 exécutions sur 8, dont une référence) ; cause non lue, journalisée depuis
-      - [ ] Les autres scénarios G-02, G-05, G-07, G-09, G-10, G-13, G-15 ;
+      - [x] **G-09 passe** (ADR-032) : fenêtre de chunks rapide, ~1 200 chargements et
+            déchargements ; état strict au-dessus de Y = 160 ; critère des erreurs
+            rendu symétrique
+      - [ ] G-09, à surveiller : entités de bloc, candidat intrus 7 fois contre 1 et 0
+            (p = 0,003, sous le seuil corrigé de 0,00067 sans l'atteindre)
+      - [ ] Les autres scénarios G-02, G-05, G-07, G-10, G-13, G-15 ;
             G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle

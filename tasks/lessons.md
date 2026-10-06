@@ -857,3 +857,5 @@ Les deux défauts ont été pris par des gardes posées exprès : l'issue attend
 commande (le garde a signalé « Removed objective » comme un échec), et le test
 symétrique (un écart de la référence 2 seule ne peut pas venir de RUSTFORGE-X). Avant de
 conclure qu'un écart vient du jeu, relire ce que le test lui-même rend variable.
+
+### 2026-10-06 | Une campagne G-09 a échoué sur les messages d'erreur alors que le candidat n'en avait aucun en propre | Cause : le critère des erreurs comparait le candidat à la seule référence 1, alors que l'état était déjà jugé de façon symétrique ; un message né du bruit du jeu, présent dans ref1 seule, a suffi | Règle : chaque critère d'un test à trois exécutions est symétrique — est imputable au candidat ce qui n'apparaît dans aucune des deux références, jamais ce qui diffère d'une seule
