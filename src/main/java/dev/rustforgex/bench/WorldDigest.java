@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
  * C-36 : empreinte de l'état d'un carré de chunks, pour les tests de gameplay.
@@ -208,6 +209,16 @@ public final class WorldDigest {
      * généré autour, dont le bruit masquerait tout (ADR-032).
      */
     public static long region(LevelChunk chunk, int minY, int maxY) {
+        return region(chunk, minY, maxY, UnaryOperator.identity());
+    }
+
+    /**
+     * Comme {@link #region(LevelChunk, int, int)}, les données de chaque entité de bloc
+     * passant d'abord par {@code normalize} — pour retirer un champ tiré au hasard qui ne
+     * dit rien de l'état, comme l'angle d'affichage d'un objet (G-07).
+     */
+    public static long region(LevelChunk chunk, int minY, int maxY,
+            UnaryOperator<CompoundTag> normalize) {
         int baseX = chunk.getPos().getMinBlockX();
         int baseZ = chunk.getPos().getMinBlockZ();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
@@ -237,7 +248,7 @@ public final class WorldDigest {
             hash = mix(hash, at.getX());
             hash = mix(hash, at.getY());
             hash = mix(hash, at.getZ());
-            hash = mix(hash, entry.getValue().saveWithFullMetadata().hashCode());
+            hash = mix(hash, normalize.apply(entry.getValue().saveWithFullMetadata()).hashCode());
         }
         return hash;
     }

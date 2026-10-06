@@ -23,7 +23,8 @@ import java.util.Locale;
 
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
- * tick à vide), G-04 (téléportation entre dimensions), G-06 (circuit de redstone), G-08
+ * tick à vide), G-04 (téléportation entre dimensions), G-06 (circuit de redstone), G-07
+ * (machines de mods), G-08
  * (sauvegarde et rechargement), G-09 (chunks chargés et déchargés en masse), G-11
  * (commandes), G-12 (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements
  * planifiés) — jusqu'à l'empreinte de l'état.
@@ -69,7 +70,7 @@ public final class DigestRecorder {
 
     /**
      * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08},
-     * {@code g04}, {@code g09}, {@code g11}, {@code g12} ou {@code g14}.
+     * {@code g04}, {@code g07}, {@code g09}, {@code g11}, {@code g12} ou {@code g14}.
      */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
@@ -112,6 +113,9 @@ public final class DigestRecorder {
     /** Durée de G-04 après l'invocation des voyageurs : trente sauts de dimension. */
     static final int G04_TICKS = 3_000;
 
+    /** Durée de G-07 après la pose des machines : 30 minutes de jeu (PARTIE 20.3.4). */
+    static final int G07_TICKS = 36_000;
+
     /**
      * Durée d'un test à ouvrage (G-06, G-12), pour le mettre au point plus vite ; sinon
      * {@value #G06_TICKS} pour G-06 et {@value #G12_TICKS} pour G-12. Deux fichiers de
@@ -144,7 +148,9 @@ public final class DigestRecorder {
         /** Téléportation entre dimensions. */
         G04("G-04"),
         /** Chargement et déchargement massif de chunks, fenêtre en mouvement rapide. */
-        G09("G-09");
+        G09("G-09"),
+        /** Machines de mods (Create, Mekanism) sur 30 minutes. */
+        G07("G-07");
 
         final String id;
 
@@ -159,6 +165,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g07".equalsIgnoreCase(v)) {
+                return G07;
             }
             if ("g09".equalsIgnoreCase(v)) {
                 return G09;
@@ -325,7 +334,7 @@ public final class DigestRecorder {
         }
         if (scenario == Scenario.G06 || scenario == Scenario.G12
                 || scenario == Scenario.G14 || scenario == Scenario.G11
-                || scenario == Scenario.G04) {
+                || scenario == Scenario.G04 || scenario == Scenario.G07) {
             tickFixture(server);
             return;
         }
@@ -444,6 +453,7 @@ public final class DigestRecorder {
                 case G06 -> new RedstoneCircuit();
                 case G11 -> commands;
                 case G04 -> hop;
+                case G07 -> new ModMachines();
                 case G14 -> new WeatherClock();
                 default -> new ContainerLine();
             };
@@ -451,6 +461,7 @@ public final class DigestRecorder {
                 case G06 -> G06_TICKS;
                 case G11 -> G11_TICKS;
                 case G04 -> G04_TICKS;
+                case G07 -> G07_TICKS;
                 case G14 -> G14_TICKS;
                 default -> G12_TICKS;
             });
