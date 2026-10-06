@@ -24,8 +24,9 @@ import java.util.Locale;
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
  * tick à vide), G-04 (téléportation entre dimensions), G-06 (circuit de redstone), G-08
- * (sauvegarde et rechargement), G-11 (commandes), G-12 (crafting et conteneurs) ou G-14
- * (météo, jour et nuit, événements planifiés) — jusqu'à l'empreinte de l'état.
+ * (sauvegarde et rechargement), G-09 (chunks chargés et déchargés en masse), G-11
+ * (commandes), G-12 (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements
+ * planifiés) — jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -68,7 +69,7 @@ public final class DigestRecorder {
 
     /**
      * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08},
-     * {@code g04}, {@code g11}, {@code g12} ou {@code g14}.
+     * {@code g04}, {@code g09}, {@code g11}, {@code g12} ou {@code g14}.
      */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
@@ -141,7 +142,9 @@ public final class DigestRecorder {
         /** Commandes vanilla et de mods. */
         G11("G-11"),
         /** Téléportation entre dimensions. */
-        G04("G-04");
+        G04("G-04"),
+        /** Chargement et déchargement massif de chunks, fenêtre en mouvement rapide. */
+        G09("G-09");
 
         final String id;
 
@@ -156,6 +159,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g09".equalsIgnoreCase(v)) {
+                return G09;
             }
             if ("g04".equalsIgnoreCase(v)) {
                 return G04;
@@ -269,7 +275,17 @@ public final class DigestRecorder {
         this.maxX = range[1];
         this.minZ = range[0];
         this.maxZ = range[1];
+        if (scenario == Scenario.G09) {
+            int[] strip = MovingWindow.strip();
+            this.minX = strip[0];
+            this.maxX = strip[1];
+            this.minZ = strip[2];
+            this.maxZ = strip[3];
+        }
     }
+
+    /** Fenêtre mobile de G-09 ; {@code null} pour les autres tests. */
+    private MovingWindow window;
 
     /** Arme l'enregistreur si {@link #PROPERTY_OUT} est renseignée. */
     public static void armIfRequested() {
@@ -335,6 +351,17 @@ public final class DigestRecorder {
             LoadProfile.pump(server, new ArrayDeque<>(java.util.List.of(pending.poll())));
             return;
         }
+        if (scenario == Scenario.G09) {
+            // G-09 : la course de la fenêtre avant tout ; la bande parcourue n'est forcée
+            // en entier, puis hachée comme G-03, qu'une fois le retour achevé.
+            if (window == null) {
+                window = new MovingWindow();
+                window.start();
+            }
+            if (!window.tick(server.overworld())) {
+                return;
+            }
+        }
         if (!squareForced) {
             forceSquare(server.overworld());
             squareForced = true;
@@ -348,8 +375,8 @@ public final class DigestRecorder {
         int ready = countReady(level);
         if (ready == expected() && readyAt < 0) {
             readyAt = seen;
-            LOGGER.info("G-03 : {} chunks générés en {} ticks, repos de {} ticks.",
-                    ready, seen - appliedAt, settleTicks);
+            LOGGER.info("{} : {} chunks générés en {} ticks, repos de {} ticks.",
+                    scenario.id, ready, seen - appliedAt, settleTicks);
         }
         boolean settled = readyAt >= 0 && seen - readyAt >= settleTicks;
         boolean timedOut = seen - appliedAt >= timeoutTicks;
@@ -507,6 +534,12 @@ public final class DigestRecorder {
         try {
             long start = System.nanoTime();
             Tables tables = fixtureRun != null ? fixtureTables() : digestAll(level);
+            if (window != null) {
+                // G-09 : la preuve que la course a chargé et déchargé, et la garde contre
+                // une course qui n'aurait rien déchargé.
+                tables = new Tables(tables.components(), tables.chunks(), tables.sections(),
+                        tables.details(), List.of(window.activity()), 0, window.inert());
+            }
             long digestMs = (System.nanoTime() - start) / 1_000_000L;
             write(out, label, level, expected(), ready, timedOut, digestMs, tables);
             if (sweep != null) {
