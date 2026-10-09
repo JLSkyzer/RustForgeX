@@ -24,10 +24,10 @@ import java.util.Locale;
 /**
  * C-36 : exécution d'un test de gameplay — G-03 (génération), G-01 (cinq minutes de
  * tick à vide), G-04 (téléportation entre dimensions), G-06 (circuit de redstone), G-07
- * (machines de mods), G-08
- * (sauvegarde et rechargement), G-09 (chunks chargés et déchargés en masse), G-11
- * (commandes), G-12 (crafting et conteneurs) ou G-14 (météo, jour et nuit, événements
- * planifiés) — jusqu'à l'empreinte de l'état.
+ * (machines de mods), G-08 (sauvegarde et rechargement), G-09 (chunks chargés et
+ * déchargés en masse), G-11 (commandes), G-12 (crafting et conteneurs), G-13
+ * (pathfinding de 500 entités) ou G-14 (météo, jour et nuit, événements planifiés) —
+ * jusqu'à l'empreinte de l'état.
  *
  * <p>Cahier des charges : PARTIE 20.3.4. Chaque scénario est exécuté deux fois, sans
  * RUSTFORGE-X puis avec, et le critère est l'<strong>égalité d'état</strong>, pas la
@@ -70,7 +70,8 @@ public final class DigestRecorder {
 
     /**
      * Scénario joué : {@code g03} (défaut), {@code g01}, {@code g06}, {@code g08},
-     * {@code g04}, {@code g07}, {@code g09}, {@code g11}, {@code g12} ou {@code g14}.
+     * {@code g04}, {@code g07}, {@code g09}, {@code g11}, {@code g12}, {@code g13} ou
+     * {@code g14}.
      */
     public static final String PROPERTY_SCENARIO = "rustforgex.bench.scenario";
 
@@ -116,6 +117,9 @@ public final class DigestRecorder {
     /** Durée de G-07 après la pose des machines : 30 minutes de jeu (PARTIE 20.3.4). */
     static final int G07_TICKS = 36_000;
 
+    /** Durée de G-13 après l'invocation du troupeau : dix trajets d'un bout à l'autre. */
+    static final int G13_TICKS = 6_000;
+
     /**
      * Durée d'un test à ouvrage (G-06, G-12), pour le mettre au point plus vite ; sinon
      * {@value #G06_TICKS} pour G-06 et {@value #G12_TICKS} pour G-12. Deux fichiers de
@@ -150,7 +154,9 @@ public final class DigestRecorder {
         /** Chargement et déchargement massif de chunks, fenêtre en mouvement rapide. */
         G09("G-09"),
         /** Machines de mods (Create, Mekanism) sur 30 minutes. */
-        G07("G-07");
+        G07("G-07"),
+        /** Pathfinding de 500 entités. */
+        G13("G-13");
 
         final String id;
 
@@ -165,6 +171,9 @@ public final class DigestRecorder {
             }
             if ("g06".equalsIgnoreCase(v)) {
                 return G06;
+            }
+            if ("g13".equalsIgnoreCase(v)) {
+                return G13;
             }
             if ("g07".equalsIgnoreCase(v)) {
                 return G07;
@@ -334,7 +343,8 @@ public final class DigestRecorder {
         }
         if (scenario == Scenario.G06 || scenario == Scenario.G12
                 || scenario == Scenario.G14 || scenario == Scenario.G11
-                || scenario == Scenario.G04 || scenario == Scenario.G07) {
+                || scenario == Scenario.G04 || scenario == Scenario.G07
+                || scenario == Scenario.G13) {
             tickFixture(server);
             return;
         }
@@ -449,11 +459,13 @@ public final class DigestRecorder {
         if (seen == APPLY_AT_TICK) {
             CommandBench commands = new CommandBench();
             DimensionHop hop = new DimensionHop();
+            Herd herd = new Herd();
             BenchFixture fixture = switch (scenario) {
                 case G06 -> new RedstoneCircuit();
                 case G11 -> commands;
                 case G04 -> hop;
                 case G07 -> new ModMachines();
+                case G13 -> herd;
                 case G14 -> new WeatherClock();
                 default -> new ContainerLine();
             };
@@ -462,6 +474,7 @@ public final class DigestRecorder {
                 case G11 -> G11_TICKS;
                 case G04 -> G04_TICKS;
                 case G07 -> G07_TICKS;
+                case G13 -> G13_TICKS;
                 case G14 -> G14_TICKS;
                 default -> G12_TICKS;
             });
@@ -474,6 +487,7 @@ public final class DigestRecorder {
             sweep = switch (scenario) {
                 case G11 -> new CommandSweep(commands);
                 case G04 -> hop.trail();
+                case G13 -> herd.trail();
                 case G12 -> new CraftingSweep();
                 default -> null;
             };

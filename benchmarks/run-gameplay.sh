@@ -5,7 +5,7 @@
 #   ./benchmarks/run-gameplay.sh <racine_du_serveur> [scenarios]
 #
 # scenarios : liste séparée par des virgules, parmi g01, g03, g04, g06, g07, g08, g09, g11,
-# g12, g14
+# g12, g13, g14
 # (défaut : g03,g01).
 # Variable JAVA : binaire java à employer (défaut : java du PATH).
 # Variable DETAILS=true : diagnostic des entités de bloc, type et champ par champ —
@@ -142,7 +142,7 @@ main() {
         # Les passes d'éléments se jugent à part — recettes de G-12 (-craft), commandes
         # de G-11 (-commands), voyageurs de G-04 (-travellers) : ce ne sont pas des chunks.
         local suffix
-        for suffix in craft commands travellers; do
+        for suffix in craft commands travellers herd; do
             [ -f "$out/$scenario-ref1-$suffix.json" ] || continue
             echo "── passe $suffix"
             cargo run -q -p rfx-bench -- digest "$out/$scenario-ref1-$suffix.json" \
