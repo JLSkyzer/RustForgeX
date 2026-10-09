@@ -753,7 +753,9 @@ donc ouvert.
             rendu symétrique
       - [ ] G-09, à surveiller : entités de bloc, candidat intrus 7 fois contre 1 et 0
             (p = 0,003, sous le seuil corrigé de 0,00067 sans l'atteindre)
-      - [ ] Les autres scénarios G-02, G-05, G-07, G-10, G-13, G-15 ;
+      - [x] **G-07 passe en égalité stricte** (ADR-032) : Create et Mekanism sur
+            30 minutes, mêmes produits dans les trois exécutions
+      - [ ] Les autres scénarios G-02, G-05, G-10, G-13, G-15 ;
             G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
