@@ -657,14 +657,17 @@ donc ouvert.
 
       | statut | identifiants |
       |---|---|
-      | couvert (13) | T-130, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, T-440, T-442 |
-      | partiel (4) | T-132 (chemin « échec de transformation » non testé), T-140 (mesuré sur `medium`, pas `heavy`), T-420 (seul `/rfx status` testé ; `why`, `workload`, `mode`, `set`… absents), T-441 (le chargeur de classes n'est pas observé) |
-      | absent (10) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie), T-411 (dump d'incident), T-421 (commande < 5 ms), T-422 (permissions) |
+      | couvert (14) | T-130, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-422**⁵, T-440, T-442 |
+      | partiel (4) | T-132 (chemin « échec de transformation » non testé), T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites), T-441 (le chargeur de classes n'est pas observé) |
+      | absent (9) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie), T-411 (dump d'incident), T-421 (commande < 5 ms — à mesurer sur serveur réel : `/rfx report` écrit un fichier sur le fil du serveur) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
       Réserves des « couverts » : ¹ chemin chaud Java sans compteur d'allocation ;
       ² passage en `DEGRADED` non testé ; ³ balayage statique sans `src/launch` ;
-      ⁴ pas de test du rapport de bout en bout.
+      ⁴ pas de test du rapport de bout en bout ; ⁵ `RfxCommandsTest` (2026-10-10) parcourt
+      tout l'arbre de `/rfx` : chaque commande répond en texte traduisible, toutes sont
+      refusées au niveau 2 et exécutées aux niveaux 3 et 4 ; vérifié en retirant
+      l'exigence de permission (le test échoue).
 
       Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
       (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à
