@@ -657,8 +657,8 @@ donc ouvert.
 
       | statut | identifiants |
       |---|---|
-      | couvert (16) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, T-442 |
-      | partiel (3) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites), T-441 (le chargeur de classes n'est pas observé) |
+      | couvert (17) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442 |
+      | partiel (2) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites) |
       | absent (8) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie), T-411 (dump d'incident) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
@@ -676,7 +676,10 @@ donc ouvert.
       ⁷ défaut trouvé en écrivant le test : une injection qui levait en cours de route
       laissait la méthode à moitié injectée dans une classe chargée quand même. Injection
       désormais atomique par méthode (copie, remise en place, compteur
-      `unprobeableMethods`) ; test qui échoue si la remise en place est retirée.
+      `unprobeableMethods`) ; test qui échoue si la remise en place est retirée ;
+      ⁸ sentinelle à fil-piège dans un paquet inventorié, et compteur de classes chargées
+      de la JVM inchangé pendant une découverte ; un `Class.forName` injecté dans la
+      découverte fait échouer le test (2 classes chargées).
 
       Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
       (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à

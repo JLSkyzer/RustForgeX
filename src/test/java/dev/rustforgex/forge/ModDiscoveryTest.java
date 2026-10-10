@@ -150,6 +150,36 @@ class ModDiscoveryTest {
     }
 
     /**
+     * T-441 : la découverte ne charge aucune classe (R-620), observé de deux façons.
+     *
+     * <ul>
+     *   <li>un mod synthétique déclare le paquet {@code rfxtest.discovery}, dont la
+     *       sentinelle lève un fil-piège si elle est initialisée ;
+     *   <li>le compteur de classes chargées de la JVM ne bouge pas pendant une
+     *       découverte, une fois les classes de la découverte elle-même chargées par un
+     *       premier appel — ce qui prend aussi un chargement sans initialisation.
+     * </ul>
+     */
+    @Test
+    @DisplayName("T-441 : la découverte ne charge aucune classe, même des paquets qu'elle inventorie")
+    void discoveryLoadsNoClass() {
+        ModDiscovery.from(source(
+                new ModSource.RawMod("chauffe", "1.0", null, "module.chauffe", Set.of("a.b"))));
+        java.lang.management.ClassLoadingMXBean classes =
+                java.lang.management.ManagementFactory.getClassLoadingMXBean();
+        long before = classes.getTotalLoadedClassCount();
+
+        ModDiscovery discovery = ModDiscovery.from(source(new ModSource.RawMod(
+                "sentinelle", "1.0", null, "module.sentinelle", Set.of("rfxtest.discovery"))));
+
+        long loaded = classes.getTotalLoadedClassCount() - before;
+        assertEquals(1, discovery.modCount());
+        assertEquals(0, loaded, "R-620 : la découverte a chargé " + loaded + " classe(s)");
+        assertFalse(rfxtest.discovery.Tripwire.tripped(),
+                "R-620 : une classe d'un paquet inventorié a été initialisée");
+    }
+
+    /**
      * T-442 : la découverte tient sous 500 ms pour 250 mods (R-621).
      *
      * <p>La marge réelle est énorme parce que la découverte ne fait que réorganiser des
