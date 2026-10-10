@@ -651,6 +651,24 @@ donc ouvert.
 
 - [ ] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
       T-410..T-412, T-420..T-422, T-440..T-442 verts
+
+      **Inventaire du 2026-10-10** (31 identifiants, lus dans le code et les tests, pas
+      exécutés ; quatre statuts recoupés à la main — T-131, T-411, T-422, T-442) :
+
+      | statut | identifiants |
+      |---|---|
+      | couvert (13) | T-130, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, T-440, T-442 |
+      | partiel (4) | T-132 (chemin « échec de transformation » non testé), T-140 (mesuré sur `medium`, pas `heavy`), T-420 (seul `/rfx status` testé ; `why`, `workload`, `mode`, `set`… absents), T-441 (le chargeur de classes n'est pas observé) |
+      | absent (10) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie), T-411 (dump d'incident), T-421 (commande < 5 ms), T-422 (permissions) |
+      | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
+
+      Réserves des « couverts » : ¹ chemin chaud Java sans compteur d'allocation ;
+      ² passage en `DEGRADED` non testé ; ³ balayage statique sans `src/launch` ;
+      ⁴ pas de test du rapport de bout en bout.
+
+      Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
+      (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à
+      trancher par ADR (report du test, ou découpage de la fiche au bloc MEASURED).
 - [x] **Overhead mesuré et affiché sous 2 % sur un profil de charge** (ADR-025).
       Mesuré sous le profil `medium` de la PARTIE 22 — 2 000 entités, 1 200 chunks,
       MSPT p50 de 20,8 ms, ce qui est enfin un serveur qui travaille :
