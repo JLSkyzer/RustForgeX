@@ -127,7 +127,9 @@ main() {
     IFS=',' read -r -a list <<< "$scenarios"
     for scenario in "${list[@]}"; do
         play "$scenario" ref1 false
-        play "$scenario" rfx true
+        # CANDIDATE_RFX=false : contre-épreuve A/A, le candidat tourne lui aussi sans
+        # RUSTFORGE-X. Un « écart » qui survit à l'A/A vient de la méthode, pas du code.
+        play "$scenario" rfx "${CANDIDATE_RFX:-true}"
         play "$scenario" ref2 false
     done
 

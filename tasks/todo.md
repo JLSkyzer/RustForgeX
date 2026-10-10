@@ -773,7 +773,11 @@ donc ouvert.
             (p = 0,003, sous le seuil corrigé de 0,00067 sans l'atteindre)
       - [x] **G-07 passe en égalité stricte** (ADR-032) : Create et Mekanism sur
             30 minutes, mêmes produits dans les trois exécutions
-      - [ ] Les autres scénarios G-02, G-05, G-10, G-13, G-15 ;
+      - [ ] **G-13 non concluant** (ADR-032) : divergence A/B au relevé 3, mais l'A/A
+            sans RF-X produit le même signal — le test de l'intrus suppose des éléments
+            indépendants, une foule le fausse. Refaire sans interactions (couloirs
+            séparés) ou avec un jugement qui tienne compte de la dépendance
+      - [ ] Les autres scénarios G-02, G-05, G-10, G-15 ;
             G-02, G-10 et G-15 demandent des clients
 - [ ] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
