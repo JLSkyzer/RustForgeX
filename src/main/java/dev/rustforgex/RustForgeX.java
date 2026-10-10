@@ -14,6 +14,7 @@ import dev.rustforgex.instrument.ProbeRegistry;
 import dev.rustforgex.instrument.RfxProbes;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -68,6 +69,9 @@ public class RustForgeX {
     private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
     private final HookGuard discoveryGuard = new HookGuard("loadComplete", LOGGER::warn);
     private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
+
+    /** Préchauffage des commandes : son propre garde, pour ne pas compter contre l'enregistrement. */
+    private final HookGuard warmUpGuard = new HookGuard("warmUpCommands", LOGGER::warn);
     private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
     private final HookGuard tickPreGuard = new HookGuard("serverTickPre", LOGGER::warn);
     private final HookGuard tickPostGuard = new HookGuard("serverTickPost", LOGGER::warn);
@@ -94,6 +98,7 @@ public class RustForgeX {
         // Test de gameplay G-03 : même raison, et c'est même sa condition — la référence
         // est une exécution où RUSTFORGE-X est désactivé (PARTIE 20.3.4).
         dev.rustforgex.bench.DigestRecorder.armIfRequested();
+        dev.rustforgex.bench.CommandTiming.armIfRequested();
 
         if (earlyArmRequested()) {
             logArmingSchedule();
@@ -334,6 +339,18 @@ public class RustForgeX {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onRegisterCommands(final RegisterCommandsEvent event) {
         commandsGuard.run(() -> RfxCommands.register(event.getDispatcher()));
+    }
+
+    /**
+     * Préchauffe les commandes une fois le serveur démarré, pour que leur premier appel
+     * reste sous les 5 ms de R-601 (voir {@link RfxCommands#warmUp()}).
+     *
+     * @param event fin du démarrage du serveur
+     */
+    @SubscribeEvent
+    public void onServerStarted(final ServerStartedEvent event) {
+        warmUpGuard.run(() -> LOGGER.info(
+                "Commandes /rfx préchauffées en {} ms (R-601).", RfxCommands.warmUp()));
     }
 
     /**

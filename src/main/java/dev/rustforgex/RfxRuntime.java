@@ -28,12 +28,16 @@ import dev.rustforgex.instrument.UnknownFrameIndex;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
  * État global de RUSTFORGE-X côté Java.
@@ -472,18 +476,55 @@ public final class RfxRuntime {
      *
      * <p>Les chemins y sont anonymisés (R-571) : un rapport est fait pour être envoyé.
      *
-     * @return le chemin du rapport écrit
-     * @throws IOException si le fichier ne peut être écrit
+     * <p>Seul le relevé des métriques a lieu sur le fil appelant : il lit l'état du
+     * runtime. Le rendu et l'écriture du fichier se font hors du fil du serveur (R-601) :
+     * écrits sur le fil, ils l'occupaient jusqu'à 7,6 ms, au-delà du budget de 5 ms
+     * (mesure T-421 du 2026-10-10).
+     *
+     * @return le chemin du rapport, une fois écrit ; une {@link IOException} enveloppée
+     *     si le fichier ne peut l'être
      */
-    public Path writeReport() throws IOException {
-        Path directory = root.resolve("reports");
-        Files.createDirectories(directory);
-        Path file = directory.resolve("rfx-report-" + Instant.now().getEpochSecond() + ".json");
-        Files.writeString(file,
-                MetricsJson.render(metrics(), Anonymizer.ofSystem(root)),
-                StandardCharsets.UTF_8);
-        return file;
+    public CompletableFuture<Path> writeReportAsync() {
+        MetricSet snapshot = metrics();
+        Anonymizer anonymizer = Anonymizer.ofSystem(root);
+        Path file = root.resolve("reports")
+                // À la milliseconde : à la seconde, deux rapports demandés dans la même
+                // seconde s'écrasaient (20 demandes en 20 ticks, mesure T-421 du
+                // 2026-10-10), contre la promesse « jamais écrasé ». Deux commandes sont
+                // séparées d'un tick au moins, 50 ms.
+                .resolve("rfx-report-" + Instant.now().toEpochMilli() + ".json");
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Files.createDirectories(file.getParent());
+                Files.writeString(file, MetricsJson.render(snapshot, anonymizer),
+                        StandardCharsets.UTF_8);
+                return file;
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }, REPORT_WRITER);
     }
+
+    /**
+     * Préchauffe le rapport sans l'écrire : relevé et mise en forme des métriques, et
+     * démarrage du fil d'écriture. Le premier {@code /rfx report} payait sinon le
+     * chargement de ces classes sur le fil du serveur — 6,7 ms au premier appel contre
+     * 0,3 ms ensuite (mesure T-421 du 2026-10-10). Aucun fichier n'est écrit.
+     */
+    public void warmUpReports() {
+        MetricsJson.render(metrics(), Anonymizer.ofSystem(root));
+        REPORT_WRITER.execute(() -> { });
+    }
+
+    /**
+     * Fil unique, démon, qui écrit les rapports : un rapport demandé deux fois de suite
+     * s'écrit dans l'ordre, et ce fil n'empêche jamais la JVM de s'arrêter.
+     */
+    private static final Executor REPORT_WRITER = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "rustforgex-report");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /**
      * État de l'instrumentation (C-04).

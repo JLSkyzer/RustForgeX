@@ -102,6 +102,69 @@ public final class RfxCommands {
     }
 
     /**
+     * Préchauffe les commandes au démarrage du serveur : construit une fois, sans rien
+     * envoyer, ce que {@code status}, {@code mods}, {@code top} et {@code discover}
+     * construisent, et prépare le rapport.
+     *
+     * <p>Le premier appel d'une commande payait le chargement de ses classes sur le fil
+     * du serveur : 6,3 ms pour {@code /rfx status}, au-delà des 5 ms de R-601, contre
+     * 0,5 ms ensuite (mesure T-421 du 2026-10-10). Le démarrage n'est pas une commande ;
+     * ce coût y est à sa place. Rien n'est modifié : pas de session de profilage, pas de
+     * remise à zéro, pas de fichier.
+     *
+     * @return la durée du préchauffage, en millisecondes ; 0 sans runtime
+     */
+    public static long warmUp() {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime == null) {
+            return 0L;
+        }
+        long start = System.nanoTime();
+        runtime.status();
+        ModsReport.lines(runtime.modDiscovery());
+        TopReport.lines(runtime.topWorkloads(TopReport.DEFAULT_LIMIT),
+                runtime.instrumentation() == null ? null : runtime.instrumentation().registry(),
+                runtime.lastProfilingSession());
+        DiscoveryReport.lines(runtime.unknownFrames(DiscoveryReport.DEFAULT_LIMIT));
+        runtime.warmUpReports();
+        return (System.nanoTime() - start) / 1_000_000L;
+    }
+
+    /**
+     * Tous les chemins exécutables sous {@code /rfx}, chaque argument entier remplacé par
+     * son minimum — {@code "rfx status"}, {@code "rfx top 1"}… Trouvés en parcourant
+     * l'arbre enregistré : une commande ajoutée demain est éprouvée (T-420 à T-422) sans
+     * qu'on pense à l'ajouter.
+     *
+     * @throws IllegalStateException si un argument n'est pas un entier : le parcours ne
+     *     saurait pas quelle valeur lui donner
+     */
+    public static List<String> executablePaths(CommandDispatcher<CommandSourceStack> dispatcher) {
+        List<String> paths = new java.util.ArrayList<>();
+        walk(dispatcher.getRoot().getChild("rfx"), "rfx", paths);
+        return paths;
+    }
+
+    private static void walk(com.mojang.brigadier.tree.CommandNode<CommandSourceStack> node,
+            String path, List<String> out) {
+        if (node.getCommand() != null) {
+            out.add(path);
+        }
+        for (com.mojang.brigadier.tree.CommandNode<CommandSourceStack> child
+                : node.getChildren()) {
+            if (child instanceof com.mojang.brigadier.tree.LiteralCommandNode<?> literal) {
+                walk(child, path + " " + literal.getLiteral(), out);
+            } else if (child instanceof com.mojang.brigadier.tree.ArgumentCommandNode<?, ?> argument
+                    && argument.getType() instanceof IntegerArgumentType integer) {
+                walk(child, path + " " + integer.getMinimum(), out);
+            } else {
+                throw new IllegalStateException(
+                        "argument non entier sous /rfx : " + child.getUsageText());
+            }
+        }
+    }
+
+    /**
      * Écrit un rapport de métriques et dit où il est (C-34, C-35).
      *
      * <p>L'écriture est une entrée-sortie : elle a lieu parce qu'un joueur l'a demandée,
@@ -114,17 +177,29 @@ public final class RfxCommands {
                     () -> Component.translatable(StatusReport.KEY_PREFIX + "not_started"), false);
             return;
         }
-        try {
-            java.nio.file.Path file = runtime.writeReport();
-            // Le chemin affiché est celui de la machine de l'opérateur : c'est lui qui
-            // doit retrouver le fichier. R-571 porte sur le CONTENU exporté, pas sur ce
-            // qu'on dit à celui qui vient de le demander chez lui.
-            source.sendSuccess(() -> Component.translatable(
-                    REPORT_PREFIX + "written", Component.literal(file.toString())), false);
-        } catch (java.io.IOException e) {
-            source.sendFailure(Component.translatable(
-                    REPORT_PREFIX + "failed", Component.literal(e.toString())));
-        }
+        // L'écriture se fait hors du fil du serveur (R-601) ; le message de fin y revient,
+        // car un message ne s'envoie que depuis le fil du serveur.
+        runtime.writeReportAsync().whenComplete((file, error) -> {
+            Runnable answer = () -> {
+                if (error == null) {
+                    // Le chemin affiché est celui de la machine de l'opérateur : c'est lui
+                    // qui doit retrouver le fichier. R-571 porte sur le CONTENU exporté,
+                    // pas sur ce qu'on dit à celui qui vient de le demander chez lui.
+                    source.sendSuccess(() -> Component.translatable(
+                            REPORT_PREFIX + "written", Component.literal(file.toString())),
+                            false);
+                } else {
+                    Throwable cause = error.getCause() == null ? error : error.getCause();
+                    source.sendFailure(Component.translatable(
+                            REPORT_PREFIX + "failed", Component.literal(cause.toString())));
+                }
+            };
+            if (source.getServer() == null) {
+                answer.run();
+            } else {
+                source.getServer().execute(answer);
+            }
+        });
     }
 
     /** Durée par défaut d'une session de diagnostic, en secondes. */

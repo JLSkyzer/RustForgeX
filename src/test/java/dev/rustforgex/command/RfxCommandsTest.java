@@ -6,11 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import com.mojang.brigadier.tree.ArgumentCommandNode;
-import com.mojang.brigadier.tree.CommandNode;
-import com.mojang.brigadier.tree.LiteralCommandNode;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
@@ -74,32 +70,9 @@ class RfxCommandsTest {
         return dispatcher;
     }
 
-    /**
-     * Toutes les commandes exécutables sous {@code /rfx}, chaque argument entier remplacé
-     * par son minimum.
-     */
+    /** Toutes les commandes exécutables sous {@code /rfx} (parcours de l'arbre). */
     private static List<String> everyCommand(CommandDispatcher<CommandSourceStack> dispatcher) {
-        List<String> commands = new ArrayList<>();
-        walk(dispatcher.getRoot().getChild("rfx"), "rfx", commands);
-        return commands;
-    }
-
-    private static void walk(CommandNode<CommandSourceStack> node, String path,
-            List<String> out) {
-        if (node.getCommand() != null) {
-            out.add(path);
-        }
-        for (CommandNode<CommandSourceStack> child : node.getChildren()) {
-            if (child instanceof LiteralCommandNode<CommandSourceStack> literal) {
-                walk(child, path + " " + literal.getLiteral(), out);
-            } else if (child instanceof ArgumentCommandNode<CommandSourceStack, ?> argument
-                    && argument.getType() instanceof IntegerArgumentType integer) {
-                walk(child, path + " " + integer.getMinimum(), out);
-            } else {
-                throw new AssertionError("type d'argument non couvert par le test : "
-                        + child.getUsageText());
-            }
-        }
+        return RfxCommands.executablePaths(dispatcher);
     }
 
     @Test
