@@ -100,6 +100,62 @@ class ProbeInjectorTest {
         RfxProbes.uninstall();
     }
 
+    /**
+     * T-132 et FM-09 : une injection qui lève <strong>après</strong> avoir commencé à
+     * modifier la méthode ne laisse pas une méthode à moitié injectée. La méthode est
+     * rendue intacte et comptée non sondable, les autres restent sondées, rien ne
+     * remonte, et c'est la JVM qui juge la classe en la chargeant.
+     */
+    @Test
+    @DisplayName("T-132 : une injection qui échoue en cours de route laisse la méthode intacte")
+    void aFailedInjectionLeavesTheMethodIntact() throws Exception {
+        ClassNode node = readTarget();
+        String victim = "classify";
+        MethodNode original = node.methods.stream()
+                .filter(m -> m.name.equals(victim)).findFirst().orElseThrow();
+        List<Integer> originalOpcodes = opcodes(RfxClassTransformer.copyOf(original));
+        long unprobeableBefore = RfxClassTransformer.unprobeableMethods();
+        int[] nextId = {0};
+
+        int probed = RfxClassTransformer.instrument(node,
+                (owner, name, desc) -> nextId[0]++,
+                (owner, method, probeId, threshold) -> {
+                    boolean injected = ProbeInjector.inject(owner, method, probeId, threshold);
+                    if (method.name.equals(victim)) {
+                        throw new IllegalStateException("échec simulé, méthode déjà modifiée");
+                    }
+                    return injected;
+                },
+                ProbeEligibility.SPEC_MIN_INSTRUCTIONS);
+
+        MethodNode after = node.methods.stream()
+                .filter(m -> m.name.equals(victim)).findFirst().orElseThrow();
+        assertEquals(originalOpcodes, opcodes(after), "la méthode doit être rendue intacte");
+        assertEquals(unprobeableBefore + 1, RfxClassTransformer.unprobeableMethods());
+        assertTrue(probed > 0, "les autres méthodes restent sondées");
+
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        Map<String, byte[]> classes = new HashMap<>();
+        classes.put(TARGET, writer.toByteArray());
+        Class<?> type = new TransformingLoader(classes).loadClass(TARGET);
+        Object instance = type.getConstructor().newInstance();
+        assertEquals(invoke(type, instance, "classify", new Class<?>[] {int.class}, 5),
+                new rfxtest.workload.SampleWorkload().classify(5),
+                "la méthode rendue intacte se comporte comme l'originale");
+    }
+
+    /** Codes d'opération réels d'une méthode, étiquettes et numéros de ligne exclus. */
+    private static List<Integer> opcodes(MethodNode method) {
+        List<Integer> codes = new ArrayList<>();
+        for (org.objectweb.asm.tree.AbstractInsnNode insn : method.instructions) {
+            if (insn.getOpcode() >= 0) {
+                codes.add(insn.getOpcode());
+            }
+        }
+        return codes;
+    }
+
     /** Lit le bytecode d'origine de la classe cible. */
     private static ClassNode readTarget() throws IOException {
         String resource = "/" + TARGET.replace('.', '/') + ".class";

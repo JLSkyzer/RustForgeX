@@ -108,7 +108,9 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
     }
     private static final AtomicLong CLASSES_TRANSFORMED = new AtomicLong();
     private static final AtomicLong METHODS_PROBED = new AtomicLong();
+    /** Échecs de transformation, méthodes et classes confondues. */
     private static final AtomicLong TRANSFORM_FAILURES = new AtomicLong();
+    private static final AtomicLong UNPROBEABLE_METHODS = new AtomicLong();
 
     private final Set<Target> targets;
 
@@ -212,11 +214,36 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
         return classNode;
     }
 
+    /** Injecteur d'une sonde dans une méthode : {@link ProbeInjector}, ou un essai. */
+    @FunctionalInterface
+    interface MethodInjector {
+
+        /** Voir {@link ProbeInjector#inject(ClassNode, MethodNode, int, int)}. */
+        boolean inject(ClassNode owner, MethodNode method, int probeId, int minInstructions);
+    }
+
     /** Instrumente les méthodes éligibles de la classe. */
     private static void instrument(ClassNode classNode, ProbeIdSource source) {
+        instrument(classNode, source, ProbeInjector::inject, minInstructions());
+    }
+
+    /**
+     * Instrumente les méthodes éligibles de la classe, chacune de façon atomique.
+     *
+     * <p>FM-09 : une méthode dont l'injection lève est rendue <strong>intacte</strong> et
+     * comptée non sondable ; les autres méthodes de la classe restent sondées. L'injection
+     * modifie la méthode en place : sans copie préalable, un échec au milieu laissait une
+     * méthode à moitié injectée dans une classe qui serait chargée quand même — et que la
+     * JVM pouvait refuser. La copie ne coûte que pour les méthodes effectivement sondées.
+     *
+     * @param threshold seuil d'instructions — {@link #minInstructions()} en production
+     * @return le nombre de méthodes sondées
+     */
+    static int instrument(ClassNode classNode, ProbeIdSource source, MethodInjector injector,
+            int threshold) {
         int probed = 0;
-        int threshold = minInstructions();
-        for (MethodNode method : classNode.methods) {
+        for (int index = 0; index < classNode.methods.size(); index++) {
+            MethodNode method = classNode.methods.get(index);
             // Le seuil appliqué ici est celui d'ADR-021, bien au-dessus du plancher
             // normatif : une sonde posée sur une méthode courte coûte plus qu'elle
             // n'apprend, et c'est leur NOMBRE qui fait le surcoût mesuré.
@@ -230,14 +257,39 @@ public final class RfxClassTransformer implements ITransformer<ClassNode> {
             if (probeId == ProbeIdSource.NO_PROBE) {
                 continue;
             }
-            if (ProbeInjector.inject(classNode, method, probeId, threshold)) {
-                probed++;
+            MethodNode intact = copyOf(method);
+            try {
+                if (injector.inject(classNode, method, probeId, threshold)) {
+                    probed++;
+                }
+            } catch (RuntimeException | LinkageError e) {
+                classNode.methods.set(index, intact);
+                UNPROBEABLE_METHODS.incrementAndGet();
+                TRANSFORM_FAILURES.incrementAndGet();
             }
         }
         if (probed > 0) {
             CLASSES_TRANSFORMED.incrementAndGet();
             METHODS_PROBED.addAndGet(probed);
         }
+        return probed;
+    }
+
+    /** Copie complète d'une méthode : instructions, blocs d'exception, variables, cadres. */
+    static MethodNode copyOf(MethodNode method) {
+        MethodNode copy = new MethodNode(method.access, method.name, method.desc,
+                method.signature,
+                method.exceptions == null ? null : method.exceptions.toArray(new String[0]));
+        method.accept(copy);
+        return copy;
+    }
+
+    /**
+     * @return les méthodes dont l'injection a échoué, rendues intactes et non sondées
+     *     (FM-09)
+     */
+    public static long unprobeableMethods() {
+        return UNPROBEABLE_METHODS.get();
     }
 
     /**
