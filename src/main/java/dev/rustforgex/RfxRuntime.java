@@ -10,6 +10,8 @@ import dev.rustforgex.config.Configuration;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.diag.ErrorCode;
+import dev.rustforgex.diag.Incident;
+import dev.rustforgex.diag.IncidentRecorder;
 import dev.rustforgex.forge.ForgeVersions;
 import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.ModSource;
@@ -93,14 +95,23 @@ public final class RfxRuntime {
     private final Path root;
     private final EventObserver eventObserver;
 
+    /** Consignation des incidents dans {@code crash/} (C-35, T-411). */
+    private final IncidentRecorder incidents;
+
     private RfxRuntime(
             Path root,
             Configuration configuration,
             Bootstrap.Report report,
             boolean observeOnly,
             NativeBridge bridge,
-            boolean clientSide) {
+            boolean clientSide,
+            Map<String, String> versions) {
         this.root = root;
+        // Avant tout le reste : un incident peut survenir dès le premier tick, et le
+        // relevé des métriques qu'il déclenche tolère un runtime incomplet.
+        this.incidents = new IncidentRecorder(root.resolve("crash"), versions, this::metrics,
+                Anonymizer.ofSystem(root), REPORT_WRITER,
+                configuration.getBoolean("diagnostics.report_on_incident"));
         this.configuration = configuration;
         this.report = report;
         this.observeOnly = observeOnly;
@@ -114,6 +125,15 @@ public final class RfxRuntime {
                 ? new TickCycle(bridge, report.handle(),
                         clientSide ? TickCycle.SIDE_CLIENT : TickCycle.SIDE_SERVER, probeSink)
                 : null;
+        if (tickCycle != null) {
+            // Seule E-3001 est un incident : les autres refus du cycle de tick sont des
+            // transitions refusées, comptées par `rejectedCalls` et sans trace à garder.
+            tickCycle.onNativeError(code -> {
+                if (ErrorCode.fromNativeCode(code) == ErrorCode.PANIC_CAUGHT) {
+                    recordIncident(Incident.nativePanic("tick"));
+                }
+            });
+        }
 
         // C-05 avant C-04 : le profiler plafonne la profondeur des sondes, et une
         // sonde enregistrée alors qu'il est encore à l'arrêt serait armée à OFF.
@@ -159,10 +179,12 @@ public final class RfxRuntime {
      * @param root racine de travail, {@code <gameDir>/rustforgex}
      * @param clientSide {@code true} côté client, {@code false} côté serveur dédié
      * @param forgeVersion version rapportée par Forge, pour FM-01
+     * @param versions versions de l'installation, reprises dans les dumps d'incident
      * @return l'instance démarrée
      */
-    public static synchronized RfxRuntime start(Path root, boolean clientSide, String forgeVersion) {
-        return start(root, loadConfiguration(root), clientSide, forgeVersion);
+    public static synchronized RfxRuntime start(
+            Path root, boolean clientSide, String forgeVersion, Map<String, String> versions) {
+        return start(root, loadConfiguration(root), clientSide, forgeVersion, versions);
     }
 
     /**
@@ -187,10 +209,12 @@ public final class RfxRuntime {
      *     {@link #loadConfiguration(Path)}
      * @param clientSide {@code true} côté client
      * @param forgeVersion version rapportée par Forge, pour FM-01
+     * @param versions versions de l'installation, reprises dans les dumps d'incident
      * @return l'instance démarrée
      */
     public static synchronized RfxRuntime start(
-            Path root, Configuration configuration, boolean clientSide, String forgeVersion) {
+            Path root, Configuration configuration, boolean clientSide, String forgeVersion,
+            Map<String, String> versions) {
         // FM-01 : une version de Forge hors plage n'empêche pas le jeu de tourner ;
         // elle interdit toute transformation (E-1001, mode observation seule).
         boolean observeOnly = !ForgeVersions.isSupported(forgeVersion);
@@ -209,7 +233,8 @@ public final class RfxRuntime {
         }
 
         instance = new RfxRuntime(
-                root, configuration, report, observeOnly, NativeBridge.real(), clientSide);
+                root, configuration, report, observeOnly, NativeBridge.real(), clientSide,
+                versions);
         return instance;
     }
 
@@ -525,6 +550,27 @@ public final class RfxRuntime {
         thread.setDaemon(true);
         return thread;
     });
+
+    /**
+     * Consigne un incident dans {@code crash/} (C-35, T-411).
+     *
+     * <p>Ne lève jamais et ne bloque pas : le relevé des métriques a lieu ici, l'écriture
+     * sur le fil des rapports. Le même échec n'est consigné qu'une fois par partie.
+     *
+     * @param incident l'incident
+     */
+    public void recordIncident(Incident incident) {
+        incidents.record(incident).whenComplete((file, error) -> {
+            if (error != null) {
+                LOGGER.warn("RUSTFORGE-X : incident {} non consigné ({}). Le jeu n'est pas "
+                        + "affecté.", incident.key(), error.toString());
+            } else if (file != null) {
+                LOGGER.warn("RUSTFORGE-X : incident {} consigné dans crash/{}. Le jeu n'est "
+                        + "pas affecté ; joignez ce fichier à un rapport de défaut.",
+                        incident.key(), file.getFileName());
+            }
+        });
+    }
 
     /**
      * État de l'instrumentation (C-04).

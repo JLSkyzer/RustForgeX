@@ -71,8 +71,16 @@ public final class MetricsJson {
         return String.format(Locale.ROOT, "%.4f", value);
     }
 
-    /** Échappe une chaîne selon RFC 8259. */
-    private static String quote(String text) {
+    /**
+     * Échappe une chaîne selon RFC 8259.
+     *
+     * <p>Publique pour le dump d'incident (C-35), qui écrit son JSON de la même façon et
+     * pour la même raison : aucune dépendance d'exécution.
+     *
+     * @param text texte brut
+     * @return la chaîne JSON, guillemets compris
+     */
+    public static String quote(String text) {
         StringBuilder out = new StringBuilder(text.length() + 16);
         out.append('"');
         for (int i = 0; i < text.length(); i++) {

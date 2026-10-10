@@ -3,6 +3,8 @@ package dev.rustforgex;
 import com.mojang.logging.LogUtils;
 import dev.rustforgex.bench.MacroRecorder;
 import dev.rustforgex.command.RfxCommands;
+import dev.rustforgex.diag.Incident;
+import dev.rustforgex.diag.IncidentDump;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.forge.ForgeModSource;
@@ -20,6 +22,7 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLLoadCompleteEvent;
@@ -27,9 +30,11 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.versions.forge.ForgeVersion;
+import net.minecraftforge.versions.mcp.MCPVersion;
 import org.slf4j.Logger;
 
 import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * C-01 : point d'ancrage unique entre Forge et RUSTFORGE-X.
@@ -66,15 +71,15 @@ public class RustForgeX {
      */
     private final long classesMissedAtConstruct;
 
-    private final HookGuard startupGuard = new HookGuard("setup", LOGGER::warn);
-    private final HookGuard discoveryGuard = new HookGuard("loadComplete", LOGGER::warn);
-    private final HookGuard commandsGuard = new HookGuard("registerCommands", LOGGER::warn);
+    private final HookGuard startupGuard = guard("setup");
+    private final HookGuard discoveryGuard = guard("loadComplete");
+    private final HookGuard commandsGuard = guard("registerCommands");
 
     /** Préchauffage des commandes : son propre garde, pour ne pas compter contre l'enregistrement. */
-    private final HookGuard warmUpGuard = new HookGuard("warmUpCommands", LOGGER::warn);
-    private final HookGuard shutdownGuard = new HookGuard("serverStopping", LOGGER::warn);
-    private final HookGuard tickPreGuard = new HookGuard("serverTickPre", LOGGER::warn);
-    private final HookGuard tickPostGuard = new HookGuard("serverTickPost", LOGGER::warn);
+    private final HookGuard warmUpGuard = guard("warmUpCommands");
+    private final HookGuard shutdownGuard = guard("serverStopping");
+    private final HookGuard tickPreGuard = guard("serverTickPre");
+    private final HookGuard tickPostGuard = guard("serverTickPost");
 
     /**
      * Intervalle, en ticks, de la trace de progression du cycle de tick.
@@ -221,13 +226,53 @@ public class RustForgeX {
                 String.format(java.util.Locale.ROOT, "%.1f", registry.unknownOwnerPct()));
     }
 
+    /** Garde d'accroche dont la désactivation est consignée dans {@code crash/}. */
+    private static HookGuard guard(String name) {
+        return new HookGuard(name, LOGGER::warn, RustForgeX::reportIncident);
+    }
+
+    /**
+     * Remet un incident d'accroche au runtime, qui le consigne dans {@code crash/}.
+     *
+     * <p>Avant le démarrage du runtime, il n'y a ni dossier de travail ni métriques :
+     * l'échec a déjà été journalisé par la garde, et c'est tout ce qui peut en rester.
+     *
+     * @param incident l'incident
+     */
+    private static void reportIncident(Incident incident) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        if (runtime != null) {
+            runtime.recordIncident(incident);
+        }
+    }
+
+    /**
+     * Version de RUSTFORGE-X, pour les dumps d'incident.
+     *
+     * <p>Lue sans pouvoir faire échouer le démarrage : avec l'armement anticipé, elle est
+     * demandée pendant la construction des mods, et une version manquante ne vaut pas
+     * un runtime absent.
+     */
+    private static String ownVersion() {
+        try {
+            return ModList.get().getModContainerById(MODID)
+                    .map(mod -> mod.getModInfo().getVersion().toString())
+                    .orElse("unknown");
+        } catch (RuntimeException e) {
+            return "unknown";
+        }
+    }
+
     /** Séquence de démarrage : configuration, vérification de Forge, C-02. */
     private void startRuntime() {
         Path root = FMLPaths.GAMEDIR.get().resolve(MODID);
         boolean clientSide = FMLEnvironment.dist.isClient();
         String forgeVersion = ForgeVersion.getVersion();
 
-        RfxRuntime runtime = RfxRuntime.start(root, clientSide, forgeVersion);
+        Map<String, String> versions =
+                IncidentDump.versions(MCPVersion.getMCVersion(), forgeVersion, ownVersion());
+        LOGGER.debug("Versions reprises dans les dumps d'incident : {}", versions);
+        RfxRuntime runtime = RfxRuntime.start(root, clientSide, forgeVersion, versions);
 
         for (String warning : runtime.warnings()) {
             LOGGER.warn("Configuration : {}", warning);

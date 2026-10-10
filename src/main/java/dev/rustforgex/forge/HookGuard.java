@@ -1,5 +1,7 @@
 package dev.rustforgex.forge;
 
+import dev.rustforgex.diag.Incident;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -16,6 +18,10 @@ import java.util.function.Consumer;
  * un code qui échoue systématiquement coûterait plus cher qu'il ne rapporte, et
  * masquerait le défaut d'origine.
  *
+ * <p>La désactivation est un incident : elle est remise, avec la dernière exception,
+ * à qui consigne les incidents (C-35, T-411). Les échecs qui la précèdent ne le sont
+ * pas — ils sont journalisés, et un échec isolé n'appelle pas de dump.
+ *
  * <p>Métriques exposées : {@code rfx.hook.duration_ns}, {@code rfx.hook.errors}
  * (contrat agent 4.1).
  */
@@ -26,6 +32,7 @@ public final class HookGuard {
 
     private final String name;
     private final Consumer<String> log;
+    private final Consumer<Incident> incidents;
     private final AtomicInteger failures = new AtomicInteger();
     private final AtomicLong calls = new AtomicLong();
     private final AtomicLong totalDurationNs = new AtomicLong();
@@ -36,8 +43,18 @@ public final class HookGuard {
      * @param log destination des messages d'anomalie
      */
     public HookGuard(String name, Consumer<String> log) {
+        this(name, log, incident -> { });
+    }
+
+    /**
+     * @param name nom du hook, repris dans les journaux et les métriques
+     * @param log destination des messages d'anomalie
+     * @param incidents destinataire de l'incident de désactivation (C-35)
+     */
+    public HookGuard(String name, Consumer<String> log, Consumer<Incident> incidents) {
         this.name = name;
         this.log = log;
+        this.incidents = incidents;
     }
 
     /**
@@ -62,11 +79,25 @@ public final class HookGuard {
                 disabled = true;
                 log.accept("Hook « " + name + " » désactivé après " + total
                         + " échecs. RUSTFORGE-X continue sans lui ; le jeu n'est pas affecté.");
+                report(Incident.hookDisabled(name, total, e));
             }
             return false;
         } finally {
             totalDurationNs.addAndGet(System.nanoTime() - start);
             calls.incrementAndGet();
+        }
+    }
+
+    /**
+     * Remet l'incident sans jamais lever : la garde est la dernière ligne de défense du
+     * jeu, et sa propre consignation ne doit pas devenir un nouvel échec.
+     */
+    private void report(Incident incident) {
+        try {
+            incidents.accept(incident);
+        } catch (RuntimeException | LinkageError e) {
+            log.accept("Hook « " + name + " » : incident non consigné (" + e
+                    + "). Le jeu n'est pas affecté.");
         }
     }
 

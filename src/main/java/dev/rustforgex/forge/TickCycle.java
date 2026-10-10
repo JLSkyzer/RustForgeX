@@ -7,6 +7,7 @@ import dev.rustforgex.instrument.StackFrameIndex;
 import dev.rustforgex.instrument.StackSampler;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntConsumer;
 
 /**
  * C-01, IF-02 : pilotage de la fenêtre de tick côté Java.
@@ -66,6 +67,12 @@ public final class TickCycle {
     private final AtomicLong levelUpdates = new AtomicLong();
 
     private final AtomicLong rejectedCalls = new AtomicLong();
+
+    /**
+     * Destinataire des codes d'erreur du natif ; sans destinataire, ils sont seulement
+     * comptés. {@code volatile} : posé au démarrage, lu depuis le fil du serveur.
+     */
+    private volatile IntConsumer nativeErrors = code -> { };
     private volatile boolean windowOpen;
 
     /**
@@ -152,7 +159,7 @@ public final class TickCycle {
         windowOpen = false;
         refreshProbeLevels();
         if (flags < 0) {
-            rejectedCalls.incrementAndGet();
+            ok((int) flags);
             return 0;
         }
         return flags;
@@ -176,10 +183,22 @@ public final class TickCycle {
         return rejectedCalls.get();
     }
 
+    /**
+     * Désigne qui reçoit les codes d'erreur du natif (C-35).
+     *
+     * <p>Appelé seulement sur le chemin d'erreur : un tick nominal ne le touche pas.
+     *
+     * @param listener destinataire des codes négatifs, jamais {@code null}
+     */
+    public void onNativeError(IntConsumer listener) {
+        this.nativeErrors = listener;
+    }
+
     /** Compte un code d'erreur et indique si l'appel a réussi. */
     private boolean ok(int code) {
         if (code < 0) {
             rejectedCalls.incrementAndGet();
+            nativeErrors.accept(code);
             return false;
         }
         return true;

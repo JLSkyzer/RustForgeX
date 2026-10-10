@@ -483,7 +483,12 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [ ] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401) — **non mesuré**. Le
       relevé n'a lieu que sur commande, jamais dans un tick, mais « probablement
       négligeable » n'est pas une mesure
-- [ ] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411)
+- [x] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411, ADR-033) — accroche désactivée
+      et panic native E-3001 du cycle de tick ; un dump par échec et par partie, seize au
+      plus, écrit hors du fil, atomique, anonymisé. Option `diagnostics.report_on_incident`
+- [ ] T-411, reste : rejeu par `rfx-cli` et champs d'unité de travail (schéma 2, avec le
+      déport) ; passage en `HALTED` non observé au moment où il a lieu ; panics hors du
+      cycle de tick non remises (ADR-033)
 - [ ] **`hook_budget_exceeded` vaut 123 sur 4 039 ticks** — première fois qu'il est non
       nul. Budget : 500 µs par accroche (`DEFAULT_MAX_HOOK_NS`), soit ~1 % des appels.
       Deux explications tiennent, et le compteur actuel **ne permet pas de trancher** :
@@ -658,8 +663,8 @@ donc ouvert.
       | statut | identifiants |
       |---|---|
       | couvert (17) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442 |
-      | partiel (2) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites) |
-      | absent (8) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie), T-411 (dump d'incident) |
+      | partiel (3) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
+      | absent (7) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
       Réserves des « couverts » : ¹ chemin chaud Java sans compteur d'allocation ;
@@ -679,7 +684,12 @@ donc ouvert.
       `unprobeableMethods`) ; test qui échoue si la remise en place est retirée ;
       ⁸ sentinelle à fil-piège dans un paquet inventorié, et compteur de classes chargées
       de la JVM inchangé pendant une découverte ; un `Class.forName` injecté dans la
-      découverte fait échouer le test (2 classes chargées).
+      découverte fait échouer le test (2 classes chargées) ;
+      ⁹ `IncidentRecorderTest` (6 tests) : dump unique, JSON valide, versions, chaîne des
+      causes dont la première trame désigne l'origine, chemins anonymisés. Trois mutations
+      vérifiées : sans remise de l'incident par la garde, sans remise des codes par le
+      cycle de tick, sans anonymisation des messages — chaque fois un test échoue.
+      Serveur de test lancé : versions lues en jeu, aucun dump intempestif.
 
       Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
       (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à

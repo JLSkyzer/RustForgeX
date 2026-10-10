@@ -80,6 +80,29 @@ class TickCycleTest {
     }
 
     @Test
+    @DisplayName("Les codes d'erreur du natif parviennent au destinataire, et eux seuls (C-35)")
+    void nativeErrorsReachTheListener() {
+        RecordingBridge bridge = new RecordingBridge();
+        TickCycle cycle = new TickCycle(bridge, HANDLE, TickCycle.SIDE_SERVER);
+        List<Integer> codes = new ArrayList<>();
+        cycle.onNativeError(codes::add);
+
+        cycle.onTickPre();
+        cycle.onTickPost();
+        assertEquals(List.of(), codes, "un tick nominal ne signale rien");
+
+        bridge.endResult = -3001;
+        cycle.onTickPre();
+        cycle.onTickPost();
+        bridge.endResult = 0;
+        bridge.beginResult = -3001;
+        cycle.onTickPre();
+
+        assertEquals(List.of(-3001, -3001), codes, "fin puis ouverture de tick en échec");
+        assertEquals(2, cycle.rejectedCalls());
+    }
+
+    @Test
     @DisplayName("Le numéro de tick progresse à chaque ouverture")
     void theTickNumberAdvances() {
         RecordingBridge bridge = new RecordingBridge();

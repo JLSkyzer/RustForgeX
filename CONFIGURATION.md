@@ -47,6 +47,7 @@ java -Drustforgex.general.enabled=false -jar ...
 | `general.side_server` | booléen | `true` | `true` / `false` | oui | Activer le runtime sur le serveur dédié. |
 | `memory.max_native_mb` | entier | `512` | `16` .. `16384` | oui | Plafond de mémoire native, en mébioctets. |
 | `telemetry.enabled` | booléen | `true` | `true` / `false` | non | Collecte **locale** des métriques. Aucune donnée ne quitte la machine, jamais. |
+| `diagnostics.report_on_incident` | booléen | `true` | `true` / `false` | oui | Consigne chaque incident dans `<gameDir>/rustforgex/crash/rfx-crash-<ts>.json` : accroche désactivée après cinq échecs, panic native (E-3001). Un fichier par incident et par partie, seize au plus, chemins anonymisés. Rien ne quitte la machine. |
 | `runtime.panic_threshold` | entier | `3` | `1` .. `100` | non | Panics tolérées pour un sous-système avant sa désactivation (R-523). |
 | `profiler.max_workloads` | entier | `20000` | `1000` .. `200000` | oui | Unités de travail suivies simultanément. Au-delà, la plus froide est évincée (R-321). Un plafond plus haut affine la mesure et coûte de la mémoire native. |
 | `profiler.cpu_budget_pct` | entier | `2` | `1` .. `50` | oui | Part d'un cœur accordée au profilage, en pourcent (H-07). Au-delà, la profondeur de sondage descend d'un cran, jusqu'à l'arrêt. Le budget de temps de tick en découle dans la même proportion. |
@@ -123,6 +124,10 @@ La configuration normative du cahier des charges décrit aussi les sections
 `analysis`, `decision`, `scheduler`, `snapshot`, `commit`, `validation`,
 `shadow`, `cache`, `mirror`, `ir`, `network`, `learning`, `diagnostics`, `ui` et
 `overrides`.
+
+La section `diagnostics` n'expose que `report_on_incident` : `keep_days` et
+`max_disk_mb` supposent une éviction des fichiers anciens qui n'existe pas encore, et
+le nombre de dumps est pour l'instant borné par partie (ADR-033).
 
 La section `profiler` n'expose que les deux options ci-dessus : les autres options de
 profilage de la PARTIE 28.2 ne pilotent encore rien.

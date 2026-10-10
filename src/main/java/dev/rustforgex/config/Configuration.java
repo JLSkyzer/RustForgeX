@@ -88,6 +88,10 @@ public final class Configuration {
             OptionConfig.integerOption("profiler", "baseline_cycles", 30, 3, 64,
                     "Cycles agrégés avant qu'une mesure de coût soit rendue. Une mesure "
                             + "coûte cycles × (période + pause) ticks", false),
+            OptionConfig.booleanOption("diagnostics", "report_on_incident", true,
+                    "Consigner chaque incident dans crash/rfx-crash-<ts>.json : accroche "
+                            + "désactivée, panic native. Fichier local, chemins anonymisés",
+                    false),
             OptionConfig.booleanOption("instrumentation", "early_arm", false,
                     "Armer le sondage dès la construction du mod plutôt qu'au setup "
                             + "commun. Multiplie par cinq la surface observée — et par "
