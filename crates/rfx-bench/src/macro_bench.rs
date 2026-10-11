@@ -282,7 +282,7 @@ fn summarize(runs: &[RunFile]) -> Configuration {
 }
 
 /// Médiane, écart interquartile et dispersion d'une série de valeurs.
-fn aggregate_values(values: &[f64]) -> Aggregate {
+pub(crate) fn aggregate_values(values: &[f64]) -> Aggregate {
     let mut sorted = values.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 

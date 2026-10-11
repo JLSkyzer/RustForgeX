@@ -480,9 +480,18 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       à ce jalon.** `ANALYSIS` suppose C-19 à C-22 (lectures, écritures, déterminisme),
       `DECISION` suppose C-23 à C-27. Aucun n'existe. Les remplir serait inventer
 - [ ] R-570 : fiche en moins de 50 ms — non mesurable tant que la fiche n'existe pas
-- [ ] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401) — **non mesuré**. Le
-      relevé n'a lieu que sur commande, jamais dans un tick, mais « probablement
-      négligeable » n'est pas une mesure
+- [x] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401, ADR-034) — pire
+      rapport **0,117 %** sur 5 exécutions (médiane 0,085 %), serveur de banc sans joueur,
+      MSPT 1,6-2,0 ms. Marge d'un facteur 1,7 seulement
+- [ ] Le journal de tick (`TickTrace`) coûte 144 à 193 µs par écriture sur le fil du
+      serveur (ADR-034) : tolérable amorti sur 600 ticks, mais c'est le premier levier si
+      la marge de R-561 doit être reprise — l'écrire hors du fil
+- [ ] `HookGuard` chronomètre chaque appel (`rfx.hook.duration_ns`, `calls`) mais rien
+      ne l'exporte : la part la plus chère de la télémétrie produit une valeur que
+      personne ne lit. L'exporter dans `/rfx status` ou retirer le chronométrage (ADR-034)
+- [ ] `telemetry.enabled` est déclarée, documentée et transmise au natif, mais **aucun
+      code ne la lit** — contraire à « ne déclarer que les options réellement lues ». La
+      rendre opérante ou la retirer
 - [x] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411, ADR-033) — accroche désactivée
       et panic native E-3001 du cycle de tick ; un dump par échec et par partie, seize au
       plus, écrit hors du fil, atomique, anonymisé. Option `diagnostics.report_on_incident`
@@ -662,9 +671,9 @@ donc ouvert.
 
       | statut | identifiants |
       |---|---|
-      | couvert (17) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442 |
+      | couvert (18) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442, **T-401**¹⁰ |
       | partiel (3) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
-      | absent (7) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées), T-401 (coût de la télémétrie) |
+      | absent (6) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
       Réserves des « couverts » : ¹ chemin chaud Java sans compteur d'allocation ;
@@ -689,7 +698,10 @@ donc ouvert.
       causes dont la première trame désigne l'origine, chemins anonymisés. Trois mutations
       vérifiées : sans remise de l'incident par la garde, sans remise des codes par le
       cycle de tick, sans anonymisation des messages — chaque fois un test échoue.
-      Serveur de test lancé : versions lues en jeu, aucun dump intempestif.
+      Serveur de test lancé : versions lues en jeu, aucun dump intempestif ;
+      ¹⁰ `run-telemetry.sh` (ADR-034) : télémétrie mesurée en place sur le serveur de banc,
+      5 exécutions × 6 000 ticks après 3 600 d'échauffement, part native par
+      micro-benchmark ; pire rapport 0,117 % du MSPT pour un seuil de 0,2 %.
 
       Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
       (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à

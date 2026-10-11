@@ -85,6 +85,19 @@ l'enregistreur, et ce qui est présent des deux côtés ne pèse pas sur la diff
 Les ticks contaminés par une collecte mémoire sont **marqués et comptés**
 (`gc_contaminated_ticks`), jamais supprimés : les retirer embellirait la mesure.
 
+## Coût de la télémétrie (T-401)
+
+```bash
+./benchmarks/run-telemetry.sh <racine_du_serveur>   # ~50 minutes
+```
+
+R-561 borne la télémétrie à 0,2 % du MSPT. Un tel écart est hors de portée du niveau B :
+la dispersion entre exécutions y dépasse plusieurs pour cent. La part Java est donc
+chronométrée en place, sur le fil du serveur, par `TelemetryCost` ; la part native par
+le micro-benchmark `tick_window/cycle`. `rfx-bench telemetry` juge le **pire** des cinq
+rapports et écrit `results/telemetry-<horodatage>-<commit>.json`. Méthode, périmètre et
+limites : ADR-034.
+
 ## Lire un résultat
 
 ```json

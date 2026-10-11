@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "codec"
 harness = false
+
+[[bench]]
+name = "tick"
+harness = false

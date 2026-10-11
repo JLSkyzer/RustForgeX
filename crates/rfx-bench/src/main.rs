@@ -25,6 +25,7 @@
 
 mod digest_diff;
 mod macro_bench;
+mod telemetry_cost;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -132,10 +133,11 @@ fn main() {
         "digest" => digest_level(),
         "roundtrip" => roundtrip_level(),
         "roundtrips" => roundtrips_level(),
+        "telemetry" => telemetry_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips"
+                 | roundtrips | telemetry"
             );
             std::process::exit(2);
         }
@@ -467,6 +469,119 @@ fn macro_level() {
             );
         }
     }
+}
+
+/// T-401 : cout de la telemetrie contre R-561 (ADR-034).
+///
+/// Lit les executions de `benchmarks/runs/t401/` et la part native mesuree par
+/// `cargo bench -p rfx-bench --bench tick`. Code de sortie : `0` conforme, `1` non
+/// conforme ou campagne insuffisante, `2` donnees absentes.
+fn telemetry_level() {
+    let root = repository_root();
+    let runs_dir = root.join("benchmarks").join("runs").join("t401");
+    let native_dir = root
+        .join("target")
+        .join("criterion")
+        .join("tick_window")
+        .join("cycle")
+        .join("new");
+
+    let native = match measure(&native_dir) {
+        Ok(metric) => metric,
+        Err(reason) => {
+            eprintln!(
+                "part native absente ({reason}) : lancer d'abord \
+                 `cargo bench -p rfx-bench --bench tick`"
+            );
+            std::process::exit(2);
+        }
+    };
+
+    let mut paths: Vec<PathBuf> = match std::fs::read_dir(&runs_dir) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect(),
+        Err(e) => {
+            eprintln!("{} illisible : {e}", runs_dir.display());
+            std::process::exit(2);
+        }
+    };
+    paths.sort();
+    let mut runs = Vec::new();
+    let mut unreadable = Vec::new();
+    for path in &paths {
+        match read_json::<telemetry_cost::RunFile>(path) {
+            Ok(run) => runs.push(run),
+            Err(reason) => unreadable.push(reason),
+        }
+    }
+
+    // Borne haute de l'IC : la part native est un majorant, elle le reste.
+    let mut verdict = telemetry_cost::judge(&runs, native.ci_upper);
+    verdict.notes.extend(unreadable);
+
+    let (commit, dirty) = git_state(&root);
+    let collected_at = unix_time();
+
+    #[derive(Serialize)]
+    struct TelemetryFile<'a> {
+        schema: u32,
+        test: &'static str,
+        commit: String,
+        dirty: bool,
+        collected_at: u64,
+        native_metric: &'a Metric,
+        #[serde(flatten)]
+        verdict: &'a telemetry_cost::Verdict,
+    }
+    let file = TelemetryFile {
+        schema: RESULT_SCHEMA,
+        test: "T-401",
+        commit: commit.clone(),
+        dirty,
+        collected_at,
+        native_metric: &native,
+        verdict: &verdict,
+    };
+
+    let out_dir = root.join("benchmarks").join("results");
+    let out = out_dir.join(format!("telemetry-{collected_at}-{}.json", short(&commit)));
+    let written = std::fs::create_dir_all(&out_dir)
+        .map_err(|e| e.to_string())
+        .and_then(|()| serde_json::to_string_pretty(&file).map_err(|e| e.to_string()))
+        .and_then(|json| std::fs::write(&out, json + "\n").map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("écriture impossible dans {} : {e}", out.display());
+        std::process::exit(1);
+    }
+
+    println!(
+        "T-401 : {} exécution(s), pire rapport {:.5} % du MSPT (seuil {} %), médiane \
+         {:.5} % — Java {:.1} ns/tick (médiane), natif {:.1} ns/tick (borne haute), MSPT \
+         médian {:.3} ms",
+        verdict.runs,
+        verdict.worst_ratio_pct,
+        verdict.threshold_pct,
+        verdict.ratio_pct.median,
+        verdict.java_ns_per_tick.median,
+        verdict.native_ns_per_tick,
+        verdict.mspt_ms.median
+    );
+    for note in &verdict.notes {
+        println!("  note : {note}");
+    }
+    println!(
+        "{} — {}",
+        if verdict.conforms {
+            "CONFORME"
+        } else {
+            "NON CONFORME"
+        },
+        out.display()
+    );
+    std::process::exit(i32::from(!verdict.conforms));
 }
 
 /// Niveau A : collecte les micro-benchmarks de criterion.

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "test": "T-401",
+  "commit": "33dfe2e964da478ab8d577140b6634c6255191ef",
+  "dirty": true,
+  "collected_at": 1791677887,
+  "native_metric": {
+    "median": 376.98913766374085,
+    "iqr": 6.271300310189872,
+    "ci_lower": 376.1209029066172,
+    "ci_upper": 378.1071664777022,
+    "confidence_level": 0.95,
+    "samples": 100,
+    "unit": "ns"
+  },
+  "runs": 5,
+  "native_ns_per_tick": 378.1071664777022,
+  "java_ns_per_tick": {
+    "median": 1135.0,
+    "iqr": 169.8726999999999,
+    "relative_stddev": 0.2552401376256809,
+    "min": 964.7,
+    "max": 1807.0748,
+    "runs": 5
+  },
+  "bracket_ns": {
+    "median": 26.6667,
+    "iqr": 0.6326999999999998,
+    "relative_stddev": 0.06360364074012495,
+    "min": 25.9,
+    "max": 30.172,
+    "runs": 5
+  },
+  "mspt_ms": {
+    "median": 1.85022965,
+    "iqr": 0.23734729659999987,
+    "relative_stddev": 0.09265327221133784,
+    "min": 1.5869019833,
+    "max": 1.9698346196999998,
+    "runs": 5
+  },
+  "ratio_pct": {
+    "median": 0.08537839418894147,
+    "iqr": 0.00830309720680518,
+    "relative_stddev": 0.15668397487390054,
+    "min": 0.08177942486640523,
+    "max": 0.11720139669315321,
+    "runs": 5
+  },
+  "worst_ratio_pct": 0.11720139669315321,
+  "threshold_pct": 0.2,
+  "methodology_compliant": true,
+  "conforms": true,
+  "notes": []
+}

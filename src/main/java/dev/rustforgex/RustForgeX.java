@@ -5,15 +5,12 @@ import dev.rustforgex.bench.MacroRecorder;
 import dev.rustforgex.command.RfxCommands;
 import dev.rustforgex.diag.Incident;
 import dev.rustforgex.diag.IncidentDump;
-import dev.rustforgex.forge.EventDispatchTable;
-import dev.rustforgex.forge.EventObserver;
 import dev.rustforgex.forge.ForgeModSource;
 import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.TickCycle;
 import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.ProbeRegistry;
-import dev.rustforgex.instrument.RfxProbes;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
@@ -81,16 +78,6 @@ public class RustForgeX {
     private final HookGuard tickPreGuard = guard("serverTickPre");
     private final HookGuard tickPostGuard = guard("serverTickPost");
 
-    /**
-     * Intervalle, en ticks, de la trace de progression du cycle de tick.
-     *
-     * <p>Six cents ticks, soit trente secondes de jeu nominal. La trace est émise en
-     * {@code DEBUG} : elle ne parle qu'à qui la cherche, et son coût — un modulo par
-     * tick — ne se mesure pas. C'est le « journal de tick » que la PARTIE 5.32 prévoit
-     * pour la télémétrie.
-     */
-    private static final long TICK_LOG_INTERVAL = 600;
-
     /** Construit le mod et s'attache aux deux bus d'événements de Forge. */
     public RustForgeX() {
         this.classesMissedAtConstruct = Instrumentation.classesMissedSoFar();
@@ -104,6 +91,7 @@ public class RustForgeX {
         // est une exécution où RUSTFORGE-X est désactivé (PARTIE 20.3.4).
         dev.rustforgex.bench.DigestRecorder.armIfRequested();
         dev.rustforgex.bench.CommandTiming.armIfRequested();
+        dev.rustforgex.bench.TelemetryCost.armIfRequested();
 
         if (earlyArmRequested()) {
             logArmingSchedule();
@@ -294,52 +282,6 @@ public class RustForgeX {
     }
 
     /**
-     * Trace périodique du cycle de tick et de l'instrumentation.
-     *
-     * <p>Elle dit ce que les assertions ne pensent pas à demander : combien de classes
-     * sont passées par le transformateur, combien de méthodes en sont ressorties
-     * sondées, et combien de fois la table des niveaux a changé. Un profileur qui ne
-     * sonde rien et un profileur qui sonde tout produisent le même silence.
-     */
-    private static void logTickTrace(long ticks, TickCycle cycle) {
-        RfxRuntime runtime = RfxRuntime.instance();
-        Instrumentation instrumentation = runtime == null ? null : runtime.instrumentation();
-        if (instrumentation == null || !instrumentation.armed()) {
-            LOGGER.debug("Cycle de tick : {} ticks observés, {} appels refusés.",
-                    ticks, cycle.rejectedCalls());
-            return;
-        }
-        LOGGER.debug(
-                "Cycle de tick : {} ticks observés, {} appels refusés. Instrumentation : "
-                        + "{} classes vues, {} méthodes sondées, {} échecs, "
-                        + "{} mises à jour de niveaux. Sondes : {} dans la table, "
-                        + "{} armées, puits {}.",
-                ticks, cycle.rejectedCalls(),
-                instrumentation.classesSeen(), instrumentation.methodsProbed(),
-                instrumentation.transformFailures(), cycle.levelUpdates(),
-                RfxProbes.probeCount(), RfxProbes.armedCount(),
-                RfxProbes.active() ? "installé" : "absent");
-        logEvents(runtime);
-    }
-
-    /**
-     * Trace de l'observation du bus d'événements (C-06, étape 1).
-     *
-     * <p>Un observateur qui compte zéro événement et un observateur absent produisent le
-     * même silence : cette ligne les distingue, comme celle de l'instrumentation.
-     */
-    private static void logEvents(RfxRuntime runtime) {
-        EventObserver observer = runtime.eventObserver();
-        if (observer == null || !observer.observing()) {
-            return;
-        }
-        EventDispatchTable table = observer.table();
-        LOGGER.debug("Événements : {} distribués sur {} types, {} chronométrés, "
-                        + "{} chronométrages abandonnés.",
-                table.dispatched(), table.knownTypes(), table.timed(), table.abandoned());
-    }
-
-    /**
      * Journalise l'état de l'instrumentation (ADR-017).
      *
      * <p>RUSTFORGE-X est livré en deux fichiers. Un utilisateur qui n'installe que le
@@ -435,8 +377,8 @@ public class RustForgeX {
         tickPostGuard.run(() -> {
             cycle.onTickPost();
             long ticks = cycle.currentTick();
-            if (ticks % TICK_LOG_INTERVAL == 0) {
-                logTickTrace(ticks, cycle);
+            if (ticks % TickTrace.INTERVAL == 0) {
+                TickTrace.log(ticks, cycle);
             }
         });
     }
