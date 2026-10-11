@@ -46,7 +46,7 @@ java -Drustforgex.general.enabled=false -jar ...
 | `general.side_client` | booléen | `true` | `true` / `false` | oui | Activer le runtime sur le client. |
 | `general.side_server` | booléen | `true` | `true` / `false` | oui | Activer le runtime sur le serveur dédié. |
 | `memory.max_native_mb` | entier | `512` | `16` .. `16384` | oui | Plafond de mémoire native, en mébioctets. |
-| `telemetry.enabled` | booléen | `true` | `true` / `false` | non | Collecte **locale** des métriques. Aucune donnée ne quitte la machine, jamais. |
+| `telemetry.enabled` | booléen | `true` | `true` / `false` | oui | Télémétrie **de tick** : chronométrage des accroches (`rfx.hook.duration_ns`) et journal de tick en `DEBUG`. À `false`, ni l'un ni l'autre ; les échecs des accroches restent comptés, et `/rfx status` comme `/rfx report` fonctionnent toujours. Aucune donnée ne quitte la machine, jamais. |
 | `diagnostics.report_on_incident` | booléen | `true` | `true` / `false` | oui | Consigne chaque incident dans `<gameDir>/rustforgex/crash/rfx-crash-<ts>.json` : accroche désactivée après cinq échecs, panic native (E-3001). Un fichier par incident et par partie, seize au plus, chemins anonymisés. Rien ne quitte la machine. |
 | `runtime.panic_threshold` | entier | `3` | `1` .. `100` | non | Panics tolérées pour un sous-système avant sa désactivation (R-523). |
 | `profiler.max_workloads` | entier | `20000` | `1000` .. `200000` | oui | Unités de travail suivies simultanément. Au-delà, la plus froide est évincée (R-321). Un plafond plus haut affine la mesure et coûte de la mémoire native. |

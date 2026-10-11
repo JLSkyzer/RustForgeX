@@ -13,6 +13,7 @@ import dev.rustforgex.diag.ErrorCode;
 import dev.rustforgex.diag.Incident;
 import dev.rustforgex.diag.IncidentRecorder;
 import dev.rustforgex.forge.ForgeVersions;
+import dev.rustforgex.forge.HookGuard;
 import dev.rustforgex.forge.ModDiscovery;
 import dev.rustforgex.forge.ModSource;
 import dev.rustforgex.telemetry.Anonymizer;
@@ -97,6 +98,14 @@ public final class RfxRuntime {
 
     /** Consignation des incidents dans {@code crash/} (C-35, T-411). */
     private final IncidentRecorder incidents;
+
+    /**
+     * Gardes des accroches de C-01, pour leurs métriques.
+     *
+     * <p>{@code volatile} : rattachées sur le fil de chargement, lues depuis le fil
+     * serveur quand une commande relève les métriques.
+     */
+    private volatile List<HookGuard> hooks = List.of();
 
     private RfxRuntime(
             Path root,
@@ -328,7 +337,44 @@ public final class RfxRuntime {
                 events == null ? null : new Telemetry.EventCounts(
                         events.dispatched(), events.knownTypes(),
                         events.timed(), events.abandoned()),
-                samplingCounts());
+                samplingCounts(),
+                hookCounts());
+    }
+
+    /** @return les compteurs des gardes rattachées, dans leur ordre de rattachement */
+    private List<Telemetry.HookCounts> hookCounts() {
+        List<Telemetry.HookCounts> counts = new java.util.ArrayList<>();
+        for (HookGuard guard : hooks) {
+            counts.add(new Telemetry.HookCounts(guard.name(), guard.calls(), guard.timedCalls(),
+                    guard.averageDurationNs(), guard.failures(), guard.disabled()));
+        }
+        return counts;
+    }
+
+    /**
+     * Rattache les gardes des accroches, pour leurs métriques, et leur applique
+     * {@code telemetry.enabled} : sans télémétrie, elles ne chronomètrent plus. Elles
+     * comptent toujours leurs échecs — c'est ce qui protège le jeu (FM-02).
+     *
+     * @param guards les gardes du mod
+     */
+    public void attachHooks(List<HookGuard> guards) {
+        boolean timed = telemetryEnabled();
+        for (HookGuard guard : guards) {
+            guard.timed(timed);
+        }
+        this.hooks = List.copyOf(guards);
+    }
+
+    /**
+     * {@code telemetry.enabled} : la télémétrie qui tourne à chaque tick — chronométrage
+     * des accroches, journal de tick — est-elle demandée ? Les relevés sur commande
+     * ({@code /rfx status}, {@code /rfx report}) ne dépendent pas de cette option.
+     *
+     * @return {@code true} si la télémétrie de tick est active
+     */
+    public boolean telemetryEnabled() {
+        return configuration.getBoolean("telemetry.enabled");
     }
 
     /** @return les compteurs de l'échantillonneur, ou {@code null} s'il n'a pas démarré */
@@ -542,10 +588,11 @@ public final class RfxRuntime {
     }
 
     /**
-     * Fil unique, démon, qui écrit les rapports : un rapport demandé deux fois de suite
-     * s'écrit dans l'ordre, et ce fil n'empêche jamais la JVM de s'arrêter.
+     * Fil unique, démon, qui écrit les rapports, les dumps d'incident et le journal de
+     * tick : ce qui est demandé deux fois de suite s'écrit dans l'ordre, et ce fil
+     * n'empêche jamais la JVM de s'arrêter.
      */
-    private static final Executor REPORT_WRITER = Executors.newSingleThreadExecutor(task -> {
+    static final Executor REPORT_WRITER = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "rustforgex-report");
         thread.setDaemon(true);
         return thread;

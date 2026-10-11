@@ -483,15 +483,19 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [x] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401, ADR-034) — pire
       rapport **0,117 %** sur 5 exécutions (médiane 0,085 %), serveur de banc sans joueur,
       MSPT 1,6-2,0 ms. Marge d'un facteur 1,7 seulement
-- [ ] Le journal de tick (`TickTrace`) coûte 144 à 193 µs par écriture sur le fil du
-      serveur (ADR-034) : tolérable amorti sur 600 ticks, mais c'est le premier levier si
-      la marge de R-561 doit être reprise — l'écrire hors du fil
-- [ ] `HookGuard` chronomètre chaque appel (`rfx.hook.duration_ns`, `calls`) mais rien
-      ne l'exporte : la part la plus chère de la télémétrie produit une valeur que
-      personne ne lit. L'exporter dans `/rfx status` ou retirer le chronométrage (ADR-034)
-- [ ] `telemetry.enabled` est déclarée, documentée et transmise au natif, mais **aucun
-      code ne la lit** — contraire à « ne déclarer que les options réellement lues ». La
-      rendre opérante ou la retirer
+- [x] Le journal de tick (`TickTrace`) coûtait 144 à 193 µs par écriture sur le fil du
+      serveur (ADR-034) : il s'écrit désormais sur le fil des rapports ; le fil du serveur
+      ne fait que déposer la tâche (`TickTraceTest`)
+- [x] `HookGuard` chronométrait chaque appel sans que rien ne l'exporte : séries
+      `rfx.hook.calls/errors/duration_ns{hook=…}` et `rfx.hook.disabled` désormais
+      relevées par `RfxRuntime.metrics()` (PARTIE 4.19), documentées dans `BENCHMARKS.md`
+- [x] `telemetry.enabled` n'était lue par rien : elle coupe désormais la télémétrie de
+      tick — chronométrage des gardes et journal de tick. Les échecs restent comptés
+      (FM-02), les relevés sur commande restent disponibles. Côté natif, le champ transmis
+      n'est toujours lu par rien : les compteurs de la fenêtre de tick servent aussi au
+      chien de garde R-707. Vérifié en jeu (serveur de banc, `CommandTiming`) : avec,
+      21 séries `rfx.hook.*` et journal écrit par le fil `rustforgex-report` ; sans,
+      aucune durée publiée et aucun journal, les 11 commandes sous 5 ms
 - [x] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411, ADR-033) — accroche désactivée
       et panic native E-3001 du cycle de tick ; un dump par échec et par partie, seize au
       plus, écrit hors du fil, atomique, anonymisé. Option `diagnostics.report_on_incident`

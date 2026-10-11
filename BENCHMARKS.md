@@ -133,6 +133,19 @@ rapport de comparaison n'est pas connu.
 | `rfx.events.timed` | counter | — | Distributions chronométrées, une sur soixante-quatre |
 | `rfx.events.abandoned` | counter | — | Chronométrages abandonnés, imbrication trop profonde |
 
+### `rfx.hook` — gardes des accroches (C-01, FM-02)
+
+Une série par accroche : `setup`, `loadComplete`, `registerCommands`, `warmUpCommands`,
+`serverStopping`, `serverTickPre`, `serverTickPost`. Ces noms sont fixés par le code,
+jamais par une donnée d'exécution.
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.hook.calls{hook=…}` | counter | — | Exécutions de l'accroche, réussies ou non |
+| `rfx.hook.errors{hook=…}` | counter | — | Exceptions capturées par la garde |
+| `rfx.hook.duration_ns{hook=…}` | gauge | ns | Durée moyenne d'une exécution chronométrée ; absente si `telemetry.enabled = false` |
+| `rfx.hook.disabled` | counter | — | Accroches désactivées après cinq échecs |
+
 ## Export
 
 - **En mémoire** : `/rfx status`, `/rfx mods`.

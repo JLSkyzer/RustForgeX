@@ -8,6 +8,8 @@ import dev.rustforgex.instrument.Instrumentation;
 import dev.rustforgex.instrument.RfxProbes;
 import org.slf4j.Logger;
 
+import java.util.concurrent.Executor;
+
 /**
  * C-34 : journal de tick, trace périodique en {@code DEBUG}.
  *
@@ -42,8 +44,34 @@ public final class TickTrace {
      * sont passées par le transformateur, combien de méthodes en sont ressorties
      * sondées, et combien de fois la table des niveaux a changé. Un profileur qui ne
      * sonde rien et un profileur qui sonde tout produisent le même silence.
+     *
+     * <p>Seul le dépôt de la tâche a lieu sur le fil appelant ; la lecture des compteurs,
+     * la mise en forme et l'écriture se font sur le fil des rapports. Sur un serveur
+     * Forge de production, {@code DEBUG} est réellement écrit dans {@code debug.log}, et
+     * cette écriture coûtait 144 à 193 µs au fil du serveur (mesure T-401, ADR-034).
+     * Les compteurs lus sont atomiques : ils peuvent l'être d'un autre fil, quelques
+     * microsecondes plus tard, sans que la trace en soit faussée.
+     *
+     * @param ticks numéro du tick, figé au moment de l'appel
+     * @param cycle cycle de tick dont la trace rend compte
      */
     public static void log(long ticks, TickCycle cycle) {
+        log(ticks, cycle, RfxRuntime.REPORT_WRITER);
+    }
+
+    /**
+     * Comme {@link #log(long, TickCycle)}, sur un exécuteur donné.
+     *
+     * @param ticks numéro du tick
+     * @param cycle cycle de tick
+     * @param writer fil qui lit, met en forme et écrit la trace
+     */
+    static void log(long ticks, TickCycle cycle, Executor writer) {
+        writer.execute(() -> write(ticks, cycle));
+    }
+
+    /** Lit les compteurs et écrit la trace. Hors du fil du serveur. */
+    private static void write(long ticks, TickCycle cycle) {
         RfxRuntime runtime = RfxRuntime.instance();
         Instrumentation instrumentation = runtime == null ? null : runtime.instrumentation();
         if (instrumentation == null || !instrumentation.armed()) {

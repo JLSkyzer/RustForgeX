@@ -22,8 +22,9 @@ import java.util.function.Consumer;
  * à qui consigne les incidents (C-35, T-411). Les échecs qui la précèdent ne le sont
  * pas — ils sont journalisés, et un échec isolé n'appelle pas de dump.
  *
- * <p>Métriques exposées : {@code rfx.hook.duration_ns}, {@code rfx.hook.errors}
- * (contrat agent 4.1).
+ * <p>Métriques exposées, par accroche : {@code rfx.hook.calls},
+ * {@code rfx.hook.duration_ns} et {@code rfx.hook.errors} (contrat agent 4.1, PARTIE 4.19).
+ * C'est {@code RfxRuntime.metrics()} qui les relève.
  */
 public final class HookGuard {
 
@@ -34,9 +35,19 @@ public final class HookGuard {
     private final Consumer<String> log;
     private final Consumer<Incident> incidents;
     private final AtomicInteger failures = new AtomicInteger();
-    private final AtomicLong calls = new AtomicLong();
+    private final AtomicLong timedCalls = new AtomicLong();
+    private final AtomicLong untimedCalls = new AtomicLong();
     private final AtomicLong totalDurationNs = new AtomicLong();
     private volatile boolean disabled;
+
+    /**
+     * Chronométrer chaque exécution ({@code telemetry.enabled}).
+     *
+     * <p>Le chronométrage est de la télémétrie pure : deux lectures d'horloge et une
+     * addition par exécution, la part la plus chère de R-561 (ADR-034). Le compte des
+     * échecs, lui, reste tenu dans tous les cas — c'est lui qui protège le jeu (FM-02).
+     */
+    private volatile boolean timed = true;
 
     /**
      * @param name nom du hook, repris dans les journaux et les métriques
@@ -67,7 +78,12 @@ public final class HookGuard {
         if (disabled) {
             return false;
         }
-        long start = System.nanoTime();
+        // L'horloge n'est lue que si le chronométrage est actif au départ ; la mesure
+        // n'est retenue que s'il l'est encore à l'arrivée. La garde du démarrage coupe
+        // elle-même le chronométrage en cours d'exécution, quand la configuration lui
+        // parvient : sa durée ne doit pas être publiée pour autant (constaté en jeu).
+        boolean timing = timed;
+        long start = timing ? System.nanoTime() : 0L;
         try {
             action.run();
             return true;
@@ -83,8 +99,12 @@ public final class HookGuard {
             }
             return false;
         } finally {
-            totalDurationNs.addAndGet(System.nanoTime() - start);
-            calls.incrementAndGet();
+            if (timing && timed) {
+                totalDurationNs.addAndGet(System.nanoTime() - start);
+                timedCalls.incrementAndGet();
+            } else {
+                untimedCalls.incrementAndGet();
+            }
         }
     }
 
@@ -111,17 +131,41 @@ public final class HookGuard {
         return failures.get();
     }
 
-    /** @return le nombre d'exécutions, réussies ou non */
+    /** @return le nombre d'exécutions, réussies ou non ({@code rfx.hook.calls}) */
     public long calls() {
-        return calls.get();
+        return timedCalls.get() + untimedCalls.get();
     }
 
     /**
-     * @return la durée moyenne d'une exécution en nanosecondes
-     *     ({@code rfx.hook.duration_ns}), ou {@code 0} si le hook n'a jamais servi
+     * Active ou coupe le chronométrage ({@code telemetry.enabled}).
+     *
+     * <p>Couper efface aussi ce qui avait été chronométré : la garde du démarrage
+     * s'exécute avant que la configuration lui parvienne, et sans cela une durée serait
+     * publiée alors que la télémétrie est coupée — constaté en jeu le 2026-10-11. Les
+     * exécutions effacées restent comptées.
+     *
+     * @param enabled {@code true} pour chronométrer chaque exécution
+     */
+    public void timed(boolean enabled) {
+        this.timed = enabled;
+        if (!enabled) {
+            untimedCalls.addAndGet(timedCalls.getAndSet(0));
+            totalDurationNs.set(0);
+        }
+    }
+
+    /** @return le nombre d'exécutions chronométrées */
+    public long timedCalls() {
+        return timedCalls.get();
+    }
+
+    /**
+     * @return la durée moyenne d'une exécution chronométrée en nanosecondes
+     *     ({@code rfx.hook.duration_ns}), ou {@code 0} si aucune ne l'a été — voir
+     *     {@link #timedCalls()} pour distinguer ce zéro d'une mesure
      */
     public long averageDurationNs() {
-        long n = calls.get();
+        long n = timedCalls.get();
         return n == 0 ? 0 : totalDurationNs.get() / n;
     }
 

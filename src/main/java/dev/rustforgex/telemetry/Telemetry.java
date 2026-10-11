@@ -1,5 +1,6 @@
 package dev.rustforgex.telemetry;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -63,6 +64,27 @@ public final class Telemetry {
             DiscoveryCounts discovery,
             EventCounts events,
             SamplingCounts sampling) {
+        return collect(nativeStatus, instrumentation, discovery, events, sampling, List.of());
+    }
+
+    /**
+     * Relève les métriques, accroches comprises.
+     *
+     * @param nativeStatus statut natif décodé, ou {@code null} s'il est indisponible
+     * @param instrumentation vue de C-04, ou {@code null}
+     * @param discovery inventaire de C-41, ou {@code null}
+     * @param events table de distribution de C-06, ou {@code null}
+     * @param sampling compteurs de C-05, ou {@code null} si l'échantillonneur dort
+     * @param hooks compteurs des gardes d'accroche de C-01, jamais {@code null}
+     * @return le recueil, jamais {@code null}
+     */
+    public static MetricSet collect(
+            Map<String, Object> nativeStatus,
+            InstrumentationCounts instrumentation,
+            DiscoveryCounts discovery,
+            EventCounts events,
+            SamplingCounts sampling,
+            List<HookCounts> hooks) {
         MetricSet set = new MetricSet();
         appendTick(set, mapOf(nativeStatus, "tick"));
         appendProbes(set, mapOf(nativeStatus, "probes"));
@@ -71,6 +93,7 @@ public final class Telemetry {
         appendDiscovery(set, discovery);
         appendEvents(set, events);
         appendSampling(set, sampling);
+        appendHooks(set, hooks);
         return set;
     }
 
@@ -126,6 +149,24 @@ public final class Telemetry {
     public record SamplingCounts(long samplesTaken, long samplesQueued,
             long samplesUnattributed, long samplesDropped, int unknownFrames,
             long unknownSamples, long unknownDropped) {
+    }
+
+    /**
+     * Compteurs d'une garde d'accroche de C-01 (PARTIE 4.19, FM-02).
+     *
+     * <p>Le nom de l'accroche devient une étiquette de série. Il est fixé par le code —
+     * sept gardes, nommées dans {@code RustForgeX} — et jamais par une donnée
+     * d'exécution : la cardinalité reste bornée (T-402).
+     *
+     * @param hook nom de l'accroche
+     * @param calls exécutions, réussies ou non
+     * @param timedCalls exécutions chronométrées ({@code telemetry.enabled})
+     * @param averageDurationNs durée moyenne d'une exécution chronométrée
+     * @param errors échecs capturés
+     * @param disabled {@code true} si l'accroche a été désactivée
+     */
+    public record HookCounts(String hook, long calls, long timedCalls, long averageDurationNs,
+            long errors, boolean disabled) {
     }
 
     private static void appendTick(MetricSet set, Map<String, Object> tick) {
@@ -285,6 +326,28 @@ public final class Telemetry {
                 "Part du temps du fil autoritatif passée dans une méthode candidate au "
                         + "sondage mais non sondée. C'est la mesure du trou de "
                         + "couverture (ADR-027)."));
+    }
+
+    private static void appendHooks(MetricSet set, List<HookCounts> hooks) {
+        long disabled = 0;
+        for (HookCounts hook : hooks) {
+            String label = "{hook=" + hook.hook() + "}";
+            set.add(Metric.counter("rfx.hook.calls" + label, hook.calls(),
+                    "Exécutions de l'accroche, réussies ou non (C-01)."));
+            set.add(Metric.counter("rfx.hook.errors" + label, hook.errors(),
+                    "Exceptions capturées par la garde de l'accroche (FM-02)."));
+            // Télémétrie coupée : la durée n'est pas mesurée, elle n'est donc pas publiée.
+            set.addIfMeasured(hook.timedCalls() > 0, () -> Metric.gauge(
+                    "rfx.hook.duration_ns" + label, hook.averageDurationNs(), "ns",
+                    "Durée moyenne d'une exécution chronométrée de l'accroche."));
+            if (hook.disabled()) {
+                disabled++;
+            }
+        }
+        if (!hooks.isEmpty()) {
+            set.add(Metric.counter("rfx.hook.disabled", disabled,
+                    "Accroches désactivées après cinq échecs ; le jeu continue sans elles."));
+        }
     }
 
     private static long longOf(Map<String, Object> table, String key) {

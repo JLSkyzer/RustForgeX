@@ -261,6 +261,10 @@ public class RustForgeX {
                 IncidentDump.versions(MCPVersion.getMCVersion(), forgeVersion, ownVersion());
         LOGGER.debug("Versions reprises dans les dumps d'incident : {}", versions);
         RfxRuntime runtime = RfxRuntime.start(root, clientSide, forgeVersion, versions);
+        // Toutes les gardes, celle du démarrage comprise : leurs compteurs sont des
+        // métriques (PARTIE 4.19), et `telemetry.enabled` décide si elles chronomètrent.
+        runtime.attachHooks(java.util.List.of(startupGuard, discoveryGuard, commandsGuard,
+                warmUpGuard, shutdownGuard, tickPreGuard, tickPostGuard));
 
         for (String warning : runtime.warnings()) {
             LOGGER.warn("Configuration : {}", warning);
@@ -377,10 +381,17 @@ public class RustForgeX {
         tickPostGuard.run(() -> {
             cycle.onTickPost();
             long ticks = cycle.currentTick();
-            if (ticks % TickTrace.INTERVAL == 0) {
+            // Le modulo d'abord : la configuration n'est consultée qu'un tick sur 600.
+            if (ticks % TickTrace.INTERVAL == 0 && telemetryEnabled()) {
                 TickTrace.log(ticks, cycle);
             }
         });
+    }
+
+    /** @return {@code telemetry.enabled}, ou {@code false} si le runtime n'a pas démarré */
+    private static boolean telemetryEnabled() {
+        RfxRuntime runtime = RfxRuntime.instance();
+        return runtime != null && runtime.telemetryEnabled();
     }
 
     /** Cycle de tick courant, ou {@code null} si le runtime natif n'est pas actif. */

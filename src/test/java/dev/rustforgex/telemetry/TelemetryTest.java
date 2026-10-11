@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -159,6 +160,28 @@ class TelemetryTest {
 
         assertThrows(IllegalStateException.class,
                 () -> set.add(Metric.counter("rfx.tick.count", 2, "seconde")));
+    }
+
+    @Test
+    @DisplayName("Les gardes d'accroche sont exportées ; une durée non mesurée ne l'est pas")
+    void hookGuardsAreExported() {
+        MetricSet set = Telemetry.collect(null, null, null, null, null, List.of(
+                new Telemetry.HookCounts("serverTickPre", 40, 40, 350, 0, false),
+                new Telemetry.HookCounts("serverTickPost", 40, 0, 0, 5, true)));
+
+        assertEquals(40, set.get("rfx.hook.calls{hook=serverTickPre}").value());
+        assertEquals(350, set.get("rfx.hook.duration_ns{hook=serverTickPre}").value());
+        assertEquals(5, set.get("rfx.hook.errors{hook=serverTickPost}").value());
+        assertNull(set.get("rfx.hook.duration_ns{hook=serverTickPost}"),
+                "aucune exécution chronométrée : la durée n'est pas publiée (R-660)");
+        assertEquals(1, set.get("rfx.hook.disabled").value());
+    }
+
+    @Test
+    @DisplayName("Sans garde rattachée, aucune série d'accroche n'est publiée")
+    void noHookNoSeries() {
+        MetricSet set = Telemetry.collect(null, null, null, null, null, List.of());
+        assertNull(set.get("rfx.hook.disabled"));
     }
 
     /**

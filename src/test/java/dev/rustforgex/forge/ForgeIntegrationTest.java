@@ -127,4 +127,56 @@ class ForgeIntegrationTest {
         assertTrue(guard.averageDurationNs() >= 0, "la durée moyenne doit être mesurée");
         assertEquals("nominal", guard.name());
     }
+
+    @Test
+    @DisplayName("telemetry.enabled = false : la garde ne chronomètre plus, mais protège toujours")
+    void anUntimedGuardStillCountsAndProtects() {
+        HookGuard guard = new HookGuard("sans-chrono", message -> { });
+        guard.timed(false);
+
+        assertTrue(guard.run(() -> { }));
+        for (int i = 0; i < HookGuard.DISABLE_THRESHOLD; i++) {
+            guard.run(() -> {
+                throw new IllegalStateException("panne");
+            });
+        }
+
+        assertEquals(1 + HookGuard.DISABLE_THRESHOLD, guard.calls(), "les exécutions sont comptées");
+        assertEquals(0, guard.timedCalls(), "aucune n'est chronométrée");
+        assertEquals(0, guard.averageDurationNs());
+        assertTrue(guard.disabled(), "la désactivation de FM-02 ne dépend pas de la télémétrie");
+
+        HookGuard back = new HookGuard("rallume", message -> { });
+        back.timed(false);
+        back.run(() -> { });
+        back.timed(true);
+        back.run(() -> { });
+        assertEquals(2, back.calls());
+        assertEquals(1, back.timedCalls(), "seule l'exécution chronométrée entre dans la moyenne");
+    }
+
+    @Test
+    @DisplayName("Couper le chronométrage efface la durée déjà mesurée, pas le compte des exécutions")
+    void turningTimingOffDiscardsWhatWasMeasured() {
+        HookGuard guard = new HookGuard("setup", message -> { });
+        guard.run(() -> { });
+
+        guard.timed(false);
+
+        assertEquals(1, guard.calls());
+        assertEquals(0, guard.timedCalls(), "aucune durée ne doit survivre à la coupure");
+        assertEquals(0, guard.averageDurationNs());
+    }
+
+    @Test
+    @DisplayName("Une exécution qui coupe elle-même le chronométrage n'est pas chronométrée")
+    void aRunThatTurnsTimingOffIsNotTimed() {
+        HookGuard guard = new HookGuard("setup", message -> { });
+
+        // C'est ce que fait le démarrage : la configuration arrive pendant la garde.
+        guard.run(() -> guard.timed(false));
+
+        assertEquals(1, guard.calls());
+        assertEquals(0, guard.timedCalls(), "sa durée serait publiée télémétrie coupée");
+    }
 }

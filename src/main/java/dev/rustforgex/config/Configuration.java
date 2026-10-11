@@ -68,8 +68,11 @@ public final class Configuration {
                     "Activer le runtime sur le serveur dédié", false),
             OptionConfig.integerOption("memory", "max_native_mb", 512, 16, 16384,
                     "Plafond de mémoire native, en mébioctets", false),
+            // Appliquée aux gardes d'accroche au démarrage : modifiable à chaud, elle ne
+            // les atteindrait pas.
             OptionConfig.booleanOption("telemetry", "enabled", true,
-                    "Collecte locale des métriques. Aucune donnée ne quitte la machine", true),
+                    "Télémétrie de tick : chronométrage des accroches et journal de tick. "
+                            + "Aucune donnée ne quitte la machine", false),
             OptionConfig.integerOption("runtime", "panic_threshold", 3, 1, 100,
                     "Panics tolérées pour un sous-système avant sa désactivation", true),
             OptionConfig.integerOption("profiler", "max_workloads", 20_000, 1_000, 200_000,
