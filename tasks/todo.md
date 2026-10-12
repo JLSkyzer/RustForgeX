@@ -739,11 +739,16 @@ donc ouvert.
       ou non, **avec ou sans RUSTFORGE-X** (vérifié le 2026-10-12 : même pile, collisions
       dans le fil `overworld` de DimThread). Mesuré à la place sur un serveur synthétique,
       option 1 de la PARTIE 22 (ADR-036)
-- [ ] **T-140 échoue sous `heavy` synthétique** (ADR-036) : coût 1,11 et 1,24 ms par
-      tick, soit 4,1 % du tick et 2,2-2,5 % d'un cœur ; gouverneur à `THROTTLED`, toutes
-      sondes coupées, classement vide. **Attribuer** ce coût — échantillonnage,
-      observateur d'événements (≈ 4 100 événements par tick), sondes hors synthétique,
-      vidage — par une expérience un composant à la fois, avant toute correction
+- [x] **T-140 sous `heavy` synthétique : coût attribué** (ADR-036). Quatre exécutions
+      complètes, 0,69 à 1,95 ms par tick ; sans échantillonnage de piles, coût sous le
+      seuil de détection et gouverneur jamais bridé. L'observateur d'événements est hors
+      de cause (il ne s'arrête pas pendant la pause de mesure)
+- [ ] **T-140 échoue encore sur ses deux critères sous `heavy`** : coût au-dessus du
+      budget, et classement instable (corrélation 0,126, 8 unités communes sur 16). Les
+      deux viennent de l'échantillonnage, seule source de coût du classement au niveau
+      par défaut. Trois voies à mesurer avec `run-heavy.sh … synth` : soumettre la
+      fréquence d'échantillonnage au gouverneur ; classer sur une fenêtre longue ;
+      chronométrer une partie des sondes au niveau par défaut
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
       **Plan G-03 (PARTIE 20.3.4), premier test de gameplay** — génération de 2 000

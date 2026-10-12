@@ -170,7 +170,8 @@ public final class RfxRuntime {
 
         // L'échantillonnage n'a de sens que si des sondes existent : c'est le registre
         // qui sait à quelle méthode répond chaque identifiant (PARTIE 5.5, R-322).
-        if (tickCycle != null && instrumentation.registry() != null) {
+        if (tickCycle != null && instrumentation.registry() != null
+                && StackSampler.samplingAllowed()) {
             tickCycle.enableSampling(instrumentation.registry().frameIndex());
         }
 

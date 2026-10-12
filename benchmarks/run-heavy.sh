@@ -26,7 +26,11 @@ WARMUP="${4:-900}"
 MODE="${5:-modpack}"
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
-RUNS_DIR="$PROJECT/benchmarks/runs/t140"
+# RUNS_SUBDIR : sous-dossier des résultats ; EXTRA_PROPS : propriétés JVM en plus, pour
+# les expériences d'attribution (ADR-036), par exemple
+# -Drustforgex.instrumentation.stack_sampling=false.
+RUNS_DIR="$PROJECT/benchmarks/runs/${RUNS_SUBDIR:-t140}"
+read -r -a EXTRA <<< "${EXTRA_PROPS:-}"
 WORLD="gp-t140"
 
 if [ ! -d "$SERVER/libraries/net/minecraftforge/forge" ]; then
@@ -77,7 +81,7 @@ for run in $(seq 1 "$RUNS"); do
     rm -rf "${SERVER:?}/$WORLD"
     (
         cd "$SERVER" || exit 1
-        java "${SYNTH_PROPS[@]}" \
+        java "${SYNTH_PROPS[@]}" "${EXTRA[@]}" \
             -Drustforgex.bench.ticks="$TICKS" \
             -Drustforgex.bench.warmup="$WARMUP" \
             -Drustforgex.bench.label="$label" \

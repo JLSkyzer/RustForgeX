@@ -113,6 +113,21 @@ public final class MacroRecorder {
     private int recorded;
     private boolean loadApplied;
 
+    /**
+     * Classement relevé en cours de mesure, sondes armées (T-140), ou {@code null}.
+     *
+     * <p>Le classement de fin de mesure ne suffit pas : la ligne de base rend son verdict
+     * peu avant la fin, et s'il dépasse le budget, le gouverneur coupe aussitôt les sondes.
+     * Le classement lu ensuite est vide alors qu'il ne l'a pas été de toute la mesure —
+     * constaté sous `heavy` synthétique le 2026-10-12 (ADR-036). Il est donc relevé une
+     * fois, dans le dernier dixième de la mesure, au premier tick où des sondes sont
+     * armées : hors des pauses de mesure, et avant un éventuel bridage final.
+     */
+    private Map<String, Object> ranking;
+
+    /** Tick mesuré auquel {@link #ranking} a été relevé, ou {@code -1}. */
+    private int rankingTick = -1;
+
     /** Commandes de charge restant à exécuter, ou {@code null} s'il n'y en a pas. */
     private java.util.Deque<String> pendingLoad;
 
@@ -232,11 +247,28 @@ public final class MacroRecorder {
             collected[recorded] = gcNow != lastGcCount;
             lastGcCount = gcNow;
             recorded++;
+            // Après la mesure de ce tick, avant celle du suivant : l'appel natif et le
+            // décodage ne tombent dans aucune durée relevée.
+            captureRankingIfDue();
         }
 
         if (recorded >= durations.length) {
             finished = true;
             finish();
+        }
+    }
+
+    /** Relève le classement une fois, dans le dernier dixième, sondes armées. */
+    private void captureRankingIfDue() {
+        if (ranking != null || recorded < durations.length - durations.length / 10
+                || !RfxProbes.anyProbeArmed()) {
+            return;
+        }
+        RfxRuntime runtime = RfxRuntime.instance();
+        Map<String, Object> top = runtime == null ? null : runtime.topWorkloads(TOP_QUERY_LIMIT);
+        if (top != null) {
+            ranking = top;
+            rankingTick = recorded;
         }
     }
 
@@ -344,7 +376,7 @@ public final class MacroRecorder {
         json.append("    \"gc_time_ms\": ").append(gcTimeMs() - gcTimeAtStartMs).append(",\n");
         json.append("    \"gc_contaminated_ticks\": ").append(contaminated).append("\n");
         json.append("  },\n");
-        json.append("  \"rfx\": {\n").append(runtimeState()).append("  }\n");
+        json.append("  \"rfx\": {\n").append(runtimeState(ranking, rankingTick)).append("  }\n");
         json.append("}\n");
 
         Path parent = out.toAbsolutePath().getParent();
@@ -361,7 +393,7 @@ public final class MacroRecorder {
      * ne voudrait rien dire : c'est précisément ce qui distingue une configuration
      * d'une autre.
      */
-    private static String runtimeState() {
+    private static String runtimeState(Map<String, Object> ranking, int rankingTick) {
         RfxRuntime runtime = RfxRuntime.instance();
         if (runtime == null) {
             return "    \"active\": false,\n    \"reason\": \"mod non démarré\"\n";
@@ -379,6 +411,7 @@ public final class MacroRecorder {
         appendProfilerLevel(state, runtime);
         appendDiscovery(state, runtime);
         appendTop(state, runtime);
+        appendRanking(state, runtime, ranking, rankingTick);
         appendProbeThreads(state, runtime);
         appendEvents(state, runtime);
         appendBaseline(state, runtime);
@@ -614,6 +647,26 @@ public final class MacroRecorder {
         // en se faisant passer pour une mesure (R-660).
         state.append("      \"explained_pct_x100\": ")
                 .append(tickNs == 0 ? -1L : explained * 10_000L / tickNs).append(",\n");
+        state.append("      \"entries\": [");
+        appendTopRows(state, entries, runtime);
+        state.append("    }");
+    }
+
+    /**
+     * Consigne le classement relevé en cours de mesure (T-140), s'il l'a été.
+     *
+     * <p>Absent du fichier si aucune sonde n'était armée dans le dernier dixième : un
+     * classement vide écrit ici se ferait passer pour une observation.
+     */
+    private static void appendRanking(StringBuilder state, RfxRuntime runtime,
+            Map<String, Object> ranking, int rankingTick) {
+        if (ranking == null) {
+            return;
+        }
+        Object rawEntries = ranking.get("entries");
+        List<?> entries = rawEntries instanceof List<?> list ? list : List.of();
+        state.append(",\n    \"ranking\": {\n");
+        state.append("      \"captured_at_measured_tick\": ").append(rankingTick).append(",\n");
         state.append("      \"entries\": [");
         appendTopRows(state, entries, runtime);
         state.append("    }");

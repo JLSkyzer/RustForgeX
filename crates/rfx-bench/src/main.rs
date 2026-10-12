@@ -493,7 +493,19 @@ fn ranking_level() {
                 std::process::exit(2);
             }
         };
-        let units: Vec<String> = run["rfx"]["top"]["entries"]
+        // Le classement releve en cours de mesure, sondes armees, quand il existe : celui
+        // de fin de mesure peut etre vide si le gouverneur a bride juste avant (ADR-036).
+        let ranking = &run["rfx"]["ranking"];
+        let source = if ranking["entries"].is_array() {
+            println!(
+                "{path} : classement releve au tick mesure {}",
+                ranking["captured_at_measured_tick"]
+            );
+            ranking
+        } else {
+            &run["rfx"]["top"]
+        };
+        let units: Vec<String> = source["entries"]
             .as_array()
             .map(|entries| {
                 entries

@@ -115,6 +115,27 @@ public final class StackSampler {
      */
     public static final String PROPERTY_DISCOVER = "rustforgex.instrumentation.discover_frames";
 
+    /**
+     * Propriété qui empêche l'échantillonnage de démarrer, {@code true} par défaut.
+     *
+     * <p>Même raison d'être que {@link #PROPERTY_DISCOVER} : mesurer le coût de
+     * l'échantillonnage en comparant deux exécutions dont c'est la seule différence. Le
+     * 1,1 ms par tick relevé sous `heavy` synthétique (ADR-036) ne s'attribue pas sans
+     * elle. Ce n'est pas un réglage d'exploitation.
+     */
+    public static final String PROPERTY_SAMPLING = "rustforgex.instrumentation.stack_sampling";
+
+    /**
+     * @return {@code false} si {@link #PROPERTY_SAMPLING} demande de ne pas échantillonner
+     */
+    public static boolean samplingAllowed() {
+        try {
+            return !"false".equalsIgnoreCase(System.getProperty(PROPERTY_SAMPLING));
+        } catch (SecurityException e) {
+            return true;
+        }
+    }
+
     /** Lu une fois : le fil de prélèvement ne doit pas interroger les propriétés. */
     private final boolean discovering = readDiscovering();
 
