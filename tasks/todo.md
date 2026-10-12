@@ -676,7 +676,7 @@ donc ouvert.
       | statut | identifiants |
       |---|---|
       | couvert (19) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442, **T-401**¹⁰, **T-420**¹¹ |
-      | partiel (2) | T-140 (mesuré sur `medium`, pas `heavy`), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
+      | partiel (2) | T-140 (passe sous `medium`, **échoue** sous `heavy` synthétique : ADR-036), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
       | absent (6) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
@@ -735,10 +735,15 @@ donc ouvert.
       biaisée vers zéro — le coût réel pourrait dépasser 275 µs. La lecture « part d'un
       cœur » garde, elle, un facteur 4 et tient même si le chiffre était sous-estimé de
       moitié
-- [ ] Le profil `heavy` (8 000 entités) **tue le serveur de banc** : la sauvegarde
-      automatique sérialise toutes les entités d'un coup, tick de 120 s, arrêt par le
-      chien de garde. La table de la PARTIE 22 décrit des mods synthétiques, pas
-      290 mods réels ; ses chiffres ne se transposent pas
+- [x] Le profil `heavy` (8 000 entités) **tue le serveur de banc**, sauvegarde coupée
+      ou non, **avec ou sans RUSTFORGE-X** (vérifié le 2026-10-12 : même pile, collisions
+      dans le fil `overworld` de DimThread). Mesuré à la place sur un serveur synthétique,
+      option 1 de la PARTIE 22 (ADR-036)
+- [ ] **T-140 échoue sous `heavy` synthétique** (ADR-036) : coût 1,11 et 1,24 ms par
+      tick, soit 4,1 % du tick et 2,2-2,5 % d'un cœur ; gouverneur à `THROTTLED`, toutes
+      sondes coupées, classement vide. **Attribuer** ce coût — échantillonnage,
+      observateur d'événements (≈ 4 100 événements par tick), sondes hors synthétique,
+      vidage — par une expérience un composant à la fois, avant toute correction
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
       **Plan G-03 (PARTIE 20.3.4), premier test de gameplay** — génération de 2 000

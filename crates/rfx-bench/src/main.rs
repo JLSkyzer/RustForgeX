@@ -25,6 +25,7 @@
 
 mod digest_diff;
 mod macro_bench;
+mod ranking;
 mod telemetry_cost;
 
 use std::collections::BTreeMap;
@@ -134,10 +135,11 @@ fn main() {
         "roundtrip" => roundtrip_level(),
         "roundtrips" => roundtrips_level(),
         "telemetry" => telemetry_level(),
+        "ranking" => ranking_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips | telemetry"
+                 | roundtrips | telemetry | ranking"
             );
             std::process::exit(2);
         }
@@ -469,6 +471,87 @@ fn macro_level() {
             );
         }
     }
+}
+
+/// T-140 : stabilite du classement des unites les plus couteuses entre deux executions
+/// identiques, et cout du profilage releve par chacune (ligne de base, PARTIE 12.4).
+///
+/// `rfx-bench ranking <execution-1.json> <execution-2.json>`. Code de sortie : `0`
+/// stable, `1` instable ou incalculable, `2` fichier illisible.
+fn ranking_level() {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    if args.len() != 2 {
+        eprintln!("usage : rfx-bench ranking <execution-1.json> <execution-2.json>");
+        std::process::exit(2);
+    }
+    let mut lists = Vec::new();
+    for path in &args {
+        let run: serde_json::Value = match read_json(Path::new(path)) {
+            Ok(v) => v,
+            Err(reason) => {
+                eprintln!("{reason}");
+                std::process::exit(2);
+            }
+        };
+        let units: Vec<String> = run["rfx"]["top"]["entries"]
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "{} {}",
+                            e["owner"].as_str().unwrap_or("?"),
+                            e["method"].as_str().unwrap_or("?")
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let baseline = &run["rfx"]["baseline"];
+        // `overhead_pct` rapporte le cout au tick median pendant la pause (baseline.rs) :
+        // c'est une part du tick, pas une part d'un coeur. Celle-ci se deduit du cout
+        // rapporte aux 50 ms d'un tick nominal (H-07).
+        let core_pct = baseline["overhead_ns"]
+            .as_f64()
+            .map(|ns| ns * 100.0 / 50_000_000.0);
+        println!(
+            "{path} : {} unites classees, MSPT p50 {} ms, cout releve {} ns ({} % du tick, \
+             {} % d'un coeur), {}/{} cycles positifs, niveau final {}",
+            units.len(),
+            run["metrics"]["mspt_p50"],
+            baseline["overhead_ns"],
+            baseline["overhead_pct"],
+            core_pct.map_or_else(|| "?".to_owned(), |p| format!("{p:.2}")),
+            baseline["positive_cycles"],
+            baseline["cycles"],
+            run["rfx"]["profiler_level"]
+        );
+        lists.push(units);
+    }
+
+    let verdict = ranking::compare(&lists[0], &lists[1], ranking::TOP_K);
+    for row in &verdict.rows {
+        let show = |p: Option<usize>| p.map_or_else(|| "-".to_owned(), |p| p.to_string());
+        println!(
+            "  {:>3} {:>3}  {}",
+            show(row.first),
+            show(row.second),
+            row.unit
+        );
+    }
+    match verdict.rho {
+        Some(rho) => println!(
+            "Top {} : {} unites communes, union {}, correlation de rang {rho:.3} (seuil {}) — {}",
+            verdict.k,
+            verdict.overlap,
+            verdict.union,
+            verdict.threshold,
+            if verdict.stable { "STABLE" } else { "INSTABLE" }
+        ),
+        None => println!("Correlation incalculable : trop peu d'unites classees"),
+    }
+    std::process::exit(i32::from(!verdict.stable));
 }
 
 /// T-401 : cout de la telemetrie contre R-561 (ADR-034).
