@@ -599,6 +599,19 @@ public final class RfxRuntime {
     });
 
     /**
+     * Vérifie le confinement des panics : {@code /rfx panic-test} (C-38, ADR-015).
+     *
+     * <p>Mode {@code debug} uniquement ; ailleurs, rien n'est appelé. Une panic confinée
+     * est consignée comme incident (T-411).
+     *
+     * @return le résultat, jamais {@code null}
+     */
+    public dev.rustforgex.command.ContainmentCheck.Outcome panicTest() {
+        return dev.rustforgex.command.ContainmentCheck.run(active() ? bridge : null, report.handle(),
+                configuration.mode(), this::nativeStatus, this::recordIncident);
+    }
+
+    /**
      * Consigne un incident dans {@code crash/} (C-35, T-411).
      *
      * <p>Ne lève jamais et ne bloque pas : le relevé des métriques a lieu ici, l'écriture

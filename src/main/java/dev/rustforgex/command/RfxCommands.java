@@ -13,17 +13,26 @@ import java.util.List;
  * C-38 : commandes en jeu de RUSTFORGE-X.
  *
  * <p>Cahier des charges : PARTIE 5.36. Tests : T-420 à T-422.
- * Maturité : {@code STABLE} pour {@code /rfx status}, seule commande du jalon M0.
+ * Maturité : {@code STABLE}.
  *
- * <p>Les autres commandes ({@code /rfx top}, {@code /rfx why}, {@code /rfx mods}…)
- * interrogent des composants qui n'existent pas encore : elles seront ajoutées au
- * jalon qui les rend capables de répondre. Enregistrer dès maintenant une commande
- * qui ne saurait rien dire tromperait l'utilisateur (contrat agent 3.1).
+ * <p>Seules les commandes dont le composant existe sont enregistrées : {@code status},
+ * {@code mods}, {@code top}, {@code profile}, {@code discover}, {@code report} et
+ * {@code panic-test}. Les autres ({@code why}, {@code workload}, {@code mode},
+ * {@code set}, {@code disable}, {@code enable}, {@code bench}, {@code validate},
+ * {@code cache}) interrogent ou pilotent des composants des jalons suivants : elles
+ * seront ajoutées au jalon qui les rend capables de répondre. Enregistrer dès
+ * maintenant une commande qui ne saurait rien dire tromperait l'utilisateur (contrat
+ * agent 3.1, ADR-035).
+ *
+ * <p>Toute commande qui modifie l'état du runtime est journalisée avec son auteur et
+ * son horodatage (R-600), par {@link #audit}.
  */
 public final class RfxCommands {
 
     /** Niveau de permission requis sur serveur (PARTIE 5.36). */
     public static final int PERMISSION_LEVEL = 3;
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     private RfxCommands() {
         throw new AssertionError("classe utilitaire, non instanciable");
@@ -98,7 +107,49 @@ public final class RfxCommands {
                                 .executes(context -> {
                                     writeReport(context.getSource());
                                     return 1;
+                                }))
+                        .then(Commands.literal("panic-test")
+                                .executes(context -> {
+                                    panicTest(context.getSource());
+                                    return 1;
                                 })));
+    }
+
+    /**
+     * Journalise une commande qui modifie l'état du runtime : qui, quoi, quand (R-600).
+     *
+     * <p>Le journal du serveur est la trace que l'exploitant relit ; l'horodatage y est
+     * écrit en clair, au format ISO 8601, pour ne pas dépendre de la mise en forme du
+     * journal.
+     *
+     * @param source émetteur de la commande
+     * @param command la commande, sans la barre oblique
+     */
+    static void audit(CommandSourceStack source, String command) {
+        LOGGER.info("RUSTFORGE-X : commande « /{} » exécutée par {} le {}.", command,
+                source.getTextName(), java.time.Instant.now());
+    }
+
+    /**
+     * Vérifie le confinement des panics, en mode {@code debug} seulement.
+     *
+     * <p>Mutante : la panic est comptée par le runtime, et dix en soixante secondes le
+     * font passer en {@code HALTED}. Journalisée à ce titre (R-600), même refusée — la
+     * tentative est une information.
+     */
+    private static void panicTest(CommandSourceStack source) {
+        RfxRuntime runtime = RfxRuntime.instance();
+        ContainmentCheck.Outcome outcome = runtime == null
+                ? new ContainmentCheck.Outcome(ContainmentCheck.Verdict.UNAVAILABLE, null, 0, null, -1)
+                : runtime.panicTest();
+        audit(source, "rfx panic-test (" + outcome.verdict() + ")");
+        for (Component line : ContainmentCheck.lines(outcome)) {
+            if (outcome.verdict() == ContainmentCheck.Verdict.NOT_CONFINED) {
+                source.sendFailure(line);
+            } else {
+                source.sendSuccess(() -> line, false);
+            }
+        }
     }
 
     /**
@@ -126,6 +177,11 @@ public final class RfxCommands {
                 runtime.instrumentation() == null ? null : runtime.instrumentation().registry(),
                 runtime.lastProfilingSession());
         DiscoveryReport.lines(runtime.unknownFrames(DiscoveryReport.DEFAULT_LIMIT));
+        // panic-test ne se préchauffe pas en l'exécutant : ce serait une panic. Seules
+        // ses classes sont chargées, et l'incident est construit sans être consigné.
+        ContainmentCheck.lines(new ContainmentCheck.Outcome(
+                ContainmentCheck.Verdict.CONFINED, ContainmentCheck.DEBUG_MODE, 0, "", 0));
+        dev.rustforgex.diag.Incident.nativePanic("warm-up").key();
         runtime.warmUpReports();
         return (System.nanoTime() - start) / 1_000_000L;
     }
@@ -217,6 +273,7 @@ public final class RfxCommands {
      * était une promesse que le runtime ne tient pas, et son non-respect était muet.
      */
     private static void requestProfiling(CommandSourceStack source, int seconds) {
+        audit(source, "rfx profile " + seconds);
         RfxRuntime runtime = RfxRuntime.instance();
         if (runtime == null || !runtime.requestProfilingDepth(seconds)) {
             source.sendFailure(Component.translatable(TopReport.KEY_PREFIX + "profile_refused"));
@@ -244,6 +301,7 @@ public final class RfxCommands {
 
     /** Vide le recensement, pour mesurer une situation précise plutôt qu'une moyenne. */
     private static void resetDiscovery(CommandSourceStack source) {
+        audit(source, "rfx discover reset");
         RfxRuntime runtime = RfxRuntime.instance();
         if (runtime == null || !runtime.resetDiscovery()) {
             source.sendFailure(

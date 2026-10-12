@@ -60,5 +60,9 @@
   "rustforgex.discover.entry": "  §8%s.§r §b%s§r §f%s§r §e%s§r §8(%s échantillons)",
   "rustforgex.discover.truncated": "  §8Recensement plein : %s méthodes distinctes n'ont pas été apprises.",
   "rustforgex.discover.reset": "§aRecensement vidé§r. Les prélèvements repartent de zéro.",
-  "rustforgex.top.profile_cancelled": "§eChronométrage écourté§r : %s ticks obtenus sur les %s demandés. Le coût dépassait le budget et la mesure a été coupée pour protéger le serveur ; le classement ci-dessus n'a pas eu le temps de se remplir."
+  "rustforgex.top.profile_cancelled": "§eChronométrage écourté§r : %s ticks obtenus sur les %s demandés. Le coût dépassait le budget et la mesure a été coupée pour protéger le serveur ; le classement ci-dessus n'a pas eu le temps de se remplir.",
+  "rustforgex.panic_test.unavailable": "§cTest de confinement impossible§r : le runtime natif n'est pas actif.",
+  "rustforgex.panic_test.refused": "Test de confinement refusé : il n'est disponible qu'en mode §edebug§r (mode actuel : %s). Une panic, même confinée, est comptée par le runtime.",
+  "rustforgex.panic_test.confined": "§aConfinement vérifié§r : la panic native est revenue en E-3001, le jeu n'est pas affecté. État du runtime : %s, panics comptées : %s. Le dump d'incident éventuel est signalé dans le journal du serveur.",
+  "rustforgex.panic_test.not_confined": "§cConfinement non vérifié§r : le natif a rendu %s au lieu de -3001 (E-3001)."
 }

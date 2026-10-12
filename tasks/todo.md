@@ -675,8 +675,8 @@ donc ouvert.
 
       | statut | identifiants |
       |---|---|
-      | couvert (18) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442, **T-401**¹⁰ |
-      | partiel (3) | T-140 (mesuré sur `medium`, pas `heavy`), T-420⁵ (toutes les commandes enregistrées répondent ; `why`, `workload`, `mode`, `set`… de la PARTIE 5.36 pas encore écrites), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
+      | couvert (19) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442, **T-401**¹⁰, **T-420**¹¹ |
+      | partiel (2) | T-140 (mesuré sur `medium`, pas `heavy`), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
       | absent (6) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
@@ -705,7 +705,14 @@ donc ouvert.
       Serveur de test lancé : versions lues en jeu, aucun dump intempestif ;
       ¹⁰ `run-telemetry.sh` (ADR-034) : télémétrie mesurée en place sur le serveur de banc,
       5 exécutions × 6 000 ticks après 3 600 d'échauffement, part native par
-      micro-benchmark ; pire rapport 0,117 % du MSPT pour un seuil de 0,2 %.
+      micro-benchmark ; pire rapport 0,117 % du MSPT pour un seuil de 0,2 % ;
+      ¹¹ ADR-035 : à M1, T-420 porte sur les commandes dont le composant existe (`status`,
+      `mods`, `top`, `profile`, `discover`, `report`, `panic-test`) ; `why`, `workload`,
+      `mode`, `set`, `disable`, `enable`, `bench`, `validate`, `cache` viendront avec leur
+      jalon. `panic-test` ajoutée (mode `debug`, 20/20 panics confinées en jeu, incident
+      consigné). Commandes mutantes journalisées avec auteur et horodatage (R-600).
+      Serveur de banc : 220 exécutions, aucune au-delà de 5 ms ; le premier appel lent
+      venait de la première commande du serveur (`seed` vanilla : 4,85 ms).
 
       Deux décisions dépassent l'assistant : arbitrer une dépendance de micro-mesure
       (JMH, T-131/T-154), et T-410 qui exige des composants d'un jalon ultérieur — à

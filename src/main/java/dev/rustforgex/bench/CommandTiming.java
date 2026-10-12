@@ -67,6 +67,18 @@ public final class CommandTiming {
     private int seen;
     private boolean finished;
 
+    /**
+     * Durée de la première commande exécutée sur le serveur, une commande vanilla, en
+     * nanosecondes ; {@code -1} tant qu'elle n'a pas eu lieu.
+     *
+     * <p>La toute première commande paie ce qui n'appartient à aucune en propre :
+     * premier {@code CommandEvent} de Forge, premier passage dans ce banc. Sans elle, ce
+     * coût retombait sur la première commande {@code /rfx} chronométrée —
+     * {@code status}, 5,2 ms au premier appel contre 0,5 ms de médiane le 2026-10-12.
+     * Il est mesuré et publié à part, pas effacé.
+     */
+    private long pipelineFirstNanos = -1;
+
     private CommandTiming(Path out, String label) {
         this.out = out;
         this.label = label;
@@ -92,6 +104,12 @@ public final class CommandTiming {
         seen++;
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null || seen < WARMUP_TICKS) {
+            return;
+        }
+        if (pipelineFirstNanos < 0) {
+            long start = System.nanoTime();
+            CommandCapture.run(server, server.overworld(), Vec3.ZERO, "seed");
+            pipelineFirstNanos = System.nanoTime() - start;
             return;
         }
         if (pending == null) {
@@ -129,6 +147,8 @@ public final class CommandTiming {
         json.append("  \"label\": \"").append(label.replace("\"", "'")).append("\",\n");
         json.append("  \"rfx_active\": ").append(active).append(",\n");
         json.append("  \"budget_us\": ").append(BUDGET_NANOS / 1_000).append(",\n");
+        json.append("  \"pipeline_first_command_us\": ").append(pipelineFirstNanos / 1_000)
+                .append(",\n");
         json.append("  \"commands\": {");
         boolean first = true;
         int over = 0;

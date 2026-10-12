@@ -60,5 +60,9 @@
   "rustforgex.discover.entry": "  §8%s.§r §b%s§r §f%s§r §e%s§r §8(%s samples)",
   "rustforgex.discover.truncated": "  §8Census full: %s distinct methods were never learned.",
   "rustforgex.discover.reset": "§aCensus cleared§r. Sampling starts over.",
-  "rustforgex.top.profile_cancelled": "§eTimed profiling cut short§r: %s ticks granted out of the %s requested. The cost exceeded the budget and the measurement was stopped to protect the server; the ranking above had no time to fill in."
+  "rustforgex.top.profile_cancelled": "§eTimed profiling cut short§r: %s ticks granted out of the %s requested. The cost exceeded the budget and the measurement was stopped to protect the server; the ranking above had no time to fill in.",
+  "rustforgex.panic_test.unavailable": "§cCannot run the containment test§r: the native runtime is not active.",
+  "rustforgex.panic_test.refused": "Containment test refused: it is only available in §edebug§r mode (current mode: %s). A panic is counted by the runtime even when contained.",
+  "rustforgex.panic_test.confined": "§aContainment verified§r: the native panic came back as E-3001, the game is unaffected. Runtime state: %s, panics counted: %s. Any incident dump is reported in the server log.",
+  "rustforgex.panic_test.not_confined": "§cContainment not verified§r: the native side returned %s instead of -3001 (E-3001)."
 }
