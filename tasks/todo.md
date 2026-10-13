@@ -749,6 +749,13 @@ donc ouvert.
       relevé porte désormais `calls_per_tick_x100`. Au moins trois exécutions par
       configuration avant d'écrire une cause : la ligne de base varie de 0,69 à 1,95 ms
       entre exécutions identiques
+- [x] **Coût sous `heavy` attribué, 3 exécutions contre 3** (ADR-037, 2026-10-14) : les
+      sondes sur Minecraft et Forge. Médiane 1,44 ms par tick avec elles, 0,22 ms sans
+      (`platform_targets=false`), séparation complète ; `BlockCollisions#computeNext` à
+      8 187 appels par tick
+- [ ] **Plafond par sonde** à décider et mesurer : éteindre une sonde au-delà d'un
+      nombre d'appels par tick, l'échantillonnage en rendant le coût — au lieu de tout
+      brider. Corrélation de classement de 0,575 à 0,838 selon la paire : à rejuger après
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 

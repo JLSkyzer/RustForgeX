@@ -69,6 +69,21 @@ public final class TargetScanner {
     private static final String[] PLATFORM_PACKAGES = {"net/minecraft/", "net/minecraftforge/"};
 
     /**
+     * Propriété qui retire la plateforme des cibles, {@code true} par défaut.
+     *
+     * <p>Elle n'existe que pour <strong>mesurer</strong> ce que coûtent les sondes posées
+     * sur Minecraft et Forge, en comparant des exécutions dont c'est la seule différence :
+     * sous {@code heavy}, la méthode la plus coûteuse du classement est vanilla
+     * ({@code BlockCollisions#computeNext}), appelée en masse (ADR-037). Ce n'est pas un
+     * réglage d'exploitation : sans la plateforme, le profileur ne voit plus le jeu.
+     */
+    public static final String PROPERTY_PLATFORM = "rustforgex.instrumentation.platform_targets";
+
+    /** Lu une fois, à la première énumération. */
+    private static final boolean PLATFORM_TARGETED =
+            !"false".equalsIgnoreCase(System.getProperty(PROPERTY_PLATFORM));
+
+    /**
      * Paquets jamais ciblés, quelle qu'en soit la provenance.
      *
      * <p>Le code de rendu n'existe pas sur un serveur dédié. Le désigner comme cible
@@ -668,6 +683,9 @@ public final class TargetScanner {
         }
         if (!platformOnly) {
             return true;
+        }
+        if (!PLATFORM_TARGETED) {
+            return false;
         }
         for (String prefix : PLATFORM_PACKAGES) {
             if (internalName.startsWith(prefix)) {
