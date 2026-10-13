@@ -106,7 +106,7 @@ public final class TopReport {
                 }
                 @SuppressWarnings("unchecked")
                 Map<String, Object> entry = (Map<String, Object>) raw;
-                if (longOf(entry, "cost_ns_per_tick") == 0) {
+                if (rankingCost(entry) == 0) {
                     // Le classement est décroissant : la première unité sans coût
                     // signale que toutes les suivantes n'en ont pas non plus.
                     break;
@@ -144,7 +144,7 @@ public final class TopReport {
         int probeId = (int) longOf(entry, "probe_id");
         String name = registry == null ? null : registry.nameOf(probeId);
         String owner = registry == null ? null : registry.ownerOf(probeId);
-        long cost = longOf(entry, "cost_ns_per_tick");
+        long cost = rankingCost(entry);
 
         return Component.translatable(KEY_PREFIX + "entry",
                 rank,
@@ -156,6 +156,22 @@ public final class TopReport {
                 Component.literal(String.format(Locale.ROOT, "%.1f",
                         longOf(entry, "calls_per_tick_x100") / 100.0)),
                 Component.literal(stringOf(entry, "heat")));
+    }
+
+    /**
+     * Coût qui ordonne le classement : la moyenne sur une fenêtre longue
+     * ({@code window_ns_per_tick}, ADR-037), à défaut le coût instantané.
+     *
+     * <p>Afficher un autre chiffre que celui qui ordonne rendrait le classement
+     * incompréhensible : une unité à 0 µs passerait devant une unité à 300 µs. Le repli
+     * ne sert qu'avec un natif antérieur au schéma 2 du classement.
+     *
+     * @param entry une entrée décodée du classement
+     * @return le coût par tick, en nanosecondes
+     */
+    public static long rankingCost(Map<String, Object> entry) {
+        long window = longOf(entry, "window_ns_per_tick");
+        return window > 0 ? window : longOf(entry, "cost_ns_per_tick");
     }
 
     /**

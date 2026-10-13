@@ -93,6 +93,16 @@ pub struct TopEntry {
     pub level: String,
     /// Confiance dans l'observation, en pourcent, de `0` a `100`.
     pub observation_quality_pct: u32,
+    /// Cout moyen par tick sur une fenetre longue, en nanosecondes : **critere de tri du
+    /// classement** (T-140, ADR-037).
+    ///
+    /// [`Self::cost_ns_per_tick`] suit la charge a quelques ticks pres. Pour une unite
+    /// connue par echantillonnage seulement, c'est presque toujours zero avec des pics :
+    /// cent prelevements par seconde se repartissent sur des milliers d'unites, et un
+    /// classement lu a un instant ne dit que laquelle a ete prelevee recemment. Mesure
+    /// sous `heavy` : correlation de rang de 0,126 entre deux executions identiques.
+    #[serde(default)]
+    pub window_ns_per_tick: u64,
 }
 
 /// Classement complet, tel qu'il traverse la frontiere.
@@ -122,7 +132,8 @@ pub struct TopWorkloads {
 
 impl TopWorkloads {
     /// Version courante du format.
-    pub const SCHEMA: u32 = 1;
+    /// Version 2 : `window_ns_per_tick`, et le tri sur ce champ (ADR-037).
+    pub const SCHEMA: u32 = 2;
 }
 
 /// Verifie qu'un blob CBOR tient dans le sous-ensemble que Java sait lire.
@@ -267,6 +278,7 @@ mod tests {
                 heat: "CRITICAL".to_owned(),
                 level: "TIMED".to_owned(),
                 observation_quality_pct: 94,
+                window_ns_per_tick: 49_000,
             }],
         };
 

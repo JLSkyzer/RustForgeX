@@ -739,16 +739,17 @@ donc ouvert.
       ou non, **avec ou sans RUSTFORGE-X** (vérifié le 2026-10-12 : même pile, collisions
       dans le fil `overworld` de DimThread). Mesuré à la place sur un serveur synthétique,
       option 1 de la PARTIE 22 (ADR-036)
-- [x] **T-140 sous `heavy` synthétique : coût attribué** (ADR-036). Quatre exécutions
-      complètes, 0,69 à 1,95 ms par tick ; sans échantillonnage de piles, coût sous le
-      seuil de détection et gouverneur jamais bridé. L'observateur d'événements est hors
-      de cause (il ne s'arrête pas pendant la pause de mesure)
-- [ ] **T-140 échoue encore sur ses deux critères sous `heavy`** : coût au-dessus du
-      budget, et classement instable (corrélation 0,126, 8 unités communes sur 16). Les
-      deux viennent de l'échantillonnage, seule source de coût du classement au niveau
-      par défaut. Trois voies à mesurer avec `run-heavy.sh … synth` : soumettre la
-      fréquence d'échantillonnage au gouverneur ; classer sur une fenêtre longue ;
-      chronométrer une partie des sondes au niveau par défaut
+- [x] **Échantillonnage réglé sur son coût et classement sur fenêtre longue**
+      (ADR-037) : sous `heavy`, cadence 69 → 16 Hz, corrélation de rang 0,126 → **0,838**
+      (14 unités communes sur 20)
+- [ ] **T-140 échoue encore sous `heavy`** : coût relevé 1,45 et 1,93 ms par tick malgré
+      la cadence divisée par cinq — l'attribution à l'échantillonnage d'ADR-036 est
+      **retirée**. Corrélation 0,838 pour 0,9. Hypothèse à éprouver : sondes sur des
+      méthodes vanilla appelées en masse (`BlockCollisions#computeNext` en tête) ; le
+      relevé porte désormais `calls_per_tick_x100`. Au moins trois exécutions par
+      configuration avant d'écrire une cause : la ligne de base varie de 0,69 à 1,95 ms
+      entre exécutions identiques
+- [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
       **Plan G-03 (PARTIE 20.3.4), premier test de gameplay** — génération de 2 000

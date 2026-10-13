@@ -40,6 +40,12 @@ pub struct WorkloadEntry {
     pub sampled_ns_per_tick: Ewma,
     /// Echantillons de pile ayant designe cette unite depuis le demarrage.
     pub sampled_hits: u64,
+    /// Temps attribue par echantillonnage dans la fenetre de classement en cours, en
+    /// nanosecondes (ADR-037).
+    pub window_sampled_ns: u64,
+    /// Temps moyen par tick attribue par echantillonnage sur la derniere fenetre de
+    /// classement complete, ou `None` tant qu'aucune ne l'est (ADR-037).
+    pub last_window_ns_per_tick: Option<u64>,
     /// Octets alloues observes pendant le tick courant.
     pub alloc_bytes_this_tick: u64,
     /// `true` tant que l'entree porte des mesures.
@@ -61,8 +67,32 @@ impl WorkloadEntry {
             sampled_ns_this_tick: 0,
             sampled_ns_per_tick: Ewma::default(),
             sampled_hits: 0,
+            window_sampled_ns: 0,
+            last_window_ns_per_tick: None,
             alloc_bytes_this_tick: 0,
             live: true,
+        }
+    }
+
+    /// Cout par tick qui sert a **classer** (`/rfx top`, T-140), en nanosecondes.
+    ///
+    /// Comme [`Self::cost_ns_per_tick`], la mesure par sonde prime. A defaut, c'est la
+    /// moyenne de l'echantillonnage sur une fenetre longue, et non la moyenne mobile a
+    /// cinq ticks : celle-ci, sur une unite prelevee de loin en loin, vaut zero ou un
+    /// pic, et un classement lu a un instant en devient un tirage (ADR-037).
+    ///
+    /// `window_ticks` est le nombre de ticks ecoules dans la fenetre en cours : il ne
+    /// sert qu'avant la premiere fenetre complete.
+    #[must_use]
+    pub fn ranking_cost_ns_per_tick(&self, window_ticks: u64) -> u64 {
+        let probed = self.dynamics.ns_per_tick();
+        if probed > 0 {
+            return probed;
+        }
+        match self.last_window_ns_per_tick {
+            Some(complete) => complete,
+            None if window_ticks > 0 => self.window_sampled_ns / window_ticks,
+            None => 0,
         }
     }
 
@@ -105,10 +135,21 @@ impl WorkloadEntry {
         self.sampled_ns_this_tick = 0;
         self.sampled_ns_per_tick = Ewma::default();
         self.sampled_hits = 0;
+        self.window_sampled_ns = 0;
+        self.last_window_ns_per_tick = None;
         self.alloc_bytes_this_tick = 0;
         self.live = false;
     }
 }
+
+/// Duree d'une fenetre de classement, en ticks consolides (ADR-037).
+///
+/// Une minute de jeu nominal. A cent prelevements par seconde, c'est environ six mille
+/// echantillons par fenetre : les unites qui comptent en recoivent des centaines, assez
+/// pour qu'un classement ne soit plus un tirage. Les ticks de pause de mesure ne
+/// comptent pas : le profiler ne consolide pas pendant une pause, l'echantillonnage non
+/// plus ne preleve rien.
+pub const RANKING_WINDOW_TICKS: u64 = 1_200;
 
 /// Table des unites de travail, indexee par identifiant de sonde.
 #[derive(Debug)]
@@ -119,6 +160,8 @@ pub struct WorkloadStore {
     max_workloads: usize,
     evictions: u64,
     collisions: u64,
+    /// Ticks consolides dans la fenetre de classement en cours.
+    window_ticks: u64,
 }
 
 impl WorkloadStore {
@@ -131,7 +174,26 @@ impl WorkloadStore {
             max_workloads: max_workloads.max(1),
             evictions: 0,
             collisions: 0,
+            window_ticks: 0,
         }
+    }
+
+    /// Clot un tick de la fenetre de classement ; au bout de
+    /// [`RANKING_WINDOW_TICKS`], la fenetre devient la reference du classement et une
+    /// nouvelle commence.
+    ///
+    /// A appeler apres que chaque unite a ajoute son temps echantillonne du tick a
+    /// `window_sampled_ns`.
+    pub fn close_ranking_tick(&mut self) {
+        self.window_ticks += 1;
+        if self.window_ticks < RANKING_WINDOW_TICKS {
+            return;
+        }
+        for entry in &mut self.entries {
+            entry.last_window_ns_per_tick = Some(entry.window_sampled_ns / RANKING_WINDOW_TICKS);
+            entry.window_sampled_ns = 0;
+        }
+        self.window_ticks = 0;
     }
 
     /// Enregistre une unite de travail et rend son identifiant de sonde.
@@ -267,15 +329,18 @@ impl WorkloadStore {
             .enumerate()
             .filter(|(_, e)| e.live)
             .collect();
+        // Trie sur la fenetre longue, pas sur la moyenne mobile (ADR-037).
+        let window = self.window_ticks;
         ranked.sort_by(|(_, a), (_, b)| {
-            b.cost_ns_per_tick()
-                .cmp(&a.cost_ns_per_tick())
+            b.ranking_cost_ns_per_tick(window)
+                .cmp(&a.ranking_cost_ns_per_tick(window))
+                .then_with(|| b.cost_ns_per_tick().cmp(&a.cost_ns_per_tick()))
                 .then_with(|| a.work_id.cmp(&b.work_id))
         });
 
         let measured = ranked
             .iter()
-            .filter(|(_, e)| e.cost_ns_per_tick() > 0)
+            .filter(|(_, e)| e.cost_ns_per_tick() > 0 || e.ranking_cost_ns_per_tick(window) > 0)
             .count();
         let tracked = ranked.len();
         ranked.truncate(n);
@@ -304,6 +369,7 @@ impl WorkloadStore {
                     level: e.level.label().to_owned(),
                     observation_quality_pct: (e.dynamics.observation_quality * 100.0)
                         .clamp(0.0, 100.0) as u32,
+                    window_ns_per_tick: e.ranking_cost_ns_per_tick(window),
                 })
                 .collect(),
         }
@@ -337,6 +403,89 @@ mod tests {
 
     fn work_id(n: u64) -> WorkId {
         WorkId(n)
+    }
+
+    /// Simule un tick consolide : chaque unite recoit le temps echantillonne indique.
+    fn sampled_tick(store: &mut WorkloadStore, sampled: &[(u32, u64)]) {
+        for &(probe, ns) in sampled {
+            let entry = store.get_mut(probe).expect("unite");
+            entry.window_sampled_ns += ns;
+            entry.sampled_ns_per_tick.update(ns as f64);
+        }
+        for entry in store.iter_mut() {
+            if !sampled.iter().any(|&(p, _)| store_index(entry) == Some(p)) {
+                entry.sampled_ns_per_tick.update(0.0);
+            }
+        }
+        store.close_ranking_tick();
+    }
+
+    /// Les tests ne connaissent l'unite que par son `WorkId` : 1 -> sonde 0, 2 -> 1.
+    fn store_index(entry: &WorkloadEntry) -> Option<u32> {
+        u32::try_from(entry.work_id.0).ok().map(|n| n - 1)
+    }
+
+    #[test]
+    fn the_ranking_follows_the_long_window_not_the_last_spike() {
+        let mut store = WorkloadStore::new(10);
+        let steady = store.register(work_id(1)).expect("reguliere");
+        let spiky = store.register(work_id(2)).expect("pic");
+
+        // Une fenetre complete : la reguliere est prelevee un tick sur deux (10 ms),
+        // la seconde une seule fois, au dernier tick, avec un pic plus fort.
+        for tick in 0..RANKING_WINDOW_TICKS {
+            let mut sampled = Vec::new();
+            if tick % 2 == 0 {
+                sampled.push((steady, 10_000_000));
+            }
+            if tick == RANKING_WINDOW_TICKS - 1 {
+                sampled.push((spiky, 40_000_000));
+            }
+            sampled_tick(&mut store, &sampled);
+        }
+
+        // La moyenne mobile met la seconde devant : c'est le defaut corrige.
+        let instant_steady = store.get(steady).expect("r").cost_ns_per_tick();
+        let instant_spiky = store.get(spiky).expect("p").cost_ns_per_tick();
+        assert!(
+            instant_spiky > instant_steady,
+            "{instant_spiky} <= {instant_steady}"
+        );
+
+        // Le classement, lui, suit la fenetre : 5 ms par tick contre 33 us.
+        let top = store.top(2);
+        assert_eq!(top.entries[0].probe_id, steady);
+        assert_eq!(top.entries[0].window_ns_per_tick, 5_000_000);
+        assert_eq!(
+            top.entries[1].window_ns_per_tick,
+            40_000_000 / RANKING_WINDOW_TICKS
+        );
+    }
+
+    #[test]
+    fn before_the_first_complete_window_the_ongoing_one_ranks() {
+        let mut store = WorkloadStore::new(10);
+        let unit = store.register(work_id(1)).expect("unite");
+        for _ in 0..10 {
+            sampled_tick(&mut store, &[(unit, 1_000)]);
+        }
+        let top = store.top(1);
+        assert_eq!(top.entries[0].window_ns_per_tick, 1_000);
+        assert_eq!(top.measured, 1);
+    }
+
+    #[test]
+    fn an_eviction_forgets_the_window() {
+        let mut store = WorkloadStore::new(10);
+        let unit = store.register(work_id(1)).expect("unite");
+        for _ in 0..RANKING_WINDOW_TICKS {
+            sampled_tick(&mut store, &[(unit, 1_000)]);
+        }
+        let entry = store.get_mut(unit).expect("unite");
+        assert_eq!(entry.last_window_ns_per_tick, Some(1_000));
+        entry.evict();
+        assert_eq!(entry.last_window_ns_per_tick, None);
+        assert_eq!(entry.window_sampled_ns, 0);
     }
 
     #[test]

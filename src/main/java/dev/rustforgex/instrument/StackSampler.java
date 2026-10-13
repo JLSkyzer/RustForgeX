@@ -62,11 +62,11 @@ import org.slf4j.LoggerFactory;
  */
 public final class StackSampler {
 
-    /** Fréquence d'échantillonnage, en hertz (PARTIE 5.5). */
+    /**
+     * Fréquence d'échantillonnage maximale, en hertz (PARTIE 5.5). La fréquence
+     * effective est réglée par {@link SamplingPacer} sur ce que coûte un prélèvement.
+     */
     public static final int SAMPLES_PER_SECOND = 100;
-
-    /** Période entre deux prélèvements, en nanosecondes. */
-    public static final long PERIOD_NS = 1_000_000_000L / SAMPLES_PER_SECOND;
 
     /**
      * Trames examinées au plus, du sommet vers la base.
@@ -175,9 +175,25 @@ public final class StackSampler {
      * @param target fil autoritatif à observer
      */
     public StackSampler(StackFrameIndex index, Thread target) {
+        this(index, target, SamplingPacer.DEFAULT_BUDGET_FRACTION);
+    }
+
+    /**
+     * Prépare un échantillonneur, sans le démarrer.
+     *
+     * @param index correspondance trame vers sonde
+     * @param target fil autoritatif à observer
+     * @param budgetFraction part du temps que l'échantillonnage peut prendre au fil
+     *     observé, voir {@link SamplingPacer}
+     */
+    public StackSampler(StackFrameIndex index, Thread target, double budgetFraction) {
         this.index = index;
         this.target = target;
+        this.pacer = new SamplingPacer(budgetFraction);
     }
+
+    /** Cadence réglée sur le coût mesuré des prélèvements (ADR-037). */
+    private final SamplingPacer pacer;
 
     /** Démarre le fil d'échantillonnage. Sans effet s'il tourne déjà. */
     public synchronized void start() {
@@ -192,8 +208,8 @@ public final class StackSampler {
         thread.setPriority(Thread.MIN_PRIORITY);
         worker = thread;
         thread.start();
-        LOGGER.debug("Échantillonnage de pile démarré à {} Hz sur « {} ».",
-                SAMPLES_PER_SECOND, target.getName());
+        LOGGER.debug("Échantillonnage de pile démarré sur « {} », {} Hz au plus, cadence "
+                + "réglée sur son coût.", target.getName(), SAMPLES_PER_SECOND);
     }
 
     /** Arrête le fil d'échantillonnage et attend brièvement sa fin. */
@@ -228,9 +244,10 @@ public final class StackSampler {
             int probeId = pending[(int) (readIndex % CAPACITY)];
             readIndex++;
             // La valeur portée est la période que cet échantillon représente : le natif
-            // la cumule en `sampled_ns_this_tick`.
+            // la cumule en `sampled_ns_this_tick`. C'est la période courante : elle varie
+            // avec le coût des prélèvements, et une période fixe sur- ou sous-attribuerait.
             sink.record(probeId, ProbeSink.KIND_SAMPLE, (short) 0,
-                    System.nanoTime(), PERIOD_NS);
+                    System.nanoTime(), pacer.periodNs());
             drained++;
         }
         samplesDrained += drained;
@@ -241,14 +258,11 @@ public final class StackSampler {
     private void loop() {
         while (running) {
             try {
-                Thread.sleep(PERIOD_NS / 1_000_000L);
-                if (!running) {
+                java.util.concurrent.locks.LockSupport.parkNanos(pacer.periodNs());
+                if (!running || Thread.currentThread().isInterrupted()) {
                     return;
                 }
                 sampleOnce();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
             } catch (RuntimeException | LinkageError e) {
                 // Un échec d'échantillonnage se compte, il n'interrompt rien.
                 samplesUnattributed++;
@@ -267,7 +281,11 @@ public final class StackSampler {
             // l'arrêt. Dans les deux cas, prélever fausserait la mesure.
             return;
         }
+        long start = System.nanoTime();
         StackTraceElement[] stack = target.getStackTrace();
+        // Le fil observé est suspendu le temps de la lecture : c'est le prix payé par le
+        // jeu, et ce qui règle la cadence.
+        pacer.record(System.nanoTime() - start);
         samplesTaken++;
 
         int probeId = topmostKnownProbe(stack, index, discovering ? discovery : null);
@@ -351,6 +369,11 @@ public final class StackSampler {
     /** @return {@code true} si le fil d'échantillonnage tourne */
     public boolean running() {
         return running;
+    }
+
+    /** @return la période d'échantillonnage courante, en nanosecondes (ADR-037) */
+    public long periodNs() {
+        return pacer.periodNs();
     }
 
     /** @return le nombre de piles prélevées */

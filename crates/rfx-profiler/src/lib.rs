@@ -382,6 +382,7 @@ impl Profiler {
             entry
                 .sampled_ns_per_tick
                 .update(entry.sampled_ns_this_tick as f64);
+            entry.window_sampled_ns = entry.window_sampled_ns.saturating_add(sampled);
             entry
                 .dynamics
                 .alloc_bytes
@@ -403,6 +404,7 @@ impl Profiler {
             entry.sampled_ns_this_tick = 0;
             entry.alloc_bytes_this_tick = 0;
         }
+        self.store.close_ranking_tick();
     }
 
     /// Applique le verdict de l'auto-mesure a l'etat du profiler.

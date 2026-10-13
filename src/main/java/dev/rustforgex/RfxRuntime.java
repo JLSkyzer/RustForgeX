@@ -172,7 +172,10 @@ public final class RfxRuntime {
         // qui sait à quelle méthode répond chaque identifiant (PARTIE 5.5, R-322).
         if (tickCycle != null && instrumentation.registry() != null
                 && StackSampler.samplingAllowed()) {
-            tickCycle.enableSampling(instrumentation.registry().frameIndex());
+            // Un quart du budget de profilage (H-07) : sous la charge où il coûte, c'est le
+            // poste dominant (ADR-036), et il doit laisser de la place aux sondes.
+            double budget = configuration.getLong("profiler.cpu_budget_pct") / 100.0 / 4.0;
+            tickCycle.enableSampling(instrumentation.registry().frameIndex(), budget);
         }
 
         // C-06, étape 1 : observer le bus sans y toucher. Aucun auditeur tiers n'est

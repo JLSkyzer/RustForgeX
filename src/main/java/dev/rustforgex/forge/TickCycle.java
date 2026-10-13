@@ -80,6 +80,10 @@ public final class TickCycle {
      */
     private volatile StackFrameIndex frameIndex;
 
+    /** Part du temps que l'échantillonnage peut prendre au fil autoritatif (ADR-037). */
+    private volatile double samplingBudget =
+            dev.rustforgex.instrument.SamplingPacer.DEFAULT_BUDGET_FRACTION;
+
     /** Échantillonneur, créé au premier tick — le seul moment où le fil est connu. */
     private volatile StackSampler sampler;
 
@@ -227,6 +231,18 @@ public final class TickCycle {
         this.frameIndex = index;
     }
 
+    /**
+     * Arme l'échantillonnage de pile avec une part de budget donnée.
+     *
+     * @param index correspondance trame vers sonde, jamais {@code null}
+     * @param budgetFraction part du temps que l'échantillonnage peut prendre au fil
+     *     autoritatif, voir {@code SamplingPacer}
+     */
+    public void enableSampling(StackFrameIndex index, double budgetFraction) {
+        this.samplingBudget = budgetFraction;
+        this.frameIndex = index;
+    }
+
     /** Arrête l'échantillonnage, sans échouer s'il n'a jamais démarré. */
     public void stopSampling() {
         StackSampler current = sampler;
@@ -245,7 +261,8 @@ public final class TickCycle {
         if (sampler != null || frameIndex == null || probeSink == null) {
             return;
         }
-        StackSampler created = new StackSampler(frameIndex, Thread.currentThread());
+        StackSampler created =
+                new StackSampler(frameIndex, Thread.currentThread(), samplingBudget);
         sampler = created;
         created.start();
     }

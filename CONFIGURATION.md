@@ -50,7 +50,7 @@ java -Drustforgex.general.enabled=false -jar ...
 | `diagnostics.report_on_incident` | booléen | `true` | `true` / `false` | oui | Consigne chaque incident dans `<gameDir>/rustforgex/crash/rfx-crash-<ts>.json` : accroche désactivée après cinq échecs, panic native (E-3001). Un fichier par incident et par partie, seize au plus, chemins anonymisés. Rien ne quitte la machine. |
 | `runtime.panic_threshold` | entier | `3` | `1` .. `100` | non | Panics tolérées pour un sous-système avant sa désactivation (R-523). |
 | `profiler.max_workloads` | entier | `20000` | `1000` .. `200000` | oui | Unités de travail suivies simultanément. Au-delà, la plus froide est évincée (R-321). Un plafond plus haut affine la mesure et coûte de la mémoire native. |
-| `profiler.cpu_budget_pct` | entier | `2` | `1` .. `50` | oui | Part d'un cœur accordée au profilage, en pourcent (H-07). Au-delà, la profondeur de sondage descend d'un cran, jusqu'à l'arrêt. Le budget de temps de tick en découle dans la même proportion. |
+| `profiler.cpu_budget_pct` | entier | `2` | `1` .. `50` | oui | Part d'un cœur accordée au profilage, en pourcent (H-07). Au-delà, la profondeur de sondage descend d'un cran, jusqu'à l'arrêt. Le budget de temps de tick en découle dans la même proportion. Le quart de cette part borne aussi l'échantillonnage de piles : sa cadence ralentit (de 100 Hz jusqu'à 1 Hz) quand un prélèvement coûte plus cher (ADR-037). |
 
 > Le coût réellement mesuré s'affiche dans `/rfx status`, ligne « Coût mesuré » : il
 > vient de la mise en pause périodique de la PARTIE 12.4, et non d'une estimation.

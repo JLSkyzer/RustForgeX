@@ -683,7 +683,8 @@ public final class MacroRecorder {
                 break;
             }
             Map<String, Object> entry = castEntry(raw);
-            long cost = longValue(entry, "cost_ns_per_tick");
+            // Le coût qui ordonne le classement, pas l'instantané (ADR-037).
+            long cost = dev.rustforgex.command.TopReport.rankingCost(entry);
             if (cost <= 0L) {
                 // Le classement est décroissant : la première unité sans coût annonce
                 // que toutes les suivantes n'en ont pas non plus.
@@ -697,7 +698,11 @@ public final class MacroRecorder {
             rows++;
             state.append("        {\"owner\": \"").append(escape(owner == null ? "?" : owner))
                     .append("\", \"method\": \"").append(escape(name == null ? "sonde#" + probeId : name))
-                    .append("\", \"cost_ns_per_tick\": ").append(cost)
+                    .append("\", \"ranking_cost_ns_per_tick\": ").append(cost)
+                    // Appels par tick : sans eux, une unité sondée très appelée et une unité
+                    // longue mais rare sont indiscernables, et c'est la question d'ADR-037.
+                    .append(", \"calls_per_tick_x100\": ")
+                    .append(longValue(entry, "calls_per_tick_x100"))
                     .append(", \"source\": \"").append(escape(stringValue(entry, "source")))
                     .append("\"}");
         }
