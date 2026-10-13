@@ -142,6 +142,10 @@ pub struct ProfilerStatus {
     pub profile_cancelled: bool,
     /// Sessions de diagnostic coupees par le gouverneur depuis le demarrage.
     pub profile_sessions_cancelled: u64,
+    /// Sondes eteintes en ce moment pour depassement du plafond d'appels par tick
+    /// (ADR-038). L'echantillonnage continue d'en rendre le cout.
+    #[serde(default)]
+    pub call_capped: u64,
 }
 
 /// Etat d'un composant, tel qu'affiche par `/rfx status`.

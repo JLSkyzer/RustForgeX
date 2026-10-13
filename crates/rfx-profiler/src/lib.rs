@@ -57,6 +57,22 @@ pub const DEFAULT_MAX_WORKLOADS: usize = 20_000;
 /// de la table des niveaux a Java.
 const COMFORTABLE_TICKS_BEFORE_RAISE: u32 = 100;
 
+/// Plafond d'appels par tick au-dela duquel une sonde est eteinte (ADR-038).
+///
+/// Sous `heavy`, six methodes vanilla faisaient de 1 055 a 8 187 appels par tick, et les
+/// sondes de la plateforme portaient l'essentiel du cout du profilage (ADR-037). A mille
+/// appels, une sonde coute de l'ordre de 50 us par tick si l'estimation de 50 ns par
+/// appel tient — une estimation, pas une mesure (T-131). Valeur de depart, a juger par
+/// campagne.
+pub const MAX_CALLS_PER_TICK: f64 = 1_000.0;
+
+/// Duree pendant laquelle une sonde plafonnee reste eteinte, en ticks (ADR-038).
+///
+/// Une fenetre de classement : le temps que l'echantillonnage rende le cout de la
+/// methode. Au terme, la sonde se rallume pour remesurer, et se replafonne en un tick ou
+/// deux si l'appel reste aussi frequent.
+pub const CALL_CAP_TICKS: u64 = store::RANKING_WINDOW_TICKS;
+
 /// Reglages du profiler effectivement lus par le code implemente.
 ///
 /// Les budgets d'echantillonnage et de profondeur de contexte de la PARTIE 5.5 ne
@@ -558,15 +574,39 @@ impl Profiler {
     /// Aligne la profondeur de chaque sonde sur la chaleur, sous le plafond global.
     fn adapt_probe_levels(&mut self) {
         let cap = self.probe_cap();
+        let now = self.tick;
         let mut dirty = false;
         for entry in self.store.iter_mut() {
-            let wanted = ProbeLevel::for_heat(entry.dynamics.heat).min(cap);
+            let wanted = if entry.call_capped_until_tick > now {
+                ProbeLevel::Off
+            } else if entry.level != ProbeLevel::Off
+                && entry.dynamics.calls_per_tick.value() > MAX_CALLS_PER_TICK
+            {
+                // Plafond par sonde (ADR-038) : une methode appelee des milliers de fois
+                // par tick paie sa sonde a chaque appel. On l'eteint, elle seule, pour
+                // une fenetre ; l'echantillonnage continue d'en rendre le cout. Le
+                // delai est indispensable : eteinte, la sonde ne compte plus ses appels,
+                // et sans lui elle se rallumerait au tick suivant.
+                entry.call_capped_until_tick = now.saturating_add(CALL_CAP_TICKS);
+                ProbeLevel::Off
+            } else {
+                ProbeLevel::for_heat(entry.dynamics.heat).min(cap)
+            };
             if entry.level != wanted {
                 entry.level = wanted;
                 dirty = true;
             }
         }
         self.levels_dirty |= dirty;
+    }
+
+    /// Sondes eteintes en ce moment par le plafond d'appels par tick (ADR-038).
+    fn call_capped_count(&self) -> u64 {
+        let now = self.tick;
+        self.store
+            .iter()
+            .filter(|e| e.live && e.call_capped_until_tick > now)
+            .count() as u64
     }
 
     /// Change l'etat du profiler et marque la table des niveaux a retransmettre.
@@ -688,6 +728,7 @@ impl Profiler {
             profile_granted_ticks: self.last_session_granted_ticks,
             profile_cancelled: self.last_session_cancelled,
             profile_sessions_cancelled: self.sessions_cancelled,
+            call_capped: self.call_capped_count(),
             baseline_measurements: self.baseline.measurements(),
             baseline_overhead_ns: baseline.map_or(0, |m| m.overhead_ns),
             baseline_overhead_pct_x100: baseline.map_or(0, |m| pct_x100(m.overhead_pct())),
@@ -757,6 +798,76 @@ mod tests {
         let mut profiler = Profiler::default();
         profiler.start();
         profiler
+    }
+
+    /// Un tick ou la sonde `probe` voit passer `calls` appels (niveau COUNTER).
+    fn tick_with_calls(profiler: &mut Profiler, armed: &[u32], probe: u32, calls: u64) {
+        for &p in armed {
+            make_critical(profiler, p);
+        }
+        if calls > 0 {
+            profiler.ingest(&record(probe, RecordKind::Enter, calls));
+        }
+        profiler.end_tick(cheap_tick());
+    }
+
+    #[test]
+    fn a_probe_called_too_often_is_switched_off_for_a_window_then_rearmed() {
+        let mut profiler = started();
+        let busy = profiler.register(WorkId(1)).expect("tres appelee");
+        let quiet = profiler.register(WorkId(2)).expect("peu appelee");
+        let both = [busy, quiet];
+
+        // Deux mille appels par tick : la moyenne mobile passe le plafond en quelques
+        // ticks. L'autre unite, a dix appels, n'est pas concernee.
+        for _ in 0..10 {
+            profiler.ingest(&record(quiet, RecordKind::Enter, 10));
+            tick_with_calls(&mut profiler, &both, busy, 2_000);
+        }
+        let level = |p: &Profiler, id: u32| p.store().get(id).expect("entree").level;
+        assert_eq!(
+            level(&profiler, busy),
+            ProbeLevel::Off,
+            "au-dela du plafond"
+        );
+        assert_eq!(
+            level(&profiler, quiet),
+            ProbeLevel::Counter,
+            "sous le plafond"
+        );
+        assert_eq!(profiler.status().call_capped, 1);
+
+        // Eteinte, la sonde ne compte plus rien : sans le delai, elle se rallumerait
+        // aussitot. Elle reste eteinte toute la fenetre.
+        for _ in 0..(CALL_CAP_TICKS - 20) {
+            tick_with_calls(&mut profiler, &both, busy, 0);
+        }
+        assert_eq!(
+            level(&profiler, busy),
+            ProbeLevel::Off,
+            "pendant la fenetre"
+        );
+
+        // Au terme, elle se rallume pour remesurer.
+        for _ in 0..40 {
+            tick_with_calls(&mut profiler, &both, busy, 0);
+        }
+        assert_eq!(
+            level(&profiler, busy),
+            ProbeLevel::Counter,
+            "rallumee apres la fenetre"
+        );
+        assert_eq!(profiler.status().call_capped, 0);
+
+        // Toujours aussi appelee, elle est de nouveau plafonnee.
+        for _ in 0..10 {
+            tick_with_calls(&mut profiler, &both, busy, 2_000);
+        }
+        assert_eq!(
+            level(&profiler, busy),
+            ProbeLevel::Off,
+            "plafonnee de nouveau"
+        );
     }
 
     /// Une unite chaude reste a COUNTER tant que le profileur est a LIGHT.

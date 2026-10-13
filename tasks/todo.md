@@ -676,7 +676,7 @@ donc ouvert.
       | statut | identifiants |
       |---|---|
       | couvert (19) | T-130, **T-132**⁷, T-134, T-141, T-142¹, T-143, T-144, T-371², T-372, T-400³, T-402, T-412⁴, **T-421**⁶, **T-422**⁵, T-440, **T-441**⁸, T-442, **T-401**¹⁰, **T-420**¹¹ |
-      | partiel (2) | T-140 (passe sous `medium`, **échoue** sous `heavy` synthétique : ADR-036), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
+      | partiel (2) | T-140 (coût tenu sous `medium` et `heavy` synthétique, ADR-038 ; stabilité du classement 0,71-0,85 pour 0,9), **T-411**⁹ (dump des incidents existants ; rejeu par `rfx-cli` attendu avec le déport, ADR-033) |
       | absent (6) | T-133 (retransformation écartée par ADR-016), T-150..T-153 (proxy de C-06 non écrit), T-373 (arènes non implémentées) |
       | bloqué (4) | T-131 et T-154 (micro-mesure JMH à arbitrer), T-370 (test long T-700), T-410 (C-19..C-27 n'existent pas) |
 
@@ -753,9 +753,14 @@ donc ouvert.
       sondes sur Minecraft et Forge. Médiane 1,44 ms par tick avec elles, 0,22 ms sans
       (`platform_targets=false`), séparation complète ; `BlockCollisions#computeNext` à
       8 187 appels par tick
-- [ ] **Plafond par sonde** à décider et mesurer : éteindre une sonde au-delà d'un
-      nombre d'appels par tick, l'échantillonnage en rendant le coût — au lieu de tout
-      brider. Corrélation de classement de 0,575 à 0,838 selon la paire : à rejuger après
+- [x] **Plafond par sonde** (ADR-038) : au-delà de 1 000 appels par tick, une sonde
+      s'éteint seule pendant 1 200 ticks. Sous `heavy`, 3 exécutions : coût **0 / 0,34 /
+      0 ms** par tick (contre médiane 1,44 ms sans plafond), 15-16 sondes plafonnées,
+      gouverneur jamais bridé. **Critère de coût de T-140 tenu sous `heavy`**
+- [ ] T-140, stabilité du classement : 0,714 / 0,848 / 0,798 selon la paire, pour 0,9.
+      Part due au jeu (IA aléatoire de 8 000 entités) non mesurée
+- [ ] Rejouer `medium` sur le modpack réel avec le plafond et la cadence d'ADR-037
+      (ADR-025 y tenait de peu) avant de clore le jalon
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 

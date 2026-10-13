@@ -729,6 +729,8 @@ public final class MacroRecorder {
         if (level instanceof String text) {
             state.append(",\n    \"profiler_level\": \"").append(escape(text)).append('"');
         }
+        // Sondes éteintes par le plafond d'appels au moment du relevé (ADR-038).
+        state.append(",\n    \"call_capped\": ").append(longValue(profiler, "call_capped"));
     }
 
     /**

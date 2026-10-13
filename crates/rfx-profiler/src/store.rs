@@ -46,6 +46,9 @@ pub struct WorkloadEntry {
     /// Temps moyen par tick attribue par echantillonnage sur la derniere fenetre de
     /// classement complete, ou `None` tant qu'aucune ne l'est (ADR-037).
     pub last_window_ns_per_tick: Option<u64>,
+    /// Tick jusqu'auquel la sonde reste eteinte pour avoir depasse le plafond d'appels
+    /// par tick, ou `0` si elle ne l'est pas (ADR-038).
+    pub call_capped_until_tick: u64,
     /// Octets alloues observes pendant le tick courant.
     pub alloc_bytes_this_tick: u64,
     /// `true` tant que l'entree porte des mesures.
@@ -69,6 +72,7 @@ impl WorkloadEntry {
             sampled_hits: 0,
             window_sampled_ns: 0,
             last_window_ns_per_tick: None,
+            call_capped_until_tick: 0,
             alloc_bytes_this_tick: 0,
             live: true,
         }
@@ -137,6 +141,7 @@ impl WorkloadEntry {
         self.sampled_hits = 0;
         self.window_sampled_ns = 0;
         self.last_window_ns_per_tick = None;
+        self.call_capped_until_tick = 0;
         self.alloc_bytes_this_tick = 0;
         self.live = false;
     }

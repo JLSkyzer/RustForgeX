@@ -63,6 +63,7 @@ marquées « conditionnelle ».
 | `rfx.profiler.records_unknown` | counter | — | Enregistrements à identifiant de sonde inconnu |
 | `rfx.profiler.evictions` | counter | — | Unités évincées, la plus froide en premier |
 | `rfx.profiler.level_changes` | counter | — | Changements d'état du profileur (SM-02) |
+| `rfx.profiler.call_capped` | counter | — | Sondes éteintes en ce moment pour plus de 1 000 appels par tick ; l'échantillonnage en rend le coût (ADR-038) |
 | `rfx.profiler.overhead_pct` | ratio | % | Coût **estimé** par les compteurs, en part d'un cœur |
 | `rfx.profiler.mspt_pct` | ratio | % | Coût **estimé**, en part du temps de tick |
 | `rfx.profiler.baseline_measurements` | counter | — | Mises en pause ayant produit une mesure (PARTIE 12.4) |

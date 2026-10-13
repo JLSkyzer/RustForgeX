@@ -219,6 +219,8 @@ public final class Telemetry {
         set.add(Metric.counter("rfx.profiler.level_changes",
                 longOf(profiler, "level_changes"),
                 "Changements d'état du profiler (SM-02)."));
+        set.add(Metric.counter("rfx.profiler.call_capped", longOf(profiler, "call_capped"),
+                "Sondes éteintes en ce moment pour trop d'appels par tick (ADR-038)."));
         set.add(Metric.ratio("rfx.profiler.overhead_pct",
                 longOf(profiler, "overhead_pct_x100") / 100.0,
                 "Coût du profilage estimé par ses propres compteurs, en part d'un cœur."));
