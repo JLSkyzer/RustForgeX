@@ -37,6 +37,16 @@ pub const DEFAULT_CPU_BUDGET_PCT: f32 = 2.0;
 /// Part du temps de tick accordee au profilage, en pourcentage (PARTIE 5.5).
 pub const DEFAULT_MSPT_BUDGET_PCT: f32 = 1.5;
 
+/// Plancher du budget de tick, en nanosecondes, au budget de cœur par defaut (ADR-039).
+///
+/// Un budget en part du tick se resserre avec le tick : 1,5 % de 13 ms ne laisse que
+/// 0,2 ms. Sur le modpack reel sous `medium`, a 13 – 17 ms par tick, le gouverneur
+/// bridait ainsi le profileur dans six executions sur six, alors que la part d'un cœur
+/// restait sous son budget (ADR-038) : plus le serveur etait leger, plus le profileur
+/// devenait aveugle. Le plancher vaut 1,5 % d'un tick de 20 ms, l'ordre du serveur
+/// `medium` d'ADR-025 (20,8 ms) : au-dela, la regle est inchangee.
+pub const MSPT_BUDGET_FLOOR_NS: u64 = 300_000;
+
 /// Ticks observes avant qu'un verdict de depassement soit rendu.
 ///
 /// Une seconde de jeu. Les premiers ticks apres le chargement portent le cout de la
@@ -77,8 +87,13 @@ pub enum OverheadVerdict {
 pub struct OverheadMeter {
     cpu_budget_pct: f32,
     mspt_budget_pct: f32,
+    /// Plancher du budget de tick, proportionnel au budget de cœur (ADR-039).
+    mspt_floor_ns: u64,
     core_pct: Ewma,
     mspt_pct: Ewma,
+    /// Duree de tick lissee, pour un budget effectif qui ne saute pas d'un tick a
+    /// l'autre.
+    tick_ns: Ewma,
     ticks: u64,
     over_budget_ticks: u64,
     total_profiling_ns: u64,
@@ -104,8 +119,10 @@ impl OverheadMeter {
             // Le budget de MSPT suit le budget de cœur dans la meme proportion que les
             // valeurs par defaut : regler l'un sans l'autre rendrait le second muet.
             mspt_budget_pct: cpu * (DEFAULT_MSPT_BUDGET_PCT / DEFAULT_CPU_BUDGET_PCT),
+            mspt_floor_ns: (MSPT_BUDGET_FLOOR_NS as f32 * (cpu / DEFAULT_CPU_BUDGET_PCT)) as u64,
             core_pct: Ewma::default(),
             mspt_pct: Ewma::default(),
+            tick_ns: Ewma::default(),
             ticks: 0,
             over_budget_ticks: 0,
             total_profiling_ns: 0,
@@ -126,14 +143,17 @@ impl OverheadMeter {
     /// compare des durees de tick, ce qui est exactement l'echelle du premier.
     pub fn record_baseline(&mut self, measurement: BaselineMeasurement) -> OverheadVerdict {
         self.last_baseline = Some(measurement);
-        let measured = measurement.overhead_pct();
+        // En nanosecondes, pour appliquer le plancher : le budget est la part du tick
+        // en pause, mais jamais moins que `mspt_floor_ns` (ADR-039).
+        let measured = measurement.overhead_ns as f64;
+        let allowed = self.mspt_budget_ns_for(measurement.paused_median_ns) as f64;
         // La permission de remonter vient de la DERNIERE mesure, pas de l'existence
         // d'une mesure. Sans cela, les compteurs — aveugles au cout des appels injectes
         // — refont grimper la profondeur d'un cran toutes les cinq secondes, et
         // defont en quinze secondes ce que la mesure vient de decider. Constate en
         // production : ligne de base a 13,3 %, et le profiler termine a `DEEP`.
-        self.baseline_allows_raise = measured < self.mspt_budget_pct * RAISE_RATIO;
-        if measured > self.mspt_budget_pct {
+        self.baseline_allows_raise = measured < allowed * f64::from(RAISE_RATIO);
+        if measured > allowed {
             self.baseline_over_budget = self.baseline_over_budget.saturating_add(1);
             return OverheadVerdict::OverBudget;
         }
@@ -167,6 +187,24 @@ impl OverheadMeter {
         self.mspt_budget_pct
     }
 
+    /// Budget de tick en nanosecondes pour un tick de `tick_ns` : la part fixee, jamais
+    /// moins que le plancher (ADR-039).
+    #[must_use]
+    pub fn mspt_budget_ns_for(&self, tick_ns: u64) -> u64 {
+        let share = (tick_ns as f64 * f64::from(self.mspt_budget_pct) / 100.0) as u64;
+        share.max(self.mspt_floor_ns)
+    }
+
+    /// Budget de tick effectif en pourcentage, pour la duree de tick lissee.
+    fn effective_mspt_budget_pct(&self) -> f32 {
+        let tick = self.tick_ns.value();
+        if tick <= 0.0 {
+            return self.mspt_budget_pct;
+        }
+        let floor_pct = (self.mspt_floor_ns as f64 * 100.0 / tick) as f32;
+        self.mspt_budget_pct.max(floor_pct)
+    }
+
     /// Integre le cout d'un tick et rend le verdict.
     pub fn record_tick(&mut self, cost: TickCost) -> OverheadVerdict {
         self.ticks = self.ticks.saturating_add(1);
@@ -179,6 +217,7 @@ impl OverheadMeter {
         if cost.tick_ns > 0 {
             self.mspt_pct
                 .update(ratio_pct(cost.profiling_ns, cost.tick_ns));
+            self.tick_ns.update(cost.tick_ns as f64);
         }
 
         if self.ticks < MIN_TICKS_BEFORE_VERDICT {
@@ -187,12 +226,15 @@ impl OverheadMeter {
 
         let core = self.core_pct.value() as f32;
         let mspt = self.mspt_pct.value() as f32;
+        // Budget de tick effectif : la part fixee, relevee par le plancher sur un tick
+        // court (ADR-039).
+        let mspt_budget = self.effective_mspt_budget_pct();
 
-        if core > self.cpu_budget_pct || mspt > self.mspt_budget_pct {
+        if core > self.cpu_budget_pct || mspt > mspt_budget {
             self.over_budget_ticks = self.over_budget_ticks.saturating_add(1);
             return OverheadVerdict::OverBudget;
         }
-        if core < self.cpu_budget_pct * RAISE_RATIO && mspt < self.mspt_budget_pct * RAISE_RATIO {
+        if core < self.cpu_budget_pct * RAISE_RATIO && mspt < mspt_budget * RAISE_RATIO {
             return OverheadVerdict::Comfortable;
         }
         OverheadVerdict::WithinBudget
@@ -266,6 +308,63 @@ mod tests {
             tick_ns: 10_000_000,
             period_ns: 50_000_000,
         }
+    }
+
+    /// Mesure de ligne de base minimale : seuls le cout et le tick en pause comptent.
+    fn baseline(overhead_ns: u64, paused_median_ns: u64) -> BaselineMeasurement {
+        BaselineMeasurement {
+            active_median_ns: paused_median_ns + overhead_ns,
+            paused_median_ns,
+            overhead_ns,
+            cycles: 10,
+            delta_min_ns: 0,
+            delta_max_ns: 0,
+            positive_cycles: 10,
+            tick: 25_600,
+        }
+    }
+
+    /// Tick de `tick_ns` nanosecondes, cœur largement sous son budget.
+    fn tick_of(profiling_ns: u64, tick_ns: u64) -> TickCost {
+        TickCost {
+            profiling_ns,
+            tick_ns,
+            period_ns: 50_000_000,
+        }
+    }
+
+    #[test]
+    fn a_short_tick_is_not_judged_below_the_floor() {
+        // 0,25 ms sur un tick de 13 ms : 1,9 % du tick, au-dela des 1,5 % — l'ancienne
+        // regle bridait. Sous le plancher de 0,3 ms, ce n'est plus un depassement.
+        let mut meter = OverheadMeter::default();
+        let verdict = run(&mut meter, tick_of(250_000, 13_000_000), 200);
+        assert_ne!(verdict, OverheadVerdict::OverBudget);
+        assert_eq!(meter.mspt_budget_ns_for(13_000_000), MSPT_BUDGET_FLOOR_NS);
+    }
+
+    #[test]
+    fn a_long_tick_keeps_the_share_of_the_tick() {
+        // 40 ms : 1,5 % vaut 0,6 ms, au-dessus du plancher. 0,7 ms depasse toujours.
+        let mut meter = OverheadMeter::default();
+        assert_eq!(meter.mspt_budget_ns_for(40_000_000), 600_000);
+        let verdict = run(&mut meter, tick_of(700_000, 40_000_000), 200);
+        assert_eq!(verdict, OverheadVerdict::OverBudget);
+    }
+
+    #[test]
+    fn the_baseline_verdict_applies_the_floor_too() {
+        let mut meter = OverheadMeter::default();
+        // 0,25 ms sur un tick en pause de 13 ms : sous le plancher.
+        assert_eq!(
+            meter.record_baseline(baseline(250_000, 13_000_000)),
+            OverheadVerdict::WithinBudget
+        );
+        // 0,4 ms : au-dessus du plancher comme de la part du tick.
+        assert_eq!(
+            meter.record_baseline(baseline(400_000, 13_000_000)),
+            OverheadVerdict::OverBudget
+        );
     }
 
     fn run(meter: &mut OverheadMeter, cost: TickCost, ticks: usize) -> OverheadVerdict {
