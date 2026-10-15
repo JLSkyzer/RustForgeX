@@ -763,9 +763,14 @@ donc ouvert.
       part d'un cœur tenue (≤ 1,6 %), part du tick **non tenue** (1,7 – 7,0 % pour 1,5 %,
       MSPT de 13 – 17 ms), gouverneur bridé dans les 6, classement presque vide.
       L'échantillonnage réglé coûte moins que la cadence fixe (0,40 contre 0,74 ms)
-- [ ] **Décision à prendre** : règle de budget du gouverneur. Un budget en part du tick
-      se resserre sur un serveur léger (1,5 % de 13 ms = 0,2 ms) et fait brider, donc
-      aveugle le profileur ; la part d'un cœur, elle, est tenue partout
+- [x] Règle de budget tranchée par Killian (option 2) : plancher de 0,3 ms sur le
+      budget de tick (ADR-039). Sous `medium` réel : bridé 1 fois sur 3 au lieu de 6 sur 6
+- [ ] **Classement vide sous `medium` réel : 99,3 % des prélèvements hors sonde.**
+      61 % pendant que le serveur attend le tick suivant (`MinecraftServer#m_5667_`),
+      32 % pendant qu'il attend les fils de dimension d'un mod de tick parallèle
+      (`IntLatch#waitUntil`). Correctifs proposés : A, ne prélever que fenêtre de tick
+      ouverte ; B, échantillonner aussi les fils qui exécutent du code sondé pendant le
+      tick (génériquement, sans nommer de mod — INV-12)
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
