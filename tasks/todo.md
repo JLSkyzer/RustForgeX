@@ -771,6 +771,13 @@ donc ouvert.
       (`IntLatch#waitUntil`). Correctifs proposés : A, ne prélever que fenêtre de tick
       ouverte ; B, échantillonner aussi les fils qui exécutent du code sondé pendant le
       tick (génériquement, sans nommer de mod — INV-12)
+  - [x] A, prélever pendant la phase de jeu seulement (ADR-040, `2cb5cbc`) : plus aucune
+        pile dans `m_5667_`, mais 97 – 98 % des piles du tick dans `IntLatch#waitUntil`,
+        classement 0 / 1 / 0. Coût relevé plus haut (0,49 – 1,30 ms), bridé 3 sur 3,
+        **cause non établie** (moins de piles pendant le tick qu'avant)
+  - [ ] B, prélever aussi les fils actifs pour le tick (`9207aad`, ADR-041 à écrire) :
+        campagne `t140-j/workers` en cours
+  - [ ] Si le coût relevé reste plus haut : contrôle sans échantillonnage
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
