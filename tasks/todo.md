@@ -759,8 +759,13 @@ donc ouvert.
       gouverneur jamais bridé. **Critère de coût de T-140 tenu sous `heavy`**
 - [ ] T-140, stabilité du classement : 0,714 / 0,848 / 0,798 selon la paire, pour 0,9.
       Part due au jeu (IA aléatoire de 8 000 entités) non mesurée
-- [ ] Rejouer `medium` sur le modpack réel avec le plafond et la cadence d'ADR-037
-      (ADR-025 y tenait de peu) avant de clore le jalon
+- [x] Rejoué `medium` sur le modpack réel (ADR-038, 2026-10-15), 3 + 3 exécutions :
+      part d'un cœur tenue (≤ 1,6 %), part du tick **non tenue** (1,7 – 7,0 % pour 1,5 %,
+      MSPT de 13 – 17 ms), gouverneur bridé dans les 6, classement presque vide.
+      L'échantillonnage réglé coûte moins que la cadence fixe (0,40 contre 0,74 ms)
+- [ ] **Décision à prendre** : règle de budget du gouverneur. Un budget en part du tick
+      se resserre sur un serveur léger (1,5 % de 13 ms = 0,2 ms) et fait brider, donc
+      aveugle le profileur ; la part d'un cœur, elle, est tenue partout
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 

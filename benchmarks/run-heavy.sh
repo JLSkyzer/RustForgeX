@@ -11,6 +11,7 @@
 # coupe la sauvegarde automatique (`save-off`) : avec des milliers d'entités, elle a
 # déjà produit un tick de 120 s et fait arrêter le serveur par son chien de garde.
 # Le jugement du classement : `rfx-bench ranking` sur les deux premières exécutions.
+# LOAD : profil de charge, `heavy` par défaut (`medium` pour rejouer ADR-025).
 #
 # Le cinquième argument, `synth`, décrit un serveur sans modpack, chargé du seul mod
 # synthétique de la PARTIE 22 (ADR-036) : 150 unités engendrées pour les 150 mods
@@ -71,7 +72,7 @@ rm -rf "$RUNS_DIR"
 mkdir -p "$RUNS_DIR"
 
 echo "Serveur  : $SERVER (Forge $FORGE_VERSION), $(ls "$SERVER/mods"/*.jar 2>/dev/null | wc -l) mods"
-echo "Campagne : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés), profil heavy ($MODE)"
+echo "Campagne : $RUNS exécutions × ($WARMUP échauffement + $TICKS mesurés), profil ${LOAD:-heavy} ($MODE)"
 echo
 
 for run in $(seq 1 "$RUNS"); do
@@ -86,7 +87,7 @@ for run in $(seq 1 "$RUNS"); do
             -Drustforgex.bench.warmup="$WARMUP" \
             -Drustforgex.bench.label="$label" \
             -Drustforgex.bench.run="$run" \
-            -Drustforgex.bench.load=heavy \
+            -Drustforgex.bench.load="${LOAD:-heavy}" \
             -Drustforgex.bench.out="$RUNS_DIR/$label.json" \
             -Drustforgex.general.enabled=true \
             -Drustforgex.profiler.baseline_pause_ticks=512 \
