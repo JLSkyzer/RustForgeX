@@ -107,7 +107,7 @@ chaudes ; il montre seulement que l'attribution fonctionne.
 
 | métrique | type | unité | sémantique |
 |---|---|---|---|
-| `rfx.sampling.samples_taken` | counter | — | Piles prélevées sur le fil autoritatif (R-322) |
+| `rfx.sampling.samples_taken` | counter | — | Piles prélevées pendant le tick, sur le fil autoritatif et les fils qui exécutent du code sondé (R-322, ADR-040, ADR-041) |
 | `rfx.sampling.samples_queued` | counter | — | Échantillons attribués à une sonde et mis en file |
 | `rfx.sampling.samples_unattributed` | counter | — | Échantillons qu'aucune sonde connue ne couvrait |
 | `rfx.sampling.samples_dropped` | counter | — | Échantillons perdus, le fil autoritatif ne drainant plus |

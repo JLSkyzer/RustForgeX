@@ -271,4 +271,40 @@ class StackSamplerTest {
             RfxProbes.uninstall();
         }
     }
+
+    /**
+     * ADR-041 : un fil qui travaille pour le tick est lu dans le même prélèvement que le
+     * fil autoritatif, et sa pile est attribuée comme la sienne.
+     */
+    @Test
+    @DisplayName("ADR-041 : les fils de travail sont prélevés avec le fil autoritatif")
+    void workerThreadsAreSampledWithTheAuthoritativeThread() throws InterruptedException {
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "fil-de-travail");
+        worker.start();
+        long workerId = worker.getId();
+        StackSampler sampler = new StackSampler(new StackFrameIndex(),
+                Thread.currentThread(), SamplingPacer.DEFAULT_BUDGET_FRACTION, () -> true,
+                (out, from, exclude) -> {
+                    out[from] = workerId;
+                    return 1;
+                });
+        RfxProbes.setLevels(new byte[] {1});
+        try {
+            sampler.sampleOnce();
+
+            assertEquals(2, sampler.samplesTaken(), "le fil autoritatif et le fil de travail");
+            assertEquals(1, sampler.samplesWorkerThreads());
+        } finally {
+            RfxProbes.uninstall();
+            release.countDown();
+            worker.join(1_000L);
+        }
+    }
 }

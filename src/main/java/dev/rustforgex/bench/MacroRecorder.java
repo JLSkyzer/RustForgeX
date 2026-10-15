@@ -540,6 +540,9 @@ public final class MacroRecorder {
                     .append(",\n");
             state.append("      \"samples_outside_tick\": ")
                     .append(sampler.samplesOutsideTick()).append(",\n");
+            // Piles prises sur d'autres fils que le fil autoritatif (ADR-041).
+            state.append("      \"samples_worker_threads\": ")
+                    .append(sampler.samplesWorkerThreads()).append(",\n");
         }
         state.append("      \"unknown_samples\": ").append(census.recorded()).append(",\n");
         state.append("      \"unknown_frames\": ").append(census.distinct()).append(",\n");

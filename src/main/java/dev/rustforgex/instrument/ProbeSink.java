@@ -125,6 +125,9 @@ public final class ProbeSink {
          */
         final java.lang.ref.WeakReference<Thread> owner;
 
+        /** Identifiant Java du thread propriétaire, pour l'échantillonnage (ADR-041). */
+        final long javaThreadId;
+
         ThreadState(int threadId, String threadName, ByteBuffer buffer, int probeCapacity) {
             this.threadId = threadId;
             this.threadName = threadName;
@@ -132,6 +135,7 @@ public final class ProbeSink {
             this.counts = new int[probeCapacity];
             this.touched = new int[probeCapacity];
             this.owner = new java.lang.ref.WeakReference<>(Thread.currentThread());
+            this.javaThreadId = Thread.currentThread().getId();
         }
 
         /**
@@ -567,6 +571,45 @@ public final class ProbeSink {
                     current.pendingPasses(), current.dropped));
         }
         return java.util.List.copyOf(usage);
+    }
+
+    /**
+     * Désigne les threads qui exécutent du code sondé en ce moment (ADR-041).
+     *
+     * <p>Un thread est retenu s'il a fait un appel sondé pendant l'époque courante ou la
+     * précédente : c'est un thread qui travaille pour le tick — une dimension sur son
+     * propre fil, une tâche parallélisée — et que l'échantillonnage du seul fil
+     * autoritatif ne voyait pas. La précédente est comptée parce qu'au début d'un tick,
+     * ces threads n'ont pas encore fait leur premier appel : les ignorer jusque-là
+     * manquerait systématiquement le début de leur travail.
+     *
+     * <p>Aucun nom de thread ni de mod n'entre dans ce choix (INV-12) : seul compte ce
+     * que le thread a exécuté.
+     *
+     * <p>Lit sans verrou des époques écrites par d'autres threads : la liste peut avoir
+     * un tick de retard, ce qui coûte au pire un échantillon inattribué. Appelée par le
+     * fil d'échantillonnage seulement, jamais dans le chemin d'appel.
+     *
+     * @param out tableau à remplir
+     * @param from premier indice à écrire
+     * @param exclude identifiant Java à ne pas retenir, celui du fil autoritatif
+     * @return le nombre d'identifiants écrits
+     */
+    public int activeThreadIds(long[] out, int from, long exclude) {
+        long oldest = tickEpoch - 1L;
+        int written = 0;
+        for (ThreadState current : attached) {
+            if (from + written >= out.length) {
+                break;
+            }
+            if (current.javaThreadId == exclude || current.threadId == REFUSED
+                    || current.epoch < oldest || current.ownerDead()) {
+                continue;
+            }
+            out[from + written] = current.javaThreadId;
+            written++;
+        }
+        return written;
     }
 
     /**

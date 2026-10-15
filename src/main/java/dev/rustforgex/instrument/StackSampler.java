@@ -1,5 +1,9 @@
 package dev.rustforgex.instrument;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
+import java.util.Arrays;
 import java.util.function.BooleanSupplier;
 
 import org.slf4j.Logger;
@@ -15,14 +19,17 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Ce qu'il fait</h2>
  *
- * <p>Un fil de service prend, cent fois par seconde, la pile du <strong>fil
- * autoritatif</strong> — celui qui exécute le tick — et attribue la période écoulée à
- * la première trame qu'il sait reconnaître. C'est du temps <em>propre</em> approché :
- * la trame la plus haute est celle qui s'exécutait.
+ * <p>Un fil de service prend, cent fois par seconde au plus et pendant le tick
+ * seulement (ADR-040), la pile du <strong>fil autoritatif</strong> — celui qui exécute
+ * le tick — et attribue la période écoulée à la première trame qu'il sait reconnaître.
+ * C'est du temps <em>propre</em> approché : la trame la plus haute est celle qui
+ * s'exécutait.
  *
- * <p>Il ne prend jamais la pile d'un autre fil : muter l'état du jeu depuis ce fil est
- * hors de question (INV-02), et prélever ailleurs coûterait sans rien apprendre sur le
- * tick.
+ * <p>Il prend aussi, dans la même lecture, la pile des fils qui exécutent du code sondé
+ * pour le tick (ADR-041). Certains mods tiquent les dimensions sur leurs propres fils
+ * pendant que le fil autoritatif les attend : ne prélever que lui ne voyait de ce
+ * travail qu'une attente. Le choix des fils ne repose que sur ce qu'ils exécutent,
+ * jamais sur un nom (INV-12). Lire une pile ne mute rien (INV-02).
  *
  * <h2>Pourquoi il n'écrit pas lui-même dans le puits</h2>
  *
@@ -46,8 +53,9 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Son coût</h2>
  *
- * <p>{@code Thread.getStackTrace} sur un autre fil n'est pas gratuit. D'où une fréquence
- * fixe et basse, une profondeur bornée, et surtout : ce coût entre dans la ligne de base
+ * <p>Lire la pile d'un autre fil n'est pas gratuit : le fil lu est suspendu le temps de
+ * la lecture. D'où une cadence réglée sur ce coût (ADR-037), une profondeur bornée dès la
+ * lecture, un nombre de fils borné, et surtout : ce coût entre dans la ligne de base
  * de la PARTIE 12.4. S'il fait bouger la mesure, il est trop cher, et cela se verra sans
  * qu'on ait à le supposer.
  *
@@ -169,6 +177,7 @@ public final class StackSampler {
     private volatile long samplesUnattributed;
     private volatile long samplesDropped;
     private volatile long samplesOutsideTick;
+    private volatile long samplesWorkerThreads;
     private long samplesDrained;
 
     /**
@@ -205,11 +214,65 @@ public final class StackSampler {
      */
     public StackSampler(StackFrameIndex index, Thread target, double budgetFraction,
             BooleanSupplier inGameTick) {
+        this(index, target, budgetFraction, inGameTick, NO_WORKERS);
+    }
+
+    /**
+     * Prépare un échantillonneur, sans le démarrer.
+     *
+     * @param index correspondance trame vers sonde
+     * @param target fil autoritatif à observer
+     * @param budgetFraction part du temps que l'échantillonnage peut prendre au jeu,
+     *     voir {@link SamplingPacer}
+     * @param inGameTick vrai pendant que le jeu exécute son tick (ADR-040)
+     * @param workers fils qui exécutent du code sondé pour le tick (ADR-041)
+     */
+    public StackSampler(StackFrameIndex index, Thread target, double budgetFraction,
+            BooleanSupplier inGameTick, WorkerThreads workers) {
         this.index = index;
         this.target = target;
+        this.targetId = target.getId();
         this.pacer = new SamplingPacer(budgetFraction);
         this.inGameTick = inGameTick;
+        this.workers = workers;
     }
+
+    /**
+     * Source des fils à échantillonner en plus du fil autoritatif (ADR-041).
+     *
+     * <p>Appelée par le fil d'échantillonnage à chaque prélèvement.
+     */
+    @FunctionalInterface
+    public interface WorkerThreads {
+
+        /**
+         * @param out tableau à remplir d'identifiants Java de thread
+         * @param from premier indice à écrire
+         * @param exclude identifiant à ne pas retenir, celui du fil autoritatif
+         * @return le nombre d'identifiants écrits, sans dépasser la fin de {@code out}
+         */
+        int fill(long[] out, int from, long exclude);
+    }
+
+    /** Aucun fil en plus du fil autoritatif. */
+    public static final WorkerThreads NO_WORKERS = (out, from, exclude) -> 0;
+
+    /**
+     * Fils lus au plus par prélèvement, fil autoritatif compris (ADR-041).
+     *
+     * <p>Tous sont suspendus le temps d'une même lecture : la borne limite la durée d'une
+     * pause du jeu, que la cadence seule n'étale pas. Elle n'est dérivée d'aucune valeur
+     * du cahier des charges ; c'est la campagne d'ADR-041 qui la juge.
+     */
+    public static final int MAX_THREADS_PER_SAMPLE = 16;
+
+    private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
+
+    private final long targetId;
+    private final WorkerThreads workers;
+
+    /** Identifiants à lire, réutilisés d'un prélèvement à l'autre. */
+    private final long[] threadIds = new long[MAX_THREADS_PER_SAMPLE];
 
     /**
      * Vrai pendant que le jeu exécute son tick (ADR-040).
@@ -314,13 +377,33 @@ public final class StackSampler {
             samplesOutsideTick++;
             return;
         }
+        threadIds[0] = targetId;
+        int count = 1 + workers.fill(threadIds, 1, targetId);
         long start = System.nanoTime();
-        StackTraceElement[] stack = target.getStackTrace();
-        // Le fil observé est suspendu le temps de la lecture : c'est le prix payé par le
-        // jeu, et ce qui règle la cadence.
+        // Une seule lecture pour tous les fils, profondeur bornée : les trames au-delà
+        // de MAX_DEPTH ne servent pas, inutile de les faire remonter.
+        ThreadInfo[] infos =
+                THREADS.getThreadInfo(Arrays.copyOf(threadIds, count), MAX_DEPTH);
+        // Les fils observés sont suspendus le temps de la lecture : c'est le prix payé
+        // par le jeu, et ce qui règle la cadence.
         pacer.record(System.nanoTime() - start);
-        samplesTaken++;
 
+        for (int i = 0; i < infos.length; i++) {
+            ThreadInfo info = infos[i];
+            if (info == null) {
+                // Terminé entre la sélection et la lecture.
+                continue;
+            }
+            if (i > 0) {
+                samplesWorkerThreads++;
+            }
+            attribute(info.getStackTrace());
+        }
+    }
+
+    /** Attribue une pile prélevée à sa sonde, et la met en file. */
+    private void attribute(StackTraceElement[] stack) {
+        samplesTaken++;
         int probeId = topmostKnownProbe(stack, index, discovering ? discovery : null);
         if (probeId < 0) {
             samplesUnattributed++;
@@ -437,6 +520,11 @@ public final class StackSampler {
     /** @return le nombre de prélèvements évités parce qu'aucun tick ne s'exécutait */
     public long samplesOutsideTick() {
         return samplesOutsideTick;
+    }
+
+    /** @return le nombre de piles prélevées sur d'autres fils que le fil autoritatif */
+    public long samplesWorkerThreads() {
+        return samplesWorkerThreads;
     }
 
     /** @return le recensement des méthodes chaudes non sondées, jamais {@code null} */

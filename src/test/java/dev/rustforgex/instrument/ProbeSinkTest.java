@@ -545,6 +545,57 @@ class ProbeSinkTest {
         }
     }
 
+    /**
+     * ADR-041 : les fils qui exécutent du code sondé pendant le tick sont ceux que
+     * l'échantillonnage doit lire en plus du fil autoritatif. Retenus sur l'époque
+     * courante et la précédente, écartés au-delà, et jamais une fois terminés.
+     */
+    @Test
+    @DisplayName("ADR-041 : seuls les fils actifs au tick courant ou précédent sont retenus")
+    void onlyThreadsActiveInTheLastTwoTicksAreSelected() {
+        FakeBridge bridge = new FakeBridge();
+        ProbeSink sink = new ProbeSink(bridge, HANDLE);
+        sink.announceProbeCapacity(16);
+        long self = Thread.currentThread().getId();
+        sink.count(1);
+        long[] out = new long[4];
+        long[] workerId = new long[1];
+        Thread[] workerThread = new Thread[1];
+
+        try (Worker worker = new Worker("fil-de-dimension")) {
+            worker.run(() -> {
+                workerThread[0] = Thread.currentThread();
+                workerId[0] = Thread.currentThread().getId();
+                sink.count(2);
+            });
+
+            assertEquals(1, sink.activeThreadIds(out, 1, self),
+                    "le fil autoritatif est exclu, le fil de travail retenu");
+            assertEquals(workerId[0], out[1]);
+
+            sink.flush();
+            assertEquals(1, sink.activeThreadIds(out, 1, self),
+                    "actif au tick précédent : encore retenu");
+
+            sink.flush();
+            assertEquals(0, sink.activeThreadIds(out, 1, self),
+                    "silencieux depuis deux ticks : écarté");
+
+            worker.run(() -> sink.count(2));
+            assertEquals(1, sink.activeThreadIds(out, 1, self), "de nouveau actif");
+            assertEquals(0, sink.activeThreadIds(out, 4, self),
+                    "jamais au-delà de la fin du tableau");
+        }
+
+        // L'exécuteur se dit terminé un instant avant que son thread ne meure.
+        try {
+            workerThread[0].join(5_000L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        assertEquals(0, sink.activeThreadIds(out, 1, self), "terminé : écarté");
+    }
+
     private static ProbeSink.ThreadUsage usageOf(ProbeSink sink, String name) {
         return sink.threads().stream()
                 .filter(usage -> name.equals(usage.name()))

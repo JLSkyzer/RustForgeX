@@ -271,8 +271,10 @@ public final class TickCycle {
         if (sampler != null || frameIndex == null || probeSink == null) {
             return;
         }
-        StackSampler created = new StackSampler(
-                frameIndex, Thread.currentThread(), samplingBudget, () -> gamePhase);
+        // Les fils qui exécutent du code sondé pour le tick sont lus avec lui : une
+        // dimension tiquée sur son propre fil n'était vue que comme une attente (ADR-041).
+        StackSampler created = new StackSampler(frameIndex, Thread.currentThread(),
+                samplingBudget, () -> gamePhase, probeSink::activeThreadIds);
         sampler = created;
         created.start();
     }
