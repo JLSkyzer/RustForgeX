@@ -76,6 +76,14 @@ public final class TickCycle {
     private volatile boolean windowOpen;
 
     /**
+     * Vrai entre la fin du hook {@code PRE} et le début du hook {@code POST} : le jeu et
+     * les mods exécutent leur tick. Plus étroit que {@link #windowOpen}, qui englobe
+     * aussi le drain — le travail de RUSTFORGE-X, que l'échantillonnage n'a pas à
+     * classer (ADR-040).
+     */
+    private volatile boolean gamePhase;
+
+    /**
      * Correspondance trame vers sonde, ou {@code null} si l'échantillonnage est inactif.
      */
     private volatile StackFrameIndex frameIndex;
@@ -128,6 +136,7 @@ public final class TickCycle {
         // séquence soit explicite dans les journaux et les traces.
         ok(bridge.tickPhase(handle, PHASE_PRE));
         ok(bridge.tickPhase(handle, PHASE_VANILLA));
+        gamePhase = true;
     }
 
     /**
@@ -140,6 +149,7 @@ public final class TickCycle {
      *     ouverte
      */
     public long onTickPost() {
+        gamePhase = false;
         if (!windowOpen) {
             // Un POST sans PRE : un autre mod a annulé l'événement, ou le tick a été
             // interrompu. Le natif fermera implicitement la fenêtre au prochain PRE
@@ -261,8 +271,8 @@ public final class TickCycle {
         if (sampler != null || frameIndex == null || probeSink == null) {
             return;
         }
-        StackSampler created =
-                new StackSampler(frameIndex, Thread.currentThread(), samplingBudget);
+        StackSampler created = new StackSampler(
+                frameIndex, Thread.currentThread(), samplingBudget, () -> gamePhase);
         sampler = created;
         created.start();
     }

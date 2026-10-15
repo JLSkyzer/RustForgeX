@@ -1,5 +1,7 @@
 package dev.rustforgex.instrument;
 
+import java.util.function.BooleanSupplier;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -166,6 +168,7 @@ public final class StackSampler {
     private volatile long samplesQueued;
     private volatile long samplesUnattributed;
     private volatile long samplesDropped;
+    private volatile long samplesOutsideTick;
     private long samplesDrained;
 
     /**
@@ -187,10 +190,35 @@ public final class StackSampler {
      *     observé, voir {@link SamplingPacer}
      */
     public StackSampler(StackFrameIndex index, Thread target, double budgetFraction) {
+        this(index, target, budgetFraction, () -> true);
+    }
+
+    /**
+     * Prépare un échantillonneur, sans le démarrer.
+     *
+     * @param index correspondance trame vers sonde
+     * @param target fil autoritatif à observer
+     * @param budgetFraction part du temps que l'échantillonnage peut prendre au fil
+     *     observé, voir {@link SamplingPacer}
+     * @param inGameTick vrai pendant que le jeu exécute son tick (ADR-040) ; lu sans
+     *     verrou à chaque prélèvement, il doit donc être peu coûteux
+     */
+    public StackSampler(StackFrameIndex index, Thread target, double budgetFraction,
+            BooleanSupplier inGameTick) {
         this.index = index;
         this.target = target;
         this.pacer = new SamplingPacer(budgetFraction);
+        this.inGameTick = inGameTick;
     }
+
+    /**
+     * Vrai pendant que le jeu exécute son tick (ADR-040).
+     *
+     * <p>Hors du tick, le fil autoritatif attend le suivant : sur le modpack réel sous
+     * `medium`, 61 % des prélèvements tombaient dans cette attente. Ils ne disent rien du
+     * tick, coûtent quand même, et ralentissent la cadence que le budget autorise.
+     */
+    private final BooleanSupplier inGameTick;
 
     /** Cadence réglée sur le coût mesuré des prélèvements (ADR-037). */
     private final SamplingPacer pacer;
@@ -279,6 +307,11 @@ public final class StackSampler {
         if (!RfxProbes.anyProbeArmed() || !target.isAlive()) {
             // Sondes toutes éteintes : pause de mesure de la PARTIE 12.4, ou profiler à
             // l'arrêt. Dans les deux cas, prélever fausserait la mesure.
+            return;
+        }
+        if (!inGameTick.getAsBoolean()) {
+            // Entre deux ticks : le fil attend, il n'y a rien à attribuer (ADR-040).
+            samplesOutsideTick++;
             return;
         }
         long start = System.nanoTime();
@@ -399,6 +432,11 @@ public final class StackSampler {
     /** @return le nombre d'échantillons perdus faute de place dans la file */
     public long samplesDropped() {
         return samplesDropped;
+    }
+
+    /** @return le nombre de prélèvements évités parce qu'aucun tick ne s'exécutait */
+    public long samplesOutsideTick() {
+        return samplesOutsideTick;
     }
 
     /** @return le recensement des méthodes chaudes non sondées, jamais {@code null} */

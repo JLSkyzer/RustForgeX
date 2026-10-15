@@ -5,6 +5,7 @@ import dev.rustforgex.command.DiscoveryReport;
 import dev.rustforgex.instrument.ProbeRegistry;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.RfxProbes;
+import dev.rustforgex.instrument.StackSampler;
 import dev.rustforgex.forge.EventDispatchTable;
 import dev.rustforgex.forge.EventObserver;
 import net.minecraft.server.MinecraftServer;
@@ -532,6 +533,14 @@ public final class MacroRecorder {
         }
         state.append(",\n    \"discovery\": {\n");
         state.append("      \"samples_taken\": ").append(census.samplesTaken()).append(",\n");
+        StackSampler sampler = runtime.tickCycle() == null ? null : runtime.tickCycle().sampler();
+        if (sampler != null) {
+            // Ce qui a été attribué, et ce qui n'a pas été prélevé faute de tick (ADR-040).
+            state.append("      \"samples_queued\": ").append(sampler.samplesQueued())
+                    .append(",\n");
+            state.append("      \"samples_outside_tick\": ")
+                    .append(sampler.samplesOutsideTick()).append(",\n");
+        }
         state.append("      \"unknown_samples\": ").append(census.recorded()).append(",\n");
         state.append("      \"unknown_frames\": ").append(census.distinct()).append(",\n");
         state.append("      \"unknown_frames_dropped\": ")

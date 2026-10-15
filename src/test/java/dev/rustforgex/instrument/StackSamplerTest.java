@@ -245,4 +245,30 @@ class StackSamplerTest {
         assertEquals(0, sampler.samplesTaken(),
                 "table vide : le profiler est à l'arrêt ou en pause de mesure");
     }
+
+    /**
+     * ADR-040 : entre deux ticks, le fil autoritatif attend. Une pile prise là ne dit
+     * rien du tick et coûte autant qu'une autre.
+     */
+    @Test
+    @DisplayName("ADR-040 : aucune pile n'est prélevée entre deux ticks")
+    void noStackIsTakenBetweenTicks() {
+        boolean[] inTick = {false};
+        StackSampler sampler = new StackSampler(new StackFrameIndex(),
+                Thread.currentThread(), SamplingPacer.DEFAULT_BUDGET_FRACTION,
+                () -> inTick[0]);
+        RfxProbes.setLevels(new byte[] {1});
+        try {
+            sampler.sampleOnce();
+            assertEquals(0, sampler.samplesTaken(), "hors du tick");
+            assertEquals(1, sampler.samplesOutsideTick());
+
+            inTick[0] = true;
+            sampler.sampleOnce();
+            assertEquals(1, sampler.samplesTaken(), "pendant le tick");
+            assertEquals(1, sampler.samplesOutsideTick());
+        } finally {
+            RfxProbes.uninstall();
+        }
+    }
 }
