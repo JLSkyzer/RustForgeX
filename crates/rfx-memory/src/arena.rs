@@ -7,12 +7,13 @@
 //!
 //! # Pourquoi seules les allocations faillibles sont exposees
 //!
-//! L'arene repose sur `bumpalo`. Ses allocations infaillibles (`alloc`, et les
-//! collections qui s'en servent) **terminent le processus** quand le plafond est
-//! atteint : `handle_alloc_error` n'est pas une panic, `catch_unwind` ne l'arrete pas,
-//! et le processus, c'est la JVM du joueur. Ce type n'expose donc que des allocations
-//! qui rendent une erreur : la tache la transforme en `Rejected(BudgetExceeded)`, et le
-//! jeu continue.
+//! L'arene repose sur `bumpalo`. Au plafond, ses allocations infaillibles (`alloc`, et
+//! les collections qui s'en servent) paniquent (`oom()` : « out of memory », lu dans les
+//! sources de la version 3.20.3). La panic serait rattrapee par l'ordonnanceur, mais
+//! comptee comme une panic du runtime (R-523), dont trois desactivent le sous-systeme —
+//! alors qu'un depassement d'arene est un refus prevu. Ce type n'expose donc que des
+//! allocations qui rendent une erreur : la tache la transforme en
+//! `Rejected(BudgetExceeded)`, sans panic.
 //!
 //! # Pourquoi seulement des types `Copy`
 //!
