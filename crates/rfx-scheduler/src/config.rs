@@ -32,6 +32,11 @@ pub struct SchedulerConfig {
     /// Fils executables tiers au-dela desquels la machine est sur-souscrite et le pool
     /// reduit ses workers actifs (R-421). Defaut : 1,5 fois les coeurs logiques.
     pub oversubscription_threshold: usize,
+    /// Capacite initiale de l'arene de chaque tache, en octets (PARTIE 5.28).
+    pub arena_initial_bytes: usize,
+    /// Plafond de l'arene de chaque tache, en octets (`arena_max`, PARTIE 5.28). Au-dela,
+    /// l'allocation est refusee et la tache rend `Rejected(BudgetExceeded)`.
+    pub arena_max_bytes: usize,
 }
 
 impl SchedulerConfig {
@@ -47,6 +52,8 @@ impl SchedulerConfig {
             force_serial: false,
             max_nesting: 4,
             oversubscription_threshold: logical_cores * 3 / 2,
+            arena_initial_bytes: rfx_memory::DEFAULT_ARENA_INITIAL_BYTES,
+            arena_max_bytes: rfx_memory::DEFAULT_ARENA_MAX_BYTES,
         }
     }
 

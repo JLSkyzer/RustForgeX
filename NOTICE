@@ -21,6 +21,7 @@ Third-party software embedded in the native library (rfx_native), as reported by
 `cargo tree -p rfx-ffi -e normal`. Build-time procedural macros are not embedded and are
 not listed. Each component's license text is distributed with its source on crates.io.
 
+  bumpalo          MIT OR Apache-2.0
   bytes            MIT
   cesu8            Apache-2.0 / MIT
   cfg-if           MIT OR Apache-2.0

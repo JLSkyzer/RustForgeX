@@ -32,6 +32,8 @@ serde = { version = "1", default-features = false, features = ["derive", "alloc"
 ciborium = { version = "0.2", default-features = false }
 # Files a vol de travail de Chase-Lev (ADR-044).
 crossbeam-deque = "0.8"
+# Arene de taches de C-31 (ADR-047) : n'en sont utilisees que les allocations faillibles.
+bumpalo = "3.20"
 jni = "0.21"
 # WORKID_V1 impose xxh3_64 (cahier des charges, DM-01).
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

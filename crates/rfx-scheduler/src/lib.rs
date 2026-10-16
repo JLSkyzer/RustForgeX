@@ -17,6 +17,7 @@
 
 #![doc(html_root_url = "https://example.invalid/rustforgex")]
 
+mod arenas;
 pub mod config;
 pub mod graph_run;
 pub mod pool;

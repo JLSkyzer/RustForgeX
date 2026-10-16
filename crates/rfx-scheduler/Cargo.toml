@@ -9,6 +9,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+rfx-memory = { workspace = true }
 rfx-taskgraph = { workspace = true }
 # Files de Chase-Lev (ADR-044) : les ecrire ici demanderait du code `unsafe`.
 crossbeam-deque = { workspace = true }
@@ -18,7 +19,10 @@ rfx-model = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"
-unsafe_code = "forbid"
+# `deny` et non `forbid` : la bibliotheque n'a aucun bloc `unsafe`, mais T-273 installe
+# un allocateur global pour compter les allocations, et `GlobalAlloc` est un trait
+# `unsafe`. `forbid` interdirait meme cette derogation locale, donc la preuve de R-433.
+unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

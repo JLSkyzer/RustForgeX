@@ -966,7 +966,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         déjà n'a rien donné de mesurable (±5 %, le bruit) : retiré. À remesurer machine au
         repos avant toute autre conclusion
   - [ ] T-262 (échéances tenues à 99 % sous `heavy`) : demande l'ordonnanceur branché en jeu
-- [ ] C-18 Worker Runtime — T-270..T-273
+- [x] C-18 Worker Runtime — T-270..T-273 (ADR-047) : arène `rfx_memory::Arena` sur
+      `bumpalo`, allocations faillibles seulement, une par fil et par niveau d'imbrication,
+      remise à zéro après chaque tâche. T-270, T-271, T-273 (0 allocation système sur
+      10 000 tâches) ; T-272 porté par T-263. Piège de `bumpalo` 3.20 trouvé et contourné :
+      un premier bloc au-dessus du plafond désactive le plafond
+  - [ ] Faire entrer les arènes dans le budget de mémoire native (`max_native_mb`)
 - [ ] C-07, C-08, C-09, C-10, C-12, C-48 — ordre à fixer après le scheduler
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)

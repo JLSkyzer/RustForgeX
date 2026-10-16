@@ -10,6 +10,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_deque::Worker;
+use rfx_memory::Arena;
 use rfx_taskgraph::{CancelToken, Priority};
 
 use crate::pool::{Job, Shared};
@@ -63,6 +64,8 @@ pub struct TaskContext<'a> {
     pub(crate) shared: &'a Shared,
     /// File du worker qui execute la tache ; `None` en `FORCE_SERIAL`.
     pub(crate) local: Option<&'a Worker<Job>>,
+    /// Arene de la tache, remise a zero quand elle se termine (C-18, ADR-047).
+    pub(crate) arena: &'a Arena,
 }
 
 impl std::fmt::Debug for TaskContext<'_> {
@@ -77,6 +80,14 @@ impl std::fmt::Debug for TaskContext<'_> {
 }
 
 impl TaskContext<'_> {
+    /// Arene de la tache (R-433) : ce qui y est alloue disparait a la fin de la tache, sans
+    /// rien demander au systeme. Un refus d'allocation se traduit par
+    /// `TaskOutcome::Rejected(RejectReason::BudgetExceeded)`.
+    #[must_use]
+    pub fn arena(&self) -> &Arena {
+        self.arena
+    }
+
     /// Point de controle (R-434) : `true` si la tache doit s'arreter, parce qu'elle est
     /// annulee ou que son echeance est passee.
     #[must_use]

@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 use crossbeam_deque::{Injector, Steal, Stealer, Worker};
 use rfx_taskgraph::{CancelToken, Priority};
 
+use crate::arenas::with_arena;
 use crate::config::SchedulerConfig;
 use crate::task::{GroupState, RejectReason, Task, TaskContext, TaskGroup, TaskOutcome};
 
@@ -105,6 +106,9 @@ pub struct SchedulerStats {
     pub serial_fallback: bool,
     /// Taches `CRITICAL` executees par le fil qui attend, faute de worker (FM-24).
     pub famine_escalations: u64,
+    /// Plus grande reservation d'une arene de tache, en octets
+    /// (`rfx.worker.arena_peak_bytes`).
+    pub arena_peak_bytes: usize,
 }
 
 /// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
@@ -178,6 +182,9 @@ pub(crate) struct Shared {
     /// FM-25 : execution serie sur le fil qui soumet.
     serial_fallback: AtomicBool,
     famine_escalations: AtomicU64,
+    arena_initial_bytes: usize,
+    arena_max_bytes: usize,
+    arena_peak_bytes: AtomicUsize,
 }
 
 impl Shared {
@@ -357,15 +364,27 @@ fn execute(mut job: Job, shared: &Shared, local: Option<&Worker<Job>>) -> TaskOu
     if job.deadline.is_some_and(|at| Instant::now() >= at) {
         return TaskOutcome::Timeout;
     }
-    let mut cx = TaskContext {
-        cancel: &job.cancel,
-        deadline: job.deadline,
-        priority: job.priority,
-        depth: job.depth,
-        shared,
-        local,
-    };
-    catch_unwind(AssertUnwindSafe(|| job.task.run(&mut cx))).unwrap_or(TaskOutcome::Panicked)
+    let (outcome, arena_peak) = with_arena(
+        shared.arena_initial_bytes,
+        shared.arena_max_bytes,
+        |arena| {
+            let mut cx = TaskContext {
+                cancel: &job.cancel,
+                deadline: job.deadline,
+                priority: job.priority,
+                depth: job.depth,
+                shared,
+                local,
+                arena,
+            };
+            catch_unwind(AssertUnwindSafe(|| job.task.run(&mut cx)))
+                .unwrap_or(TaskOutcome::Panicked)
+        },
+    );
+    shared
+        .arena_peak_bytes
+        .fetch_max(arena_peak, Ordering::Relaxed);
+    outcome
 }
 
 /// Parallelisme imbrique (PARTIE 5.17.9).
@@ -528,6 +547,9 @@ impl Scheduler {
             oversubscribed_streak: AtomicU32::new(0),
             serial_fallback: AtomicBool::new(false),
             famine_escalations: AtomicU64::new(0),
+            arena_initial_bytes: config.arena_initial_bytes,
+            arena_max_bytes: config.arena_max_bytes,
+            arena_peak_bytes: AtomicUsize::new(0),
         });
         let mut scheduler = Self {
             shared,
@@ -668,6 +690,7 @@ impl Scheduler {
             active_workers: self.shared.active.load(Ordering::Acquire),
             serial_fallback: self.shared.serial_fallback.load(Ordering::Acquire),
             famine_escalations: read(&self.shared.famine_escalations),
+            arena_peak_bytes: self.shared.arena_peak_bytes.load(Ordering::Relaxed),
         }
     }
 

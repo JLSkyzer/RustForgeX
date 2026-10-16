@@ -12,9 +12,11 @@
 //! Aucun `unsafe` : l'alignement vient du type [`CacheLine`], pas d'un allocateur
 //! manuel. Un `Vec<CacheLine>` est aligne sur 64 octets par construction.
 
+pub mod arena;
 pub mod budget;
 pub mod probe_buffer;
 
+pub use arena::{Arena, ArenaFull, DEFAULT_ARENA_INITIAL_BYTES, DEFAULT_ARENA_MAX_BYTES};
 pub use budget::{BudgetError, MemoryBudget, Pool};
 pub use probe_buffer::{ProbeBuffer, ProbeBufferPool, ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
 
