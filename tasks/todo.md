@@ -781,8 +781,8 @@ donc ouvert.
         (corrélation 0,361). Coût 0,39 – 1,09 ms, bridé 3 sur 3
   - [x] Filtre des fils qui attendent (`105725d`, ADR-041) : 534 – 1 046 attributions
         seulement, 3 – 7 unités, corrélation −0,647. Le travail actif passe hors sondes
-  - [x] Contrôle sans échantillonnage (`t140-k/nosampling`) : 0,15 / 0,19 / 0,20 ms,
-        jamais bridé, contre 0,10 – 1,30 ms et bridé 8 fois sur 9 avec échantillonnage
+  - [ ] Contrôle sans échantillonnage (`t140-k/nosampling`) : **invalide**, Killian
+        jouait sur la machine de 03:30 à la fin (idem exécution 3 de `t140-k/idle`)
   - [ ] **Décision de Killian** (ADR-041, Conséquences) : échantillonnage réservé à
         `DEEP`, part de budget abaissée, ou classement `medium` par les seules sondes
         chronométrées. T-140 sous `medium` réel : non tenu
