@@ -942,7 +942,10 @@ demandent une mesure ; les autres sont des tests de justesse.
         la main et ignore les résultats tardifs (INV-08)
   - [ ] Délai de grâce de 2 ms et rétrogradation du travail (5.17.7) : la rétrogradation
         relève de C-15 (M3) ; le délai de grâce sera câblé avec lui
-  - [ ] Parallélisme imbriqué, profondeur 4, attente active (5.17.9), T-264
+  - [x] Parallélisme imbriqué (5.17.9) : `TaskContext::spawn` / `join`, profondeur 4
+        (`max_nesting`), au-delà exécution en ligne ; en attendant, un worker n'exécute que
+        des tâches plus profondes, de sa propre file (pile bornée, pas d'interblocage).
+        T-264 : arbres de profondeur 10 sur 1, 2, 4 workers et en série
   - [ ] Sur-souscription : fils exécutables tiers, réduction du pool (R-421), T-265
   - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
   - [ ] Mesures : T-262 (échéances à 99 % sous `heavy`), T-267 (soumission < 200 ns)

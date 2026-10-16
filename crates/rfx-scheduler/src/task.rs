@@ -9,7 +9,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use rfx_taskgraph::CancelToken;
+use crossbeam_deque::Worker;
+use rfx_taskgraph::{CancelToken, Priority};
+
+use crate::pool::{Job, Shared};
 
 /// Pourquoi une tache n'a pas produit de resultat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,12 +51,29 @@ impl TaskOutcome {
 }
 
 /// Ce qu'une tache voit de son execution.
-#[derive(Debug)]
 pub struct TaskContext<'a> {
     /// Jeton d'annulation de la tache.
     pub cancel: &'a CancelToken,
     /// Echeance, si la tache en a une.
     pub deadline: Option<Instant>,
+    /// Priorite, heritee par les sous-taches.
+    pub(crate) priority: Priority,
+    /// Profondeur d'imbrication : 0 pour une tache soumise, 1 pour sa sous-tache.
+    pub(crate) depth: u8,
+    pub(crate) shared: &'a Shared,
+    /// File du worker qui execute la tache ; `None` en `FORCE_SERIAL`.
+    pub(crate) local: Option<&'a Worker<Job>>,
+}
+
+impl std::fmt::Debug for TaskContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskContext")
+            .field("cancel", self.cancel)
+            .field("deadline", &self.deadline)
+            .field("priority", &self.priority)
+            .field("depth", &self.depth)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TaskContext<'_> {

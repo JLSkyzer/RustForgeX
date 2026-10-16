@@ -150,6 +150,7 @@ impl GraphState {
             cancel: node.cancel.clone(),
             deadline: (node.deadline == Deadline::ThisTick).then_some(state.drain_at),
             priority: node.priority,
+            depth: 0,
             on_done,
         }
     }
@@ -173,7 +174,7 @@ impl GraphState {
                 return;
             }
             state.group.0.enter();
-            let outcome = shared.run(Self::job(state, rank, None));
+            let outcome = shared.run(Self::job(state, rank, None), None);
             ready.extend(state.complete(rank, outcome));
         }
     }

@@ -96,6 +96,8 @@ pub struct SchedulerStats {
     /// Taches terminees apres leur echeance, ou abandonnees pour cela
     /// (`rfx.sched.deadline_misses`).
     pub deadline_misses: u64,
+    /// Sous-taches executees en ligne, la profondeur maximale etant atteinte.
+    pub inline_spawns: u64,
 }
 
 /// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
@@ -109,6 +111,8 @@ pub(crate) struct Job {
     pub(crate) cancel: CancelToken,
     pub(crate) deadline: Option<Instant>,
     pub(crate) priority: Priority,
+    /// Profondeur d'imbrication (PARTIE 5.17.9).
+    pub(crate) depth: u8,
     pub(crate) on_done: Option<OnDone>,
 }
 
@@ -149,6 +153,8 @@ pub(crate) struct Shared {
     panics: AtomicU64,
     parks: AtomicU64,
     deadline_misses: AtomicU64,
+    inline_spawns: AtomicU64,
+    max_nesting: u8,
 }
 
 impl Shared {
@@ -237,11 +243,13 @@ impl Shared {
         self.sleepers.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub(crate) fn run(&self, mut job: Job) -> TaskOutcome {
+    /// Execute une tache sur le fil courant ; `local` est la file du worker qui
+    /// l'execute, `None` en `FORCE_SERIAL`.
+    pub(crate) fn run(&self, mut job: Job, local: Option<&Worker<Job>>) -> TaskOutcome {
         let group = Arc::clone(&job.group);
         let on_done = job.on_done.take();
         let deadline = job.deadline;
-        let outcome = execute(job);
+        let outcome = execute(job, self, local);
         if outcome == TaskOutcome::Panicked {
             self.panics.fetch_add(1, Ordering::Relaxed);
         }
@@ -267,7 +275,7 @@ impl Shared {
 }
 
 /// Execute une tache, sans jamais laisser une panic remonter (R-524).
-fn execute(mut job: Job) -> TaskOutcome {
+fn execute(mut job: Job, shared: &Shared, local: Option<&Worker<Job>>) -> TaskOutcome {
     if job.cancel.is_cancelled() {
         return TaskOutcome::Rejected(RejectReason::Cancelled);
     }
@@ -277,8 +285,74 @@ fn execute(mut job: Job) -> TaskOutcome {
     let mut cx = TaskContext {
         cancel: &job.cancel,
         deadline: job.deadline,
+        priority: job.priority,
+        depth: job.depth,
+        shared,
+        local,
     };
     catch_unwind(AssertUnwindSafe(|| job.task.run(&mut cx))).unwrap_or(TaskOutcome::Panicked)
+}
+
+/// Parallelisme imbrique (PARTIE 5.17.9).
+///
+/// Une sous-tache rejoint la file du worker qui la lance ; un autre worker peut la voler.
+/// Pour l'attendre, la tache qui l'a lancee travaille au lieu de bloquer (`join`), mais
+/// seulement sur des taches **plus profondes** qu'elle, prises dans sa propre file. Deux
+/// consequences :
+///
+/// - la pile ne croit que d'un cadre par niveau d'imbrication, jamais au gre du travail
+///   en attente ;
+/// - aucun interblocage : au-dela de `max_nesting`, une sous-tache s'execute en ligne,
+///   donc les taches les plus profondes n'attendent personne ; et une tache qui attend
+///   trouve ses enfants dans sa propre file, ou les sait en cours chez un voleur.
+impl TaskContext<'_> {
+    /// Lance une sous-tache dans `group`. Elle herite du jeton d'annulation, de
+    /// l'echeance et de la priorite de la tache courante.
+    ///
+    /// Au-dela de la profondeur maximale, ou en `FORCE_SERIAL`, elle s'execute tout de
+    /// suite, sur ce fil.
+    pub fn spawn<T: Task + 'static>(&self, group: &TaskGroup, task: T) {
+        let job = Job {
+            task: Box::new(task),
+            group: Arc::clone(&group.0),
+            cancel: self.cancel.clone(),
+            deadline: self.deadline,
+            priority: self.priority,
+            depth: self.depth.saturating_add(1),
+            on_done: None,
+        };
+        group.0.enter();
+        match self.local {
+            Some(local) if job.depth <= self.shared.max_nesting => {
+                local.push(job);
+                self.shared.notify();
+            }
+            _ => {
+                self.shared.inline_spawns.fetch_add(1, Ordering::Relaxed);
+                self.shared.run(job, self.local);
+            }
+        }
+    }
+
+    /// Attend la fin de toutes les taches de `group`, en executant celles de sa propre
+    /// file qui sont plus profondes que la tache courante.
+    pub fn join(&self, group: &TaskGroup) {
+        while group.pending() > 0 {
+            if let Some(local) = self.local {
+                match local.pop() {
+                    Some(job) if job.depth > self.depth => {
+                        self.shared.run(job, Some(local));
+                        continue;
+                    }
+                    // Plus ancienne que la tache courante : elle reste en file, pour ce
+                    // worker une fois libre, ou pour un voleur.
+                    Some(job) => local.push(job),
+                    None => {}
+                }
+            }
+            std::thread::yield_now();
+        }
+    }
 }
 
 fn worker_loop(index: usize, local: &Worker<Job>, shared: &Shared) {
@@ -289,7 +363,7 @@ fn worker_loop(index: usize, local: &Worker<Job>, shared: &Shared) {
         round = round.wrapping_add(1);
         if let Some(job) = shared.find_job(index, local, round) {
             idle_rounds = 0;
-            shared.run(job);
+            shared.run(job, Some(local));
             continue;
         }
         if shared.shutdown.load(Ordering::SeqCst) {
@@ -359,6 +433,8 @@ impl Scheduler {
             panics: AtomicU64::new(0),
             parks: AtomicU64::new(0),
             deadline_misses: AtomicU64::new(0),
+            inline_spawns: AtomicU64::new(0),
+            max_nesting: config.max_nesting,
         });
         let mut scheduler = Self {
             shared,
@@ -419,12 +495,13 @@ impl Scheduler {
             cancel: options.cancel,
             deadline: options.deadline,
             priority: options.priority,
+            depth: 0,
             on_done: None,
         };
         if self.threads.is_empty() {
             // FORCE_SERIAL : sur le fil qui soumet.
             group.0.enter();
-            self.shared.run(job);
+            self.shared.run(job, None);
             return Ok(());
         }
         self.shared.dispatch(job);
@@ -462,6 +539,7 @@ impl Scheduler {
             panics: read(&self.shared.panics),
             parks: read(&self.shared.parks),
             deadline_misses: read(&self.shared.deadline_misses),
+            inline_spawns: read(&self.shared.inline_spawns),
         }
     }
 

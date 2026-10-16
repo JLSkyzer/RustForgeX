@@ -26,6 +26,9 @@ pub struct SchedulerConfig {
     pub hard_limit: usize,
     /// `FORCE_SERIAL` : tout s'execute sur le fil qui soumet. Plus lent, jamais faux.
     pub force_serial: bool,
+    /// Profondeur d'imbrication au-dela de laquelle une sous-tache s'execute en ligne,
+    /// dans la tache qui la lance (PARTIE 5.17.9).
+    pub max_nesting: u8,
 }
 
 impl SchedulerConfig {
@@ -39,6 +42,7 @@ impl SchedulerConfig {
             high_watermark: 4_096,
             hard_limit: 8_192,
             force_serial: false,
+            max_nesting: 4,
         }
     }
 
