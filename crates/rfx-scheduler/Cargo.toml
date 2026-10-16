@@ -1,0 +1,21 @@
+[package]
+name = "rfx-scheduler"
+description = "C-17, C-18 : ordonnanceur a vol de travail et contexte d'execution des taches"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-taskgraph = { workspace = true }
+# Files de Chase-Lev (ADR-044) : les ecrire ici demanderait du code `unsafe`.
+crossbeam-deque = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
