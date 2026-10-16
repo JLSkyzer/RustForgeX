@@ -1,7 +1,8 @@
 # TODO — RUSTFORGE-X
 
-**Jalon courant : M1 (Observation).** M0 est livré : le mod se charge, mesure la
-machine, expose `/rfx status`, et le client rejoint le serveur de développement.
+**Jalon courant : M2 (Analyse et ordonnancement).** M0 est livré. M1 est clos avec
+réserves (ADR-042) : ce qui reste à reprendre y est listé, avec le jalon avant lequel le
+faire.
 Source de vérité : `docs/spec/RUSTFORGE-X_Cahier_des_Charges_v1.0.md`.
 
 ---
@@ -16,7 +17,11 @@ Reste à faire à la première release : `INSTALLATION.md`, `RELEASING.md`.
 
 ---
 
-## M1 — Observation
+## M1 — Observation ✅ CLOS AVEC RÉSERVES (2026-10-16, ADR-042)
+
+> **Clos par décision de Killian (ADR-042).** `[x]` = fait. `[~]` = fermé sans être fait :
+> reporté, ou constat sans suite propre. L'ADR-042 dit ce qui doit être repris, et avant
+> quel jalon (« avant M3 », « avant toute release »).
 
 **Livrable** : « je sais ce que fait ce modpack ». Profilage adaptatif complet,
 dashboard textuel, rapports, overhead mesuré et affiché sous 2 %.
@@ -42,7 +47,7 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
 - [x] Ring buffers de profilage possédés par le natif, taille fixe, écrasement borné
 - [x] Budget mémoire natif appliqué (`memory.max_native_mb`, R-533)
 - [x] Structures partagées alignées sur 64 octets (R-531)
-- [ ] Aucune fuite sur un cycle long (T-370) — demande le test long T-700
+- [~] Aucune fuite sur un cycle long (T-370) — demande le test long T-700
 
 ### Étape C — IF-03 : flux de profilage
 
@@ -63,8 +68,8 @@ interfaces IF-02 et IF-03 ; modèles DM-01, DM-02, DM-04 ; PARTIE 12 (budgets).
       ADR-019 a rendu la question sans objet — un `ITransformer` passe **toujours avant**
       Mixin. La PARTIE 5.4 demandait le dernier rang ; il est inatteignable. C'est un
       écart assumé, pas une tâche en attente
-- [ ] Coûts par niveau mesurés sous leur seuil (T-131) — demande le harnais C-36
-- [ ] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande un
+- [~] Coûts par niveau mesurés sous leur seuil (T-131) — demande le harnais C-36
+- [~] Retrait de sonde si régression JIT au-delà du seuil (R-313) — demande un
       détecteur de désoptimisation, qui n'existe pas
 
 ### Étape E — C-05 Profiler — T-140..T-144
@@ -152,14 +157,14 @@ condition posée pour brancher le transformateur est levée.
       0 `FATAL`, 0 mention de `squaremap`, 0 échec de mod, instrumentation armée.
       Coût : 2015 classes écartées, 16 566 méthodes sondées au lieu de 17 543, et une
       seconde d'énumération de plus
-- [ ] Réduire encore : 76 202 classes restent déclarées pour une fraction réellement
+- [~] Réduire encore : 76 202 classes restent déclarées pour une fraction réellement
       sondée, chacune décodée et réécrite pour rien. Évaluer l'éligibilité au moment de
       l'énumération supposerait d'analyser le code de chaque classe au démarrage — à
       mesurer avant de le décider (ADR-019)
 - [x] **La profondeur ne remonte plus avant la première ligne de base** (ADR-020,
       deuxième volet) : le profiler atteignait `DEEP` en 25 s sur la foi de compteurs
       aveugles à sa dépense dominante. Vérifié en jeu : `LIGHT` au lieu de `DEEP`
-- [ ] **Le bruit de la ligne de base est MESURÉ, et la méthode ne peut pas marcher.**
+- [~] **Le bruit de la ligne de base est MESURÉ, et la méthode ne peut pas marcher.**
       Relevé du 2026-09-07, 30 cycles, charge `mobs`, sondes armées, profileur `DEEP` :
 
       | | |
@@ -174,17 +179,17 @@ condition posée pour brancher le transformateur est levée.
       30 quand le hasard pur en donnerait 15. Or le profilage ne peut pas rendre un tick
       plus rapide : la moitié des cycles rend une valeur physiquement impossible.
       Ce n'est donc pas de la dérive entre cycles, c'est du bruit **intra-cycle**.
-- [ ] Conséquence chiffrée : pour résoudre 250 µs dans un bruit d'écart-type ~1,5 ms, il
+- [~] Conséquence chiffrée : pour résoudre 250 µs dans un bruit d'écart-type ~1,5 ms, il
       faudrait environ **350 cycles**, soit 112 000 ticks — une heure et demie de jeu par
       mesure. La cadence 300/20 de la PARTIE 12.4 ne peut pas y arriver, quel que soit
       le nombre de cycles raisonnable
-- [ ] Piste à instruire demain : **apparier des ticks adjacents** plutôt que deux blocs
+- [~] Piste à instruire demain : **apparier des ticks adjacents** plutôt que deux blocs
       de vingt séparés d'une seconde. Deux ticks consécutifs se ressemblent bien plus
       que deux blocs distants ; l'appariement annule la part lente de la variance, qui
       est probablement l'essentiel. Coût à évaluer : basculer le niveau des sondes à
       chaque tick suppose de retransmettre la table, ce qui coûte et fausserait la
       mesure. À mesurer avant de décider
-- [ ] **CASE ROUVERTE — les zéros de la ligne de base ne sont PAS expliqués.** Cochée
+- [~] **CASE ROUVERTE — les zéros de la ligne de base ne sont PAS expliqués.** Cochée
       le 2026-09-07 sur la foi d'**une seule exécution**, décochée deux heures plus tard
       par la suivante. Les sondes mortes étaient *une* cause, pas *la* cause :
 
@@ -197,7 +202,7 @@ condition posée pour brancher le transformateur est levée.
       pause reste instable — c'était déjà le diagnostic d'ADR-020, quatrième volet, et
       il tient toujours. Vingt ticks en pause contre vingt ticks actifs ne suffisent pas
       à extraire un signal d'une charge qui varie de plusieurs millisecondes
-- [ ] **Ne pas publier de médiane sur cette campagne sans dire ce qu'elle mélange.**
+- [~] **Ne pas publier de médiane sur cette campagne sans dire ce qu'elle mélange.**
       Certaines exécutions finiront à `OFF`, d'autres à `DEEP` : la médiane agrégerait
       deux régimes de fonctionnement différents, et le chiffre n'aurait pas de sens
       physique
@@ -205,18 +210,18 @@ condition posée pour brancher le transformateur est levée.
       mesure à 3,01 % dépasse le budget : le profileur descend jusqu'à `OFF` et désarme
       les 2 541 sondes. Le mécanisme fonctionne ; ce qui l'alimente, non — voir la case
       rouverte ci-dessus
-- [ ] **Conséquence à assumer : une campagne mesure désormais un mélange.** Les 12 000
+- [~] **Conséquence à assumer : une campagne mesure désormais un mélange.** Les 12 000
       ticks couvrent une période sondée puis une période éteinte. Le p50 qui en sort
       n'est donc pas « le coût de l'instrumentation » mais celui du produit tel qu'il se
       comporte. Les deux chiffres sont utiles, ils ne répondent pas à la même question —
       à séparer explicitement dans le prochain ADR
-- [ ] **L'armement anticipé mesure un coût PLUS FAIBLE que le tardif** (2,43 % contre
+- [~] **L'armement anticipé mesure un coût PLUS FAIBLE que le tardif** (2,43 % contre
       3,01 %) alors qu'il sonde cinq fois plus de méthodes. À relativiser : la mesure
       qui les sépare est celle dont l'instabilité vient d'être constatée. Explication possible : il
       atteint le budget plus tôt, donc le gouverneur l'éteint plus tôt, donc la fenêtre
       de pause tombe sur un système déjà moins actif — ce serait un artefact de mesure,
       pas une propriété. **Une seule exécution** ; à confirmer sur les cinq
-- [ ] Texte d'origine, conservé parce qu'il a orienté trois ADR : « la mise en pause de
+- [~] Texte d'origine, conservé parce qu'il a orienté trois ADR : « la mise en pause de
       la PARTIE 12.4 ne suffit pas à gouverner. Cinq mesures sur
       la campagne : 13,3 % · 0,0 % · 0,5 % · 0,0 % · 0,0 %, quand la comparaison de
       configurations donne un écart stable de +36,4 %. Elle a vu juste une fois sur cinq.
@@ -235,7 +240,7 @@ condition posée pour brancher le transformateur est levée.
       (écart-type inter-exécutions sous 4 % partout). MSPT p95 **+36,1 %**, contre
       +36,4 % et +33,7 %. **Trois campagnes, le même chiffre : le coût est stable et rien
       de ce qui a été fait ne l'a réduit**
-- [ ] **Ce constat portait sur des sondes mortes et doit être refait.** « Le gouverneur
+- [~] **Ce constat portait sur des sondes mortes et doit être refait.** « Le gouverneur
       ne peut pas ramener le coût sous 2 % » a été établi en comparant `THROTTLED` à
       `DEEP` — mais dans les deux cas aucune sonde ne mesurait, donc les deux états
       coûtaient la même chose parce qu'ils *faisaient* la même chose : rien.
@@ -253,13 +258,13 @@ condition posée pour brancher le transformateur est levée.
 - [x] **Campagne conforme sur le nouveau seuil** (`fbf659f`, 2026-09-06) : MSPT p95
       2,409 → 2,569 ms, soit **+6,6 %**, contre +36,1 % avant. Surcoût divisé par 5,5,
       dispersion sous 4,3 %, TPS inchangé
-- [ ] **Trancher la référence du budget.** H-07 borne à « 2 % d'un cœur » : mesuré
+- [~] **Trancher la référence du budget.** H-07 borne à « 2 % d'un cœur » : mesuré
       **0,32 %**, tenu avec un facteur six de marge. Le budget de MSPT, celui
       qu'`OverheadMeter` applique, vaut 1,5 % du tick : à +6,6 %, il ne l'est pas. La
       Definition of Done dit « sous 2 % » sans préciser la référence. **Cette ambiguïté
       doit être levée par une décision explicite, pas par le choix du chiffre le plus
       flatteur**
-- [ ] R-311 prévoit une exception — sonder quand même une méthode courte si
+- [~] R-311 prévoit une exception — sonder quand même une méthode courte si
       `calls_per_tick` est très élevé et le niveau `COUNTER`. **Non implémentée** : il
       faudrait savoir qu'une méthode est très appelée avant de la sonder, donc une
       seconde passe de transformation
@@ -286,7 +291,7 @@ condition posée pour brancher le transformateur est levée.
 - [x] Recensement des refus ajouté : le seuil écarte **14 113 méthodes** que R-311
       autoriserait, soit 84,5 % de cette population. ADR-021 avait été écrit sans que
       ce chiffre existe
-- [ ] **On ne peut pas acheter de la couverture en armant plus de sondes.** Trois
+- [~] **On ne peut pas acheter de la couverture en armant plus de sondes.** Trois
       tentatives, même conclusion : armement anticipé (×5,1 sondes, part expliquée
       0,3 → 0,4 %), seuil à 12 (×6,5 sondes, 14,58 % du MSPT). Le budget finance
       ~2 850 sondes, et c'est ce qu'on arme déjà
@@ -341,7 +346,7 @@ condition posée pour brancher le transformateur est levée.
 
       Le profileur voit **cent deux fois plus d'appels**. L'ordre de grandeur recoupe
       ADR-028 : 152 M de passages perdus sur 8 900 ticks font ~17 000 par tick
-- [ ] **La part du TEMPS de tick expliquée reste non mesurée**, et le dire est
+- [~] **La part du TEMPS de tick expliquée reste non mesurée**, et le dire est
       obligatoire (R-660). Le chronométrage exige `DEEP` sur les 2 475 sondes, le
       gouverneur l'annule aussitôt (ADR-020, `apply_verdict` → `clear_requested_depth`).
       Ce n'est pas un garde-fou à lever : c'est un appel à **chronométrer moins de sondes
@@ -352,20 +357,20 @@ condition posée pour brancher le transformateur est levée.
       (`profile_requested_ticks`, `profile_granted_ticks`, `profile_cancelled`).
       `/rfx top` affiche « chronométrage écourté : %s ticks obtenus sur %s demandés »
       quand le gouverneur a coupé, et ne dit rien quand la session est allée à son terme
-- [ ] ~~PROCHAIN TRAVAIL — vidage multi-thread~~ (PARTIE 5.39 étape 5, RISK-05).
+- [~] ~~PROCHAIN TRAVAIL — vidage multi-thread~~ (PARTIE 5.39 étape 5, RISK-05).
       `probeBufferFlush` doit accepter un appel hors fil autoritatif, sans verrou dans
       le chemin chaud (R-320), sans multiplier les traversées (R-700 : dix-huit threads
       feraient déjà dix-huit traversées par tick), sans jamais muter l'état Minecraft
       (INV-02). C'est là que se trouve la couverture qu'on cherchait depuis trois ADR
-- [ ] Le banc a une dispersion d'exécution à exécution d'environ **15 ms sur le MSPT
+- [~] Le banc a une dispersion d'exécution à exécution d'environ **15 ms sur le MSPT
       médian** (55,23 puis 71,03 ms pour la même configuration). Toute campagne qui
       compare deux configurations doit les **apparier par position**, sinon elle ne
       mesure que l'ordre des exécutions
-- [ ] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
+- [~] Le profilage est désormais éteint 20 ticks sur 320, soit 6,3 % du temps
       d'observation contre 0,33 % avant. À mesurer et à assumer explicitement
-- [ ] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
+- [~] Échelons 2 et 3 de la PARTIE 12.4 — « suspendre les nouvelles décisions », puis
       `DEGRADED` : rien à suspendre tant que le moteur de décision n'existe pas (ADR-020)
-- [ ] Troisième configuration — transformateur présent, sondes jamais posées — pour
+- [~] Troisième configuration — transformateur présent, sondes jamais posées — pour
       séparer le coût de la transformation de celui des sondes. Écrite après la
       campagne : `run-macro-prod.sh` est lu au fil de l'eau par bash pendant l'exécution,
       l'éditer en cours de campagne la corromprait. Demande aussi que l'agrégateur
@@ -373,7 +378,7 @@ condition posée pour brancher le transformateur est levée.
 - [x] Dette d'ADR-018 close **par construction** : une méthode ne peut plus porter un
       mixin et une sonde, puisque les cibles de mixins sont exclues. L'hypothèse
       d'ADR-018 était d'ailleurs fausse — un `@ModifyVariable` l'a réfutée
-- [ ] Cibles atteintes **indirectement** par un mixin (héritage, configuration
+- [~] Cibles atteintes **indirectement** par un mixin (héritage, configuration
       construite à l'exécution) : aucune constatée, aucune écartée
 - [x] Ordre relatif des `ILaunchPluginService` — tranché par ADR-018 : non
       garantissable sur ModLauncher 10, l'injection est rendue indifférente à l'ordre
@@ -384,7 +389,7 @@ condition posée pour brancher le transformateur est levée.
 - [x] C-40 : `artifactVerify` contrôle désormais **les deux** artefacts — entrées
       autorisées, absence de classe de test, entrées obligatoires du JAR de lancement,
       empreintes des natifs — et écrit `SHA256SUMS` (PARTIE 25.2)
-- [ ] Reste de C-40 : version du manifeste égale au tag, plage de taille attendue,
+- [~] Reste de C-40 : version du manifeste égale au tag, plage de taille attendue,
       licences des dépendances dans NOTICE (PARTIE 25.4)
 
 ### Étape F — C-06 Event Observer — T-150..T-154
@@ -403,24 +408,24 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       paramètres que sans lui : p50 +4,6 %, p95 **+0,7 %**, p99 −1,1 %, contre
       +5,8 / +2,7 / +3,1 sans l'observateur. 38 000 événements distribués, 576
       chronométrés, 0 abandon
-- [ ] Ne pas conclure de cette paire que l'observateur est gratuit : une seule paire
+- [~] Ne pas conclure de cette paire que l'observateur est gratuit : une seule paire
       courte, et certains écarts sont négatifs, ce qui borne la précision. Ce qu'elle
       établit, c'est qu'il ne coûte pas un ordre de grandeur
-- [ ] **Douze types d'événements seulement** sur 38 000 distributions : c'est la limite du
+- [~] **Douze types d'événements seulement** sur 38 000 distributions : c'est la limite du
       serveur au repos, pas celle de l'instrument. Un serveur joué en poste des centaines,
       et c'est exactement ce que le profil de charge doit corriger
-- [ ] La trace d'ordre que l'acceptance de la PARTIE 5.6 demande n'est pas écrite :
+- [~] La trace d'ordre que l'acceptance de la PARTIE 5.6 demande n'est pas écrite :
       personne ne la consommerait encore, et une trace que rien ne lit est la
       configuration morte qu'ADR-018 proscrit
-- [ ] Mesurer le coût de cet auditeur par la ligne de base de la PARTIE 12.4 avant
+- [~] Mesurer le coût de cet auditeur par la ligne de base de la PARTIE 12.4 avant
       d'aller plus loin : il s'exécute des milliers de fois par tick
-- [ ] Étape 2 — reconstituer ordre, priorité et `owner` par lecture réflexive
+- [~] Étape 2 — reconstituer ordre, priorité et `owner` par lecture réflexive
       (`EventBus.busID`, `ListenerList.getListeners`) ; aucune écriture
-- [ ] Étape 3 — envelopper, et seulement si l'attribution de l'annulation à un handler
+- [~] Étape 3 — envelopper, et seulement si l'attribution de l'annulation à un handler
       précis se révèle nécessaire. Traiter une priorité entière d'un coup : `register`
       ajoute en queue, donc un remplacement un par un violerait R-330
-- [ ] Désenveloppement automatique si un mod inspecte le listener (FM-14)
-- [ ] T-154 exige un surcoût **mesuré** sous 30 ns : suppose un harnais JMH, même dette
+- [~] Désenveloppement automatique si un mod inspecte le listener (FM-14)
+- [~] T-154 exige un surcoût **mesuré** sous 30 ns : suppose un harnais JMH, même dette
       que T-131
 
 > Règle, pas tâche : ne pas employer `net.minecraftforge.unsafe` pour contourner
@@ -436,22 +441,22 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       La découverte ne lit aucune archive — l'empreinte est calculée à la demande
 - [x] Moins de 500 ms pour 250 mods (R-621) : **15 ms pour 290 mods** en production,
       et T-442 le vérifie sur 250 mods synthétiques
-- [ ] Enregistrer les threads créés par les mods (étape 5 de la PARTIE 5.39, RISK-05) :
+- [~] Enregistrer les threads créés par les mods (étape 5 de la PARTIE 5.39, RISK-05) :
       demande un hook sur la création de thread, ou l'échantillonnage des piles
 - [x] `rfx.discovery.unknown_owner_ratio` compté dans `ProbeRegistry`, relevé à l'arrêt
       — mesuré à la fin du chargement il ne portait que sur 160 sondes, l'essentiel des
       classes se chargeant pendant la partie. **Vérifié en jeu : 2 641 sondes, 0 non
       rattachée, 0,0 %.** L'explication est structurelle : `TargetScanner` ne vise que
       des classes de JAR de mods, et ces JAR déclarent leurs paquets
-- [ ] Ce compteur ne voit pas la **mauvaise** attribution, seulement l'absence
+- [~] Ce compteur ne voit pas la **mauvaise** attribution, seulement l'absence
       d'attribution. Deux mods partageant un préfixe de paquet seraient tous deux
       comptés « rattachés », l'un à tort. C'est ce que l'attribution par module corrige
-- [ ] **L'attribution par module n'a aucun appelant en production** : le transformateur
+- [~] **L'attribution par module n'a aucun appelant en production** : le transformateur
       ne connaît que le nom interne de la classe. La table existe, est testée, et sert à
       `/rfx mods` — mais `ownerOf(module, classe)` n'est appelé que par les tests. Route
       possible : `StackTraceElement.getModuleName()` dans l'échantillonneur de piles, ou
       `Class.getModule()` partout où un `Class` est disponible
-- [ ] Acceptance PARTIE 5.39 : moins de 5 % des **classes chaudes** en `owner = unknown`.
+- [~] Acceptance PARTIE 5.39 : moins de 5 % des **classes chaudes** en `owner = unknown`.
       Le compteur actuel porte sur les méthodes sondées, toutes, pas seulement les
       chaudes : il ne prononce pas l'acceptance, il montre seulement que l'attribution
       fonctionne
@@ -473,13 +478,13 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [x] **R-571 : anonymisation** — `<gameDir>` et `<home>` remplacent les racines, plus
       longue d'abord, les deux séparateurs reconnus (T-412)
 - [x] `/rfx mods` et `/rfx report`
-- [ ] `/rfx why`, `/rfx top`, `/rfx workload` : demandent la liste des unités de travail
+- [~] `/rfx why`, `/rfx top`, `/rfx workload` : demandent la liste des unités de travail
       les plus coûteuses, que le natif n'exporte pas encore. Suppose une fonction FFI
       de plus — travail normal, mais pas gratuit
-- [ ] Fiche d'explication de la PARTIE 5.33 : **seul le bloc `MEASURED` est productible
+- [~] Fiche d'explication de la PARTIE 5.33 : **seul le bloc `MEASURED` est productible
       à ce jalon.** `ANALYSIS` suppose C-19 à C-22 (lectures, écritures, déterminisme),
       `DECISION` suppose C-23 à C-27. Aucun n'existe. Les remplir serait inventer
-- [ ] R-570 : fiche en moins de 50 ms — non mesurable tant que la fiche n'existe pas
+- [~] R-570 : fiche en moins de 50 ms — non mesurable tant que la fiche n'existe pas
 - [x] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401, ADR-034) — pire
       rapport **0,117 %** sur 5 exécutions (médiane 0,085 %), serveur de banc sans joueur,
       MSPT 1,6-2,0 ms. Marge d'un facteur 1,7 seulement
@@ -499,17 +504,17 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [x] Dump d'incident `crash/rfx-crash-<ts>.json` (T-411, ADR-033) — accroche désactivée
       et panic native E-3001 du cycle de tick ; un dump par échec et par partie, seize au
       plus, écrit hors du fil, atomique, anonymisé. Option `diagnostics.report_on_incident`
-- [ ] T-411, reste : rejeu par `rfx-cli` et champs d'unité de travail (schéma 2, avec le
+- [~] T-411, reste : rejeu par `rfx-cli` et champs d'unité de travail (schéma 2, avec le
       déport) ; passage en `HALTED` non observé au moment où il a lieu ; panics hors du
       cycle de tick non remises (ADR-033)
-- [ ] **`hook_budget_exceeded` vaut 123 sur 4 039 ticks** — première fois qu'il est non
+- [~] **`hook_budget_exceeded` vaut 123 sur 4 039 ticks** — première fois qu'il est non
       nul. Budget : 500 µs par accroche (`DEFAULT_MAX_HOOK_NS`), soit ~1 % des appels.
       Deux explications tiennent, et le compteur actuel **ne permet pas de trancher** :
       soit `tick_end` traîne (il parcourt 2 650 unités dans `adapt_probe_levels`), soit
       une pause GC tombe pendant la mesure — `record_hook` mesure du temps écoulé, donc
       attribue les pauses GC à nos accroches. La campagne a compté 1 564 ticks
       contaminés par le GC sur 12 000, ce qui rend la seconde explication très plausible
-- [ ] Rendre ce compteur diagnosticable : retenir la pire durée observée et quelle
+- [~] Rendre ce compteur diagnosticable : retenir la pire durée observée et quelle
       accroche l'a produite. Un compteur qu'on ne sait pas interpréter ne sert à rien —
       c'est la même leçon que `CLASSES_SEEN` incrémenté du mauvais côté du retour
 
@@ -522,7 +527,7 @@ trouver.
 - [x] **L'horloge lue pour rien** : `System.nanoTime()` remplissait `timestamp_ns`, que
       le natif ne lit jamais. 249 → ~129 µs
 - [x] ~~Le niveau COUNTER violait R-700~~ — livré, comptage par lot (commit `7923836`).
-- [ ] ~~**Le niveau COUNTER viole R-700 — chantier principal.**~~ Pour transporter un
+- [~] ~~**Le niveau COUNTER viole R-700 — chantier principal.**~~ Pour transporter un
       simple « +1 », le chemin chaud écrit **32 octets** dans le tampon et lit **trois
       champs `volatile`**. Or R-700 exige « par lot, jamais par élément » : le tampon
       le respecte pour les mesures chronométrées, le comptage franchit la frontière un
@@ -543,17 +548,17 @@ trouver.
       Vidange en fin de tick : parcourir `touched`, émettre **un** enregistrement
       `ENTER` par sonde touchée avec `value = count`, remettre à zéro. Le coût devient
       proportionnel au nombre de sondes **touchées**, pas au nombre d'**appels**
-- [ ] Côté natif : `RecordKind::Enter` fait `calls_this_tick += 1`. Il devra faire
+- [~] Côté natif : `RecordKind::Enter` fait `calls_this_tick += 1`. Il devra faire
       `+= record.value`. Java écrira toujours une valeur ≥ 1
-- [ ] Le balayage naïf serait un piège : 2 649 entiers par fil et par tick coûteraient
+- [~] Le balayage naïf serait un piège : 2 649 entiers par fil et par tick coûteraient
       plusieurs microsecondes pour rien quand une poignée de sondes seulement est
       appelée. D'où `touched`, alimenté au passage de zéro à un
-- [ ] R-320 : les deux tableaux sont alloués une fois par fil, jamais dans le chemin
+- [~] R-320 : les deux tableaux sont alloués une fois par fil, jamais dans le chemin
       chaud. T-142 doit rester vert
-- [ ] Petits gains au passage : `sink` est lu deux fois par appel (`enter` puis
+- [~] Petits gains au passage : `sink` est lu deux fois par appel (`enter` puis
       `record`), une suffit ; `probeId < 0` ne peut pas arriver, les identifiants
       venant de constantes injectées dans le bytecode
-- [ ] Vérifier en jeu, puis **une** mesure de qualité comparable à la référence
+- [~] Vérifier en jeu, puis **une** mesure de qualité comparable à la référence
       (fenêtre 512, période 2048) avant d'annoncer un chiffre
 
 ### Étape I — C-36 Benchmark Harness
@@ -593,13 +598,13 @@ trouver.
       MSPT p95 2,468 → 3,366 ms, soit **+36,4 %** contre +33,7 % la veille. Les deux
       correctifs du jour n'y changent rien — le filtre n'a retiré que 2,6 % des cibles,
       et le gouverneur d'overhead ne s'est jamais déclenché
-- [ ] **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
+- [~] **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
       le lancement. Agréger depuis un `git checkout 38eacfa` détaché — `benchmarks/runs`
       est ignoré par git et survit au changement — sans quoi le résultat citerait un
       commit dont le code n'a jamais été mesuré
-- [ ] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
+- [~] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
       n'ait plus à le déduire de `HEAD`
-- [ ] **Profils de charge de la PARTIE 22 — la lacune la plus importante de la mesure.**
+- [~] **Profils de charge de la PARTIE 22 — la lacune la plus importante de la mesure.**
       Formulation à corriger : « profil chargé » voulait dire 272 mods *chargés*, pas
       serveur *sous charge*. Les quatre campagnes ont mesuré un serveur **au repos** :
       aucun joueur, presque aucune entité, aucun chargement de région, aucune IA. Le tick
@@ -618,7 +623,7 @@ trouver.
       +6,6 % à +2,7 %, mais le **coût absolu monte** de 0,16 à **0,275 ms**, davantage de
       méthodes sondées étant réellement atteintes. Le tick a été multiplié par 4, notre
       coût par 1,7 seulement
-- [ ] Lecture des budgets sous charge : « 2 % d'un cœur » → 0,275/50 ms = **0,55 %**,
+- [~] Lecture des budgets sous charge : « 2 % d'un cœur » → 0,275/50 ms = **0,55 %**,
       tenu avec un facteur quatre de marge. Budget MSPT de 1,5 % → +2,7 %, toujours
       dépassé mais d'un facteur 1,8 au lieu de 4. **Une seule paire**, pas une campagne
 - [x] **Mod synthétique de charge écrit** (PARTIE 22, R-870, R-871) :
@@ -626,7 +631,7 @@ trouver.
       — indispensable, `TargetScanner` refusant `dev/rustforgex/`. Paramétrable en
       unités de travail, coût CPU, allocations, gestionnaires d'événements, fils propres
       et non-déterminisme. Inerte sans propriétés. Chargé par Forge parmi les 272 mods
-- [ ] Le monde pré-généré avec une usine réelle n'est **pas** la bonne réponse : la
+- [~] Le monde pré-généré avec une usine réelle n'est **pas** la bonne réponse : la
       PARTIE 22 veut des charges, pas des mods tiers, et R-871 interdit un profil conçu
       autour d'un mod nommé. Reste utile en complément manuel, documenté dans
       `BENCHMARKS.md`, si l'utilisateur construit une base lui-même
@@ -646,19 +651,19 @@ trouver.
       zéro échec de transformation. Les 4 875 classes chargées avant la construction du
       mod restent hors d'atteinte — les viser supposerait de démarrer le natif dans la
       couche d'amorçage, ce qui touche INV-13
-- [ ] **Mesurer ce que l'armement anticipé coûte au tick** avant d'en faire le défaut.
+- [~] **Mesurer ce que l'armement anticipé coûte au tick** avant d'en faire le défaut.
       ADR-021 a établi que le coût croît avec le nombre de méthodes sondées ; quintupler
       cette population rouvre la question. Paire B/C sous charge `mobs` lancée avec
       `run-macro-prod.sh … mobs true`, à comparer aux +2,7 % p95 de l'ordonnancement
       tardif
-- [ ] Calibrer les profils sur la table de la PARTIE 22 : `vanilla` 200 entités /
+- [~] Calibrer les profils sur la table de la PARTIE 22 : `vanilla` 200 entités /
       400 chunks, `light` 10 mods / 500 / 600, `medium` 60 / 2 000 / 1 200, `heavy`
       150 / 8 000 / 2 500. Le profil actuel est en dessous du plus petit
-- [ ] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
+- [~] Monde pré-généré du point 2 de la PARTIE 21.3 : le monde actuel est réutilisé et
       accumule ses régions, ce qui fait dériver les valeurs absolues entre campagnes
-- [ ] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non
+- [~] Le modpack d'essai est celui de l'utilisateur : non versionnable, donc non
       reproductible par un tiers
-- [ ] Côté client : FPS, frametime, 1 % low
+- [~] Côté client : FPS, frametime, 1 % low
 
 **Ce que le niveau A ne mesure pas**, et qu'il ne faut pas lui faire dire : le coût
 Java de `RfxProbes.enter/exit` sur le chemin chaud. Un chronométrage Java naïf mentirait
@@ -667,7 +672,7 @@ donc ouvert.
 
 ### Definition of Done du jalon (CDC PARTIE 29.3)
 
-- [ ] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
+- [~] T-130..T-134, T-140..T-144, T-150..T-154, T-370..T-373, T-400..T-402,
       T-410..T-412, T-420..T-422, T-440..T-442 verts
 
       **Inventaire du 2026-10-10** (31 identifiants, lus dans le code et les tests, pas
@@ -730,7 +735,7 @@ donc ouvert.
       serveur au repos, et un profil **sous la ligne `vanilla`** de la table. Le budget
       relatif au MSPT s'y resserrait au maximum, précisément là où le coût importe le
       moins
-- [ ] **La marge sur la lecture MSPT est mince et la mesure est faible** : 6 cycles
+- [~] **La marge sur la lecture MSPT est mince et la mesure est faible** : 6 cycles
       positifs sur 10, queue négative à −1,14 ms. ADR-024 dit qu'une telle médiane est
       biaisée vers zéro — le coût réel pourrait dépasser 275 µs. La lecture « part d'un
       cœur » garde, elle, un facteur 4 et tient même si le chiffre était sous-estimé de
@@ -742,7 +747,7 @@ donc ouvert.
 - [x] **Échantillonnage réglé sur son coût et classement sur fenêtre longue**
       (ADR-037) : sous `heavy`, cadence 69 → 16 Hz, corrélation de rang 0,126 → **0,838**
       (14 unités communes sur 20)
-- [ ] **T-140 échoue encore sous `heavy`** : coût relevé 1,45 et 1,93 ms par tick malgré
+- [~] **T-140 échoue encore sous `heavy`** : coût relevé 1,45 et 1,93 ms par tick malgré
       la cadence divisée par cinq — l'attribution à l'échantillonnage d'ADR-036 est
       **retirée**. Corrélation 0,838 pour 0,9. Hypothèse à éprouver : sondes sur des
       méthodes vanilla appelées en masse (`BlockCollisions#computeNext` en tête) ; le
@@ -757,7 +762,7 @@ donc ouvert.
       s'éteint seule pendant 1 200 ticks. Sous `heavy`, 3 exécutions : coût **0 / 0,34 /
       0 ms** par tick (contre médiane 1,44 ms sans plafond), 15-16 sondes plafonnées,
       gouverneur jamais bridé. **Critère de coût de T-140 tenu sous `heavy`**
-- [ ] T-140, stabilité du classement : 0,714 / 0,848 / 0,798 selon la paire, pour 0,9.
+- [~] T-140, stabilité du classement : 0,714 / 0,848 / 0,798 selon la paire, pour 0,9.
       Part due au jeu (IA aléatoire de 8 000 entités) non mesurée
 - [x] Rejoué `medium` sur le modpack réel (ADR-038, 2026-10-15), 3 + 3 exécutions :
       part d'un cœur tenue (≤ 1,6 %), part du tick **non tenue** (1,7 – 7,0 % pour 1,5 %,
@@ -765,7 +770,7 @@ donc ouvert.
       L'échantillonnage réglé coûte moins que la cadence fixe (0,40 contre 0,74 ms)
 - [x] Règle de budget tranchée par Killian (option 2) : plancher de 0,3 ms sur le
       budget de tick (ADR-039). Sous `medium` réel : bridé 1 fois sur 3 au lieu de 6 sur 6
-- [ ] **Classement vide sous `medium` réel : 99,3 % des prélèvements hors sonde.**
+- [~] **Classement vide sous `medium` réel : 99,3 % des prélèvements hors sonde.**
       61 % pendant que le serveur attend le tick suivant (`MinecraftServer#m_5667_`),
       32 % pendant qu'il attend les fils de dimension d'un mod de tick parallèle
       (`IntLatch#waitUntil`). Correctifs proposés : A, ne prélever que fenêtre de tick
@@ -781,14 +786,14 @@ donc ouvert.
         (corrélation 0,361). Coût 0,39 – 1,09 ms, bridé 3 sur 3
   - [x] Filtre des fils qui attendent (`105725d`, ADR-041) : 534 – 1 046 attributions
         seulement, 3 – 7 unités, corrélation −0,647. Le travail actif passe hors sondes
-  - [ ] Contrôle sans échantillonnage (`t140-k/nosampling`) : **invalide**, Killian
+  - [~] Contrôle sans échantillonnage (`t140-k/nosampling`) : **invalide**, Killian
         jouait sur la machine de 03:30 à la fin (idem exécution 3 de `t140-k/idle`)
-  - [ ] **Décision de Killian** (ADR-041, Conséquences) : échantillonnage réservé à
+  - [~] **Décision de Killian** (ADR-041, Conséquences) : échantillonnage réservé à
         `DEEP`, part de budget abaissée, ou classement `medium` par les seules sondes
         chronométrées. T-140 sous `medium` réel : non tenu
-  - [ ] Pourquoi le contrôle n° 3 finit à `OFF` : non examiné
-- [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
-- [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
+  - [~] Pourquoi le contrôle n° 3 finit à `OFF` : non examiné
+- [~] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
+- [~] Aucun test de gameplay ne diverge de la référence non instrumentée
 
       **Plan G-03 (PARTIE 20.3.4), premier test de gameplay** — génération de 2 000
       chunks, comparaison NBT avec la référence. Choisi en premier parce que la
@@ -861,22 +866,22 @@ donc ouvert.
       - [x] **G-04 passe** (ADR-032) : 30 sauts Overworld, Nether, End ; trois
             voyageurs en égalité stricte, le cochon bruité par les mods chez les
             références comme chez RF-X
-      - [ ] G-04, point ouvert : un saut vers l'End a été refusé de façon intermittente
+      - [~] G-04, point ouvert : un saut vers l'End a été refusé de façon intermittente
             (2 exécutions sur 8, dont une référence) ; cause non lue, journalisée depuis
       - [x] **G-09 passe** (ADR-032) : fenêtre de chunks rapide, ~1 200 chargements et
             déchargements ; état strict au-dessus de Y = 160 ; critère des erreurs
             rendu symétrique
-      - [ ] G-09, à surveiller : entités de bloc, candidat intrus 7 fois contre 1 et 0
+      - [~] G-09, à surveiller : entités de bloc, candidat intrus 7 fois contre 1 et 0
             (p = 0,003, sous le seuil corrigé de 0,00067 sans l'atteindre)
       - [x] **G-07 passe en égalité stricte** (ADR-032) : Create et Mekanism sur
             30 minutes, mêmes produits dans les trois exécutions
-      - [ ] **G-13 non concluant** (ADR-032) : divergence A/B au relevé 3, mais l'A/A
+      - [~] **G-13 non concluant** (ADR-032) : divergence A/B au relevé 3, mais l'A/A
             sans RF-X produit le même signal — le test de l'intrus suppose des éléments
             indépendants, une foule le fausse. Refaire sans interactions (couloirs
             séparés) ou avec un jugement qui tienne compte de la dépendance
-      - [ ] Les autres scénarios G-02, G-05, G-10, G-15 ;
+      - [~] Les autres scénarios G-02, G-05, G-10, G-15 ;
             G-02, G-10 et G-15 demandent des clients
-- [ ] JAR installable et jouable, client et serveur dédié.
+- [~] JAR installable et jouable, client et serveur dédié.
       **Client lancé pour la première fois le 2026-09-08**, sous ForgeGradle
       (`runClient`) :
 
@@ -891,14 +896,38 @@ donc ouvert.
       exception sur le fil de rendu. La sécurité de côté (section 4.3) tient, et C-41
       fonctionne aussi côté client. 3 553 classes perdues avant l'armement, contre
       32 712 sur le serveur de banc
-- [ ] **Le test client reste faible et la case reste ouverte.** L'environnement de
+- [~] **Le test client reste faible et la case reste ouverte.** L'environnement de
       développement ne charge que **trois mods** : la ligne d'énumération dit
       `0 écartées, 0 référençant un type absent`. Le risque signalé n'est donc **pas
       exercé** — côté client, `dedicatedServer=false` n'écarte plus les classes qui
       référencent `net.minecraft.client.*`, et sur un vrai modpack ce sont des dizaines
       de milliers de classes supplémentaires qui deviennent candidates
-- [ ] La vraie épreuve est une instance CurseForge cliente avec son modpack. Elle touche
+- [~] La vraie épreuve est une instance CurseForge cliente avec son modpack. Elle touche
       les installations de l'utilisateur : à faire avec son accord explicite, pas d'office
+
+---
+
+## M2 — Analyse et ordonnancement
+
+**Livrable** : workloads modélisés, task graph, scheduler opérationnel utilisé
+uniquement pour des tâches internes (analyse, persistance). **Aucune transformation du
+jeu.**
+
+**Composants** : C-07 (Call Graph), C-08 (Workload Profiler), C-09 (Workload DB),
+C-10 (Dependency Analyzer), C-12 (Thread Analyzer), C-16 (Task Graph), C-17 (Scheduler),
+C-18 (Worker Runtime), C-48 (Persistance / diagnostics).
+
+**DoD** : T-160..T-164, T-170..T-172, T-180..T-184, T-190..T-194, T-210..T-212,
+T-250..T-253, T-260..T-267, T-270..T-273. Sur 37 tests, seuls T-184, T-262 et T-267
+demandent une mesure ; les autres sont des tests de justesse.
+
+- [ ] Lire les fiches de C-16, C-17, C-18 (PARTIE 5) et leurs IF/DM/INV avant tout code
+- [ ] C-16 Task Graph — T-250..T-253 (INV-01 : acyclique)
+- [ ] C-17 Scheduler — T-260..T-267 (INV-06, INV-08, R-740)
+- [ ] C-18 Worker Runtime — T-270..T-273
+- [ ] C-07, C-08, C-09, C-10, C-12, C-48 — ordre à fixer après le scheduler
+- [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
+      déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 
 ---
 

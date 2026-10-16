@@ -6,7 +6,11 @@ Versionnement : cahier des charges, PARTIE 25.1.
 
 ## [Non publié]
 
-### Jalon M1 — Observation (en cours)
+### Jalon M1 — Observation (clos le 2026-10-16, avec réserves)
+
+Clos par décision (ADR-042) sans avoir atteint toute sa Definition of Done : T-140 sous
+`medium` sur modpack réel, T-131, T-154, T-370, la non-régression de gameplay et l'essai
+client CurseForge sont reportés, avec le jalon avant lequel les reprendre.
 
 Le mod observe : il ouvre une fenêtre de tick, reçoit des mesures, les agrège par
 unité de travail et adapte la profondeur de son observation à ce qu'elle coûte.
