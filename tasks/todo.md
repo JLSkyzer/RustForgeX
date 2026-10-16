@@ -989,8 +989,13 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [ ] Brancher dans `rfx-core` : relecture au démarrage, écriture périodique hors
         tick, empreinte fournie par Java, options `max_workloads` / `max_db_size_mb`,
         télémétrie `rfx.db.*`
-  - [ ] Acceptance : 20 000 unités en moins de 64 Mio, chargement en moins de 200 ms —
-        banc à écrire
+  - [x] Acceptance (ADR-048, 2026-10-16, cas extrême : noms longs, historique plein,
+        machine chargée à 43-58 % par d'autres programmes) : **46,6 Mio** pour 20 000
+        unités (allocateur instrumenté, < 64 Mio) ; chargement **117,7 ms** (< 200 ms,
+        `cargo bench -p rfx-bench --bench cache`). Le premier jet ne tenait ni l'un
+        (64,1 Mio : enregistrements en ligne dans un `Vec` qui double) ni l'autre
+        (423 ms : historique en CBOR nommé, décodage en série) ; corrigés par `Box`,
+        historique en entiers et décodage parallèle par blocs
 - [ ] C-07, C-08, C-10, C-12 — ordre à fixer
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)

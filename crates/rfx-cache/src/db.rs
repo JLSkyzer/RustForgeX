@@ -9,6 +9,12 @@
 //! valide tant que son enregistrement n'est pas retire, et un emplacement libere est
 //! reutilise. Deux index l'accompagnent : par identifiant, et par proprietaire.
 //!
+//! Chaque enregistrement est dans sa propre allocation (`Box`) : un emplacement coute
+//! 8 octets, pas la taille d'un enregistrement (environ 1,5 Kio, dont deux histogrammes).
+//! Sans cela, la reserve que garde un `Vec` en doublant, et les emplacements liberes par
+//! l'eviction, retiendraient chacun un enregistrement entier : mesure sur 20 000 unites,
+//! la base depassait ainsi les 64 Mio de l'acceptance (`tests/acceptance_memory.rs`).
+//!
 //! # Ecarts a la fiche
 //!
 //! - `hot()` rend un `Vec`, calcule a la demande, et non une tranche maintenue : la
@@ -29,7 +35,7 @@ pub type Idx = usize;
 /// Base des unites de travail.
 #[derive(Debug, Default)]
 pub struct WorkloadDb {
-    slots: Vec<Option<WorkloadRecord>>,
+    slots: Vec<Option<Box<WorkloadRecord>>>,
     free: Vec<Idx>,
     by_id: HashMap<WorkId, Idx>,
     by_owner: HashMap<String, Vec<Idx>>,
@@ -62,7 +68,7 @@ impl WorkloadDb {
         if let Some(&idx) = self.by_id.get(&record.id) {
             self.unindex_owner(idx);
             let owner = record.descriptor.owner_id.clone();
-            self.slots[idx] = Some(record);
+            self.slots[idx] = Some(Box::new(record));
             self.by_owner.entry(owner).or_default().push(idx);
             return idx;
         }
@@ -78,7 +84,7 @@ impl WorkloadDb {
             .entry(record.descriptor.owner_id.clone())
             .or_default()
             .push(idx);
-        self.slots[idx] = Some(record);
+        self.slots[idx] = Some(Box::new(record));
         idx
     }
 
@@ -120,13 +126,13 @@ impl WorkloadDb {
     /// doivent pas y etre changees : c'est le role de [`Self::upsert`].
     pub fn get_mut(&mut self, id: WorkId) -> Option<&mut WorkloadRecord> {
         let idx = *self.by_id.get(&id)?;
-        self.slots[idx].as_mut()
+        self.slots[idx].as_deref_mut()
     }
 
     /// Enregistrement a un indice.
     #[must_use]
     pub fn at(&self, idx: Idx) -> Option<&WorkloadRecord> {
-        self.slots.get(idx).and_then(Option::as_ref)
+        self.slots.get(idx).and_then(Option::as_deref)
     }
 
     /// Indices des unites de travail d'un proprietaire.
@@ -162,7 +168,7 @@ impl WorkloadDb {
         let idx = self.by_id.remove(&id)?;
         self.unindex_owner(idx);
         self.free.push(idx);
-        self.slots[idx].take()
+        self.slots[idx].take().map(|record| *record)
     }
 
     /// Nombre d'enregistrements (`rfx.db.entries`).
@@ -179,20 +185,37 @@ impl WorkloadDb {
 
     /// Enregistrements, par indice croissant.
     pub fn iter(&self) -> impl Iterator<Item = &WorkloadRecord> {
-        self.slots.iter().filter_map(Option::as_ref)
+        self.slots.iter().filter_map(Option::as_deref)
     }
 
     fn iter_indexed(&self) -> impl Iterator<Item = (Idx, &WorkloadRecord)> {
         self.slots
             .iter()
             .enumerate()
-            .filter_map(|(idx, slot)| slot.as_ref().map(|record| (idx, record)))
+            .filter_map(|(idx, slot)| slot.as_deref().map(|record| (idx, record)))
     }
 
-    /// Memoire estimee de tous les enregistrements, en octets.
+    /// Memoire estimee de la base, en octets : les enregistrements, les emplacements, et
+    /// les deux index.
+    ///
+    /// Les tables de hachage sont estimees d'apres l'implementation actuelle de la
+    /// bibliotheque standard (une case par paire et un octet de controle, pour une
+    /// capacite utile des 7/8 des cases) ; ce n'est pas un contrat de `std`.
+    /// `tests/acceptance_memory.rs` confronte cette estimation a l'allocateur.
     #[must_use]
     pub fn estimated_bytes(&self) -> usize {
-        self.iter().map(WorkloadRecord::estimated_bytes).sum()
+        let records: usize = self.iter().map(WorkloadRecord::estimated_bytes).sum();
+        let owners: usize = self
+            .by_owner
+            .iter()
+            .map(|(owner, list)| owner.capacity() + list.capacity() * size_of::<Idx>())
+            .sum();
+        records
+            + owners
+            + self.slots.capacity() * size_of::<Option<Box<WorkloadRecord>>>()
+            + self.free.capacity() * size_of::<Idx>()
+            + table_bytes::<(WorkId, Idx)>(self.by_id.capacity())
+            + table_bytes::<(String, Vec<Idx>)>(self.by_owner.capacity())
     }
 
     /// Unites de travail evincees depuis la creation (`rfx.db.evictions`).
@@ -204,6 +227,10 @@ impl WorkloadDb {
     /// Evince jusqu'a tenir dans `max_entries` enregistrements et `max_bytes` octets
     /// estimes (R-362) : les plus froides d'abord, et a chaleur egale, les moins
     /// recemment vues.
+    ///
+    /// Les octets sont ceux de [`Self::estimated_bytes`], structure comprise. Les
+    /// emplacements et les index gardent leur capacite apres une eviction : un plafond
+    /// inferieur a leur taille viderait la base sans l'atteindre.
     ///
     /// Renvoie le nombre d'unites de travail evincees.
     pub fn evict(&mut self, max_entries: usize, max_bytes: usize) -> usize {
@@ -259,6 +286,15 @@ impl WorkloadDb {
         }
         stale.len()
     }
+}
+
+/// Memoire estimee d'une table de hachage de `capacity` entrees utiles.
+fn table_bytes<T>(capacity: usize) -> usize {
+    if capacity == 0 {
+        return 0;
+    }
+    let buckets = (capacity * 8 / 7).next_power_of_two();
+    buckets * (size_of::<T>() + 1)
 }
 
 #[cfg(test)]
@@ -379,12 +415,12 @@ mod tests {
         );
         assert!(db.get(ids[0]).is_some() && db.get(ids[1]).is_some());
 
-        let one = db
-            .iter()
-            .map(WorkloadRecord::estimated_bytes)
-            .max()
-            .unwrap();
-        assert_eq!(db.evict(10, one), 1, "le budget en octets compte aussi");
+        let just_under = db.estimated_bytes() - 1;
+        assert_eq!(
+            db.evict(10, just_under),
+            1,
+            "le budget en octets compte aussi"
+        );
         assert!(db.get(ids[0]).is_some(), "la chaude reste");
         assert_eq!(db.evictions(), 3);
     }

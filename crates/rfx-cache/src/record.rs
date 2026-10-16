@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub const HISTORY_CAPACITY: usize = 32;
 
 /// Nature d'un evenement de l'historique.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryKind {
     /// La classe de cout a change.
     HeatChanged {
@@ -39,12 +39,77 @@ pub enum HistoryKind {
 }
 
 /// Evenement date de l'historique d'une unite de travail.
+///
+/// Sur disque, un evenement est un tableau de quatre entiers, `[tick, nature, a, b]`
+/// ([`EventRepr`]) : nommes, ses champs et variantes coutaient 44 octets en CBOR, et
+/// l'historique faisait 58 % du fichier et l'essentiel du temps de chargement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "EventRepr", try_from = "EventRepr")]
 pub struct HistoryEvent {
     /// Tick ou l'evenement a eu lieu.
     pub tick: u64,
     /// Nature.
     pub kind: HistoryKind,
+}
+
+/// Forme sur disque d'un [`HistoryEvent`] : `[tick, nature, a, b]`.
+#[derive(Serialize, Deserialize)]
+struct EventRepr(u64, u8, u8, u8);
+
+/// Codes de nature et de classe de cout sur disque. Ils ne changent jamais de sens : un
+/// ajout prend un code neuf et change [`crate::file::SCHEMA_VERSION`].
+const KIND_HEAT_CHANGED: u8 = 0;
+const KIND_PROBE_LEVEL_CHANGED: u8 = 1;
+const HEATS: [Heat; 4] = [Heat::Cold, Heat::Warm, Heat::Hot, Heat::Critical];
+
+fn heat_code(heat: Heat) -> u8 {
+    match heat {
+        Heat::Cold => 0,
+        Heat::Warm => 1,
+        Heat::Hot => 2,
+        Heat::Critical => 3,
+    }
+}
+
+fn heat_from_code(code: u8) -> Result<Heat, String> {
+    HEATS
+        .get(usize::from(code))
+        .copied()
+        .ok_or_else(|| format!("classe de cout inconnue : {code}"))
+}
+
+impl From<HistoryEvent> for EventRepr {
+    fn from(event: HistoryEvent) -> Self {
+        match event.kind {
+            HistoryKind::HeatChanged { from, to } => Self(
+                event.tick,
+                KIND_HEAT_CHANGED,
+                heat_code(from),
+                heat_code(to),
+            ),
+            HistoryKind::ProbeLevelChanged { level } => {
+                Self(event.tick, KIND_PROBE_LEVEL_CHANGED, level, 0)
+            }
+        }
+    }
+}
+
+impl TryFrom<EventRepr> for HistoryEvent {
+    type Error = String;
+
+    /// Un code inconnu est refuse : le fichier entier est alors mis de cote (R-223),
+    /// jamais lu de travers.
+    fn try_from(EventRepr(tick, kind, a, b): EventRepr) -> Result<Self, String> {
+        let kind = match kind {
+            KIND_HEAT_CHANGED => HistoryKind::HeatChanged {
+                from: heat_from_code(a)?,
+                to: heat_from_code(b)?,
+            },
+            KIND_PROBE_LEVEL_CHANGED => HistoryKind::ProbeLevelChanged { level: a },
+            other => return Err(format!("nature d'evenement inconnue : {other}")),
+        };
+        Ok(Self { tick, kind })
+    }
 }
 
 /// Historique borne : au-dela de [`HISTORY_CAPACITY`], le plus ancien s'efface.
@@ -138,10 +203,41 @@ mod tests {
         }
         assert_eq!(history.len(), HISTORY_CAPACITY);
         assert_eq!(
+            history.events.capacity(),
+            HISTORY_CAPACITY,
+            "aucune case au-dela de ce qui est garde"
+        );
+        assert_eq!(
             history.iter().next().unwrap().tick,
             10,
             "les dix plus anciens sont partis"
         );
+    }
+
+    #[test]
+    fn events_are_stored_as_four_integers_and_unknown_codes_are_refused() {
+        let events = [
+            HistoryEvent {
+                tick: 1_234_567,
+                kind: HistoryKind::HeatChanged {
+                    from: Heat::Critical,
+                    to: Heat::Cold,
+                },
+            },
+            HistoryEvent {
+                tick: 7,
+                kind: HistoryKind::ProbeLevelChanged { level: 3 },
+            },
+        ];
+        for event in events {
+            let bytes = rfx_model::to_cbor(&event).unwrap();
+            assert!(bytes.len() <= 12, "{} octets", bytes.len());
+            assert_eq!(rfx_model::from_cbor::<HistoryEvent>(&bytes).unwrap(), event);
+        }
+        for bad in [EventRepr(1, 9, 0, 0), EventRepr(1, KIND_HEAT_CHANGED, 0, 4)] {
+            let bytes = rfx_model::to_cbor(&bad).unwrap();
+            assert!(rfx_model::from_cbor::<HistoryEvent>(&bytes).is_err());
+        }
     }
 
     #[test]

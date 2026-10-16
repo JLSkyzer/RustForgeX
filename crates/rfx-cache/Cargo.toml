@@ -15,7 +15,10 @@ xxhash-rust = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"
-unsafe_code = "forbid"
+# `deny` et non `forbid` : la bibliotheque n'a aucun bloc `unsafe`, mais le test
+# d'acceptance de la memoire installe un allocateur global pour compter les octets, et
+# `GlobalAlloc` est un trait `unsafe`. `forbid` interdirait meme cette derogation locale.
+unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
