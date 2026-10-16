@@ -779,9 +779,14 @@ donc ouvert.
         prélèvements attribués (contre 9 – 15), 9 – 14 unités classées, mais la tête du
         classement est faite de fils de fond **endormis** dans une méthode sondée
         (corrélation 0,361). Coût 0,39 – 1,09 ms, bridé 3 sur 3
-  - [ ] Filtre des fils qui attendent (`105725d`, non `RUNNABLE` = non attribué) :
-        campagne `t140-k/idle` en cours, puis ADR-041
-  - [ ] Contrôle sans échantillonnage (`t140-k/nosampling`), enchaîné après
+  - [x] Filtre des fils qui attendent (`105725d`, ADR-041) : 534 – 1 046 attributions
+        seulement, 3 – 7 unités, corrélation −0,647. Le travail actif passe hors sondes
+  - [x] Contrôle sans échantillonnage (`t140-k/nosampling`) : 0,15 / 0,19 / 0,20 ms,
+        jamais bridé, contre 0,10 – 1,30 ms et bridé 8 fois sur 9 avec échantillonnage
+  - [ ] **Décision de Killian** (ADR-041, Conséquences) : échantillonnage réservé à
+        `DEEP`, part de budget abaissée, ou classement `medium` par les seules sondes
+        chronométrées. T-140 sous `medium` réel : non tenu
+  - [ ] Pourquoi le contrôle n° 3 finit à `OFF` : non examiné
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
