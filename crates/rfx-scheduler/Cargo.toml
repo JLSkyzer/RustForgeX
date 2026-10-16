@@ -13,6 +13,9 @@ rfx-taskgraph = { workspace = true }
 # Files de Chase-Lev (ADR-044) : les ecrire ici demanderait du code `unsafe`.
 crossbeam-deque = { workspace = true }
 
+[dev-dependencies]
+rfx-model = { workspace = true }
+
 [lints.rust]
 missing_docs = "deny"
 unsafe_code = "forbid"

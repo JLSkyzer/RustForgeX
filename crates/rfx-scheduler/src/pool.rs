@@ -95,11 +95,18 @@ pub struct SchedulerStats {
     pub parks: u64,
 }
 
-struct Job {
-    task: Box<dyn Task>,
-    group: Arc<GroupState>,
-    cancel: CancelToken,
-    deadline: Option<Instant>,
+/// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
+/// avant demarrage, echeance depassee ou panic. C'est par lui que l'execution d'un graphe
+/// libere les dependants, avant que la tache ne soit comptee terminee dans son groupe.
+pub(crate) type OnDone = Box<dyn FnOnce(TaskOutcome) + Send>;
+
+pub(crate) struct Job {
+    pub(crate) task: Box<dyn Task>,
+    pub(crate) group: Arc<GroupState>,
+    pub(crate) cancel: CancelToken,
+    pub(crate) deadline: Option<Instant>,
+    pub(crate) priority: Priority,
+    pub(crate) on_done: Option<OnDone>,
 }
 
 /// Rang de la file d'injection d'une priorite : la plus urgente d'abord.
@@ -123,7 +130,7 @@ const BACKGROUND: usize = 4;
 /// tout. Aucun ne devrait l'etre.
 const PARK_TIMEOUT: Duration = Duration::from_millis(10);
 
-struct Shared {
+pub(crate) struct Shared {
     lanes: [Injector<Job>; 5],
     stealers: Vec<Stealer<Job>>,
     queued: AtomicUsize,
@@ -226,14 +233,28 @@ impl Shared {
         self.sleepers.fetch_sub(1, Ordering::SeqCst);
     }
 
-    fn run(&self, job: Job) {
+    pub(crate) fn run(&self, mut job: Job) -> TaskOutcome {
         let group = Arc::clone(&job.group);
+        let on_done = job.on_done.take();
         let outcome = execute(job);
         if outcome == TaskOutcome::Panicked {
             self.panics.fetch_add(1, Ordering::Relaxed);
         }
         self.executed.fetch_add(1, Ordering::Relaxed);
+        if let Some(on_done) = on_done {
+            on_done(outcome);
+        }
         group.finish(outcome);
+        outcome
+    }
+
+    /// Met une tache deja admise en file, sans contre-pression : c'est un dependant
+    /// libere d'un graphe dont l'admission a eu lieu au depart.
+    pub(crate) fn dispatch(&self, job: Job) {
+        job.group.enter();
+        self.queued.fetch_add(1, Ordering::Relaxed);
+        self.lanes[lane(job.priority)].push(job);
+        self.notify();
     }
 }
 
@@ -383,22 +404,27 @@ impl Scheduler {
                 queued,
             });
         }
-        group.0.enter();
         let job = Job {
             task: Box::new(task),
             group: Arc::clone(&group.0),
             cancel: options.cancel,
             deadline: options.deadline,
+            priority: options.priority,
+            on_done: None,
         };
         if self.threads.is_empty() {
             // FORCE_SERIAL : sur le fil qui soumet.
+            group.0.enter();
             self.shared.run(job);
             return Ok(());
         }
-        self.shared.queued.fetch_add(1, Ordering::Relaxed);
-        self.shared.lanes[lane(options.priority)].push(job);
-        self.shared.notify();
+        self.shared.dispatch(job);
         Ok(())
+    }
+
+    /// Etat partage avec les workers, pour l'execution d'un graphe.
+    pub(crate) fn shared(&self) -> &Arc<Shared> {
+        &self.shared
     }
 
     /// Ouvre ou ferme la fenetre critique : pendant qu'elle est ouverte, aucune tache

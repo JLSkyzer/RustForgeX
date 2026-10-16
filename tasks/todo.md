@@ -932,8 +932,11 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] Pool, files par priorité, vol de travail, endormissement sans réveil perdu,
         contre-pression `E-2401`, fenêtre critique (R-423), panic confinée (R-524),
         `FORCE_SERIAL`. T-260 (10^7 tâches), T-261, T-266 et 6 autres tests
-  - [ ] Exécution d'un `TaskGraph` par compteurs de dépendances, R-740 (T-263 : mêmes
-        résultats avec 1, 2, 4 et 16 workers), drain du graphe à l'échéance
+  - [x] Exécution d'un `TaskGraph` par compteurs de dépendances (`run_graph`) :
+        R-740 (mêmes résultats en série et avec 1, 2, 4, 16 workers, avec ou sans fusion
+        et découpage), échec propagé aux dépendants, drain à l'échéance sans attendre
+        (INV-08). Le cahier numérote T-263 à la fois R-740 (PARTIE 21) et « annulation
+        effective » (5.17) : les tests portent le nom de l'exigence, pas ce numéro
   - [ ] Annulation coopérative, délai de grâce de 2 ms et rétrogradation (5.17.7), T-263
   - [ ] Parallélisme imbriqué, profondeur 4, attente active (5.17.9), T-264
   - [ ] Sur-souscription : fils exécutables tiers, réduction du pool (R-421), T-265
