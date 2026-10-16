@@ -924,7 +924,9 @@ demandent une mesure ; les autres sont des tests de justesse.
 - [x] Lire les fiches de C-16, C-17, C-18 (PARTIE 5) et leurs IF/DM/INV avant tout code
 - [x] C-16 Task Graph — T-250..T-253 (INV-01 : acyclique) : crate `rfx-taskgraph`,
       12 tests, chacun éprouvé par un défaut volontaire (ADR-043)
-  - [ ] Mesurer l'acceptance : 500 nœuds construits en moins de 100 µs
+  - [x] Mesurer l'acceptance : 500 nœuds construits en moins de 100 µs — **68 à 69 µs**
+        (`cargo bench -p rfx-bench --bench scheduler`, 2026-10-16, trois exécutions,
+        machine chargée à 42-68 % par Firefox, Spotify, Discord, fond animé)
   - [ ] Publier `rfx.taskgraph.*` dans la télémétrie quand un graphe sera construit en jeu
   - [ ] Miri sur `rfx-taskgraph` (PARTIE 19.1)
 - [x] C-17 : dépendance `crossbeam-deque` décidée (ADR-044), inscrite au SBOM
@@ -951,7 +953,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         relevés à un worker. T-265 (4 tests, charge simulée)
   - [ ] Capteur réel des fils exécutables tiers : côté Java ou sonde système, à choisir
   - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
-  - [ ] Mesures : T-262 (échéances à 99 % sous `heavy`), T-267 (soumission < 200 ns)
+  - [ ] T-267 (soumission < 200 ns) **non tenu** dans ces mêmes conditions : 243 à 274 ns
+        avec un jeton d'annulation neuf par tâche, 204 à 215 ns avec un jeton partagé
+        (l'allocation du jeton pèse ~50 ns). Supprimer les réveils quand un worker cherche
+        déjà n'a rien donné de mesurable (±5 %, le bruit) : retiré. À remesurer machine au
+        repos avant toute autre conclusion
+  - [ ] T-262 (échéances tenues à 99 % sous `heavy`) : demande l'ordonnanceur branché en jeu
 - [ ] C-18 Worker Runtime — T-270..T-273
 - [ ] C-07, C-08, C-09, C-10, C-12, C-48 — ordre à fixer après le scheduler
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se

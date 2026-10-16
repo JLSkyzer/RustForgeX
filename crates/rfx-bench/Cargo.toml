@@ -18,6 +18,8 @@ serde_json = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+rfx-scheduler = { workspace = true }
+rfx-taskgraph = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"
@@ -45,4 +47,8 @@ harness = false
 
 [[bench]]
 name = "tick"
+harness = false
+
+[[bench]]
+name = "scheduler"
 harness = false
