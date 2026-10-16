@@ -1,0 +1,21 @@
+[package]
+name = "rfx-taskgraph"
+description = "C-16 : graphe de taches d'un tick, acyclique, avec fusion et decoupage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# Structure de donnees pure : aucun bloc `unsafe`, et le cahier des charges y fait passer
+# Miri (PARTIE 19.1).
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

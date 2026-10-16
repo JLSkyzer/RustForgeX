@@ -921,8 +921,15 @@ C-18 (Worker Runtime), C-48 (Persistance / diagnostics).
 T-250..T-253, T-260..T-267, T-270..T-273. Sur 37 tests, seuls T-184, T-262 et T-267
 demandent une mesure ; les autres sont des tests de justesse.
 
-- [ ] Lire les fiches de C-16, C-17, C-18 (PARTIE 5) et leurs IF/DM/INV avant tout code
-- [ ] C-16 Task Graph — T-250..T-253 (INV-01 : acyclique)
+- [x] Lire les fiches de C-16, C-17, C-18 (PARTIE 5) et leurs IF/DM/INV avant tout code
+- [x] C-16 Task Graph — T-250..T-253 (INV-01 : acyclique) : crate `rfx-taskgraph`,
+      12 tests, chacun éprouvé par un défaut volontaire (ADR-043)
+  - [ ] Mesurer l'acceptance : 500 nœuds construits en moins de 100 µs
+  - [ ] Publier `rfx.taskgraph.*` dans la télémétrie quand un graphe sera construit en jeu
+  - [ ] Miri sur `rfx-taskgraph` (PARTIE 19.1)
+- [ ] C-17 : les files à vol de travail sans verrou demandent du code `unsafe`, interdit
+      hors de la frontière FFI ; prévoir `crossbeam-deque` (licence MIT/Apache-2.0),
+      par ADR et entrée au SBOM de `SECURITY.md`
 - [ ] C-17 Scheduler — T-260..T-267 (INV-06, INV-08, R-740)
 - [ ] C-18 Worker Runtime — T-270..T-273
 - [ ] C-07, C-08, C-09, C-10, C-12, C-48 — ordre à fixer après le scheduler
