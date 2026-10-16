@@ -775,9 +775,13 @@ donc ouvert.
         pile dans `m_5667_`, mais 97 – 98 % des piles du tick dans `IntLatch#waitUntil`,
         classement 0 / 1 / 0. Coût relevé plus haut (0,49 – 1,30 ms), bridé 3 sur 3,
         **cause non établie** (moins de piles pendant le tick qu'avant)
-  - [ ] B, prélever aussi les fils actifs pour le tick (`9207aad`, ADR-041 à écrire) :
-        campagne `t140-j/workers` en cours
-  - [ ] Si le coût relevé reste plus haut : contrôle sans échantillonnage
+  - [x] B, prélever aussi les fils actifs pour le tick (`9207aad`) : 9 400 – 11 200
+        prélèvements attribués (contre 9 – 15), 9 – 14 unités classées, mais la tête du
+        classement est faite de fils de fond **endormis** dans une méthode sondée
+        (corrélation 0,361). Coût 0,39 – 1,09 ms, bridé 3 sur 3
+  - [ ] Filtre des fils qui attendent (`105725d`, non `RUNNABLE` = non attribué) :
+        campagne `t140-k/idle` en cours, puis ADR-041
+  - [ ] Contrôle sans échantillonnage (`t140-k/nosampling`), enchaîné après
 - [ ] Vérifier sous `medium` (modpack) que la cadence reste à 100 Hz (ADR-037)
 - [ ] Aucun test de gameplay ne diverge de la référence non instrumentée
 
