@@ -93,6 +93,9 @@ pub struct SchedulerStats {
     pub panics: u64,
     /// Endormissements de workers.
     pub parks: u64,
+    /// Taches terminees apres leur echeance, ou abandonnees pour cela
+    /// (`rfx.sched.deadline_misses`).
+    pub deadline_misses: u64,
 }
 
 /// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
@@ -145,6 +148,7 @@ pub(crate) struct Shared {
     rejected: AtomicU64,
     panics: AtomicU64,
     parks: AtomicU64,
+    deadline_misses: AtomicU64,
 }
 
 impl Shared {
@@ -236,9 +240,13 @@ impl Shared {
     pub(crate) fn run(&self, mut job: Job) -> TaskOutcome {
         let group = Arc::clone(&job.group);
         let on_done = job.on_done.take();
+        let deadline = job.deadline;
         let outcome = execute(job);
         if outcome == TaskOutcome::Panicked {
             self.panics.fetch_add(1, Ordering::Relaxed);
+        }
+        if outcome == TaskOutcome::Timeout || deadline.is_some_and(|at| Instant::now() > at) {
+            self.deadline_misses.fetch_add(1, Ordering::Relaxed);
         }
         self.executed.fetch_add(1, Ordering::Relaxed);
         if let Some(on_done) = on_done {
@@ -350,6 +358,7 @@ impl Scheduler {
             rejected: AtomicU64::new(0),
             panics: AtomicU64::new(0),
             parks: AtomicU64::new(0),
+            deadline_misses: AtomicU64::new(0),
         });
         let mut scheduler = Self {
             shared,
@@ -452,6 +461,7 @@ impl Scheduler {
             rejected_submissions: read(&self.shared.rejected),
             panics: read(&self.shared.panics),
             parks: read(&self.shared.parks),
+            deadline_misses: read(&self.shared.deadline_misses),
         }
     }
 

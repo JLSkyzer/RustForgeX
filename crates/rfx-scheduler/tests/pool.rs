@@ -366,3 +366,80 @@ fn waiting_never_blocks_beyond_the_timeout() {
     gate.open();
     assert!(group.wait(GUARD));
 }
+
+/// Annule un jeton a sa destruction : une assertion qui echoue ne laisse pas une tache
+/// tourner indefiniment pendant que l'arret du pool l'attend.
+struct CancelOnDrop(rfx_taskgraph::CancelToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+/// T-263 : une tache en cours s'arrete a son point de controle quand on annule son
+/// jeton depuis un autre fil (PARTIE 5.17.7, R-434).
+#[test]
+fn t263_a_running_task_stops_when_its_token_is_cancelled() {
+    let scheduler = Scheduler::start(config(1)).unwrap();
+    let group = TaskGroup::new();
+    let options = JobOptions::new(Priority::High);
+    let guard = CancelOnDrop(options.cancel.clone());
+    let started = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&started);
+    scheduler
+        .submit(&group, options, move |cx: &mut TaskContext<'_>| {
+            flag.store(true, Ordering::Release);
+            while !cx.should_stop() {
+                std::thread::yield_now();
+            }
+            TaskOutcome::Rejected(rfx_scheduler::RejectReason::Cancelled)
+        })
+        .unwrap();
+    while !started.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
+    assert!(
+        !group.wait(Duration::from_millis(20)),
+        "la tache tourne encore"
+    );
+
+    guard.0.cancel();
+
+    assert!(group.wait(GUARD), "la tache ne s'est pas arretee");
+    assert_eq!(group.tally().rejected, 1);
+}
+
+/// `rfx.sched.deadline_misses` compte la tache qui depasse son echeance en cours
+/// d'execution, et celle dont l'echeance etait deja passee au demarrage.
+#[test]
+fn deadline_misses_are_counted() {
+    let scheduler = Scheduler::start(config(1)).unwrap();
+    let group = TaskGroup::new();
+    let running_late = JobOptions {
+        deadline: Some(Instant::now() + Duration::from_millis(20)),
+        ..JobOptions::new(Priority::High)
+    };
+    let _guard = CancelOnDrop(running_late.cancel.clone());
+    scheduler
+        .submit(&group, running_late, |cx: &mut TaskContext<'_>| {
+            while !cx.should_stop() {
+                std::thread::yield_now();
+            }
+            TaskOutcome::Timeout
+        })
+        .unwrap();
+    let already_late = JobOptions {
+        deadline: Some(Instant::now()),
+        ..JobOptions::new(Priority::High)
+    };
+    scheduler.submit(&group, already_late, ok).unwrap();
+    scheduler
+        .submit(&group, JobOptions::new(Priority::High), ok)
+        .unwrap();
+
+    assert!(group.wait(GUARD));
+    assert_eq!(group.tally().timeout, 2);
+    assert_eq!(group.tally().success, 1);
+    assert_eq!(scheduler.stats().deadline_misses, 2);
+}

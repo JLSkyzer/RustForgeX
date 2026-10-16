@@ -937,7 +937,11 @@ demandent une mesure ; les autres sont des tests de justesse.
         et découpage), échec propagé aux dépendants, drain à l'échéance sans attendre
         (INV-08). Le cahier numérote T-263 à la fois R-740 (PARTIE 21) et « annulation
         effective » (5.17) : les tests portent le nom de l'exigence, pas ce numéro
-  - [ ] Annulation coopérative, délai de grâce de 2 ms et rétrogradation (5.17.7), T-263
+  - [x] Annulation coopérative (T-263 : une tâche en cours s'arrête quand on annule son
+        jeton), `rfx.sched.deadline_misses`. Abandon après l'échéance : `run_graph` rend
+        la main et ignore les résultats tardifs (INV-08)
+  - [ ] Délai de grâce de 2 ms et rétrogradation du travail (5.17.7) : la rétrogradation
+        relève de C-15 (M3) ; le délai de grâce sera câblé avec lui
   - [ ] Parallélisme imbriqué, profondeur 4, attente active (5.17.9), T-264
   - [ ] Sur-souscription : fils exécutables tiers, réduction du pool (R-421), T-265
   - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
