@@ -280,31 +280,55 @@ class StackSamplerTest {
     @DisplayName("ADR-041 : les fils de travail sont prélevés avec le fil autoritatif")
     void workerThreadsAreSampledWithTheAuthoritativeThread() throws InterruptedException {
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
-        Thread worker = new Thread(() -> {
+        Thread waiting = new Thread(() -> {
             try {
                 release.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        }, "fil-de-travail");
-        worker.start();
-        long workerId = worker.getId();
+        }, "fil-qui-attend");
+        java.util.concurrent.atomic.AtomicBoolean stop =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.CountDownLatch spinning = new java.util.concurrent.CountDownLatch(1);
+        Thread busy = new Thread(() -> {
+            spinning.countDown();
+            long sink = 0;
+            while (!stop.get()) {
+                sink++;
+            }
+            assertTrue(sink >= 0);
+        }, "fil-qui-calcule");
+        waiting.start();
+        busy.start();
+        spinning.await();
+        // L'état se lit après coup : prélever avant que le fil soit bloqué rendrait le
+        // test dépendant de l'ordonnanceur.
+        while (waiting.getState() != Thread.State.WAITING) {
+            Thread.onSpinWait();
+        }
+        long[] ids = {waiting.getId(), busy.getId()};
         StackSampler sampler = new StackSampler(new StackFrameIndex(),
                 Thread.currentThread(), SamplingPacer.DEFAULT_BUDGET_FRACTION, () -> true,
                 (out, from, exclude) -> {
-                    out[from] = workerId;
-                    return 1;
+                    out[from] = ids[0];
+                    out[from + 1] = ids[1];
+                    return 2;
                 });
         RfxProbes.setLevels(new byte[] {1});
         try {
             sampler.sampleOnce();
 
-            assertEquals(2, sampler.samplesTaken(), "le fil autoritatif et le fil de travail");
-            assertEquals(1, sampler.samplesWorkerThreads());
+            assertEquals(3, sampler.samplesTaken(), "le fil autoritatif et les deux autres");
+            assertEquals(2, sampler.samplesWorkerThreads());
+            assertEquals(1, sampler.samplesIdle(), "le fil qui attend n'est pas attribué");
+            assertEquals(2, sampler.samplesUnattributed(),
+                    "les deux fils actifs sont examinés ; aucune sonde ne les couvre ici");
         } finally {
             RfxProbes.uninstall();
             release.countDown();
-            worker.join(1_000L);
+            stop.set(true);
+            waiting.join(1_000L);
+            busy.join(1_000L);
         }
     }
 }

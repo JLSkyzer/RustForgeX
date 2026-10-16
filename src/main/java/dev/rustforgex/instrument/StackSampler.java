@@ -178,6 +178,7 @@ public final class StackSampler {
     private volatile long samplesDropped;
     private volatile long samplesOutsideTick;
     private volatile long samplesWorkerThreads;
+    private volatile long samplesIdle;
     private long samplesDrained;
 
     /**
@@ -397,6 +398,13 @@ public final class StackSampler {
             if (i > 0) {
                 samplesWorkerThreads++;
             }
+            if (info.getThreadState() != Thread.State.RUNNABLE) {
+                // Un fil qui attend ne coûte rien, même arrêté dans une méthode sondée :
+                // lui attribuer la période classait des fils endormis (ADR-041).
+                samplesTaken++;
+                samplesIdle++;
+                continue;
+            }
             attribute(info.getStackTrace());
         }
     }
@@ -525,6 +533,11 @@ public final class StackSampler {
     /** @return le nombre de piles prélevées sur d'autres fils que le fil autoritatif */
     public long samplesWorkerThreads() {
         return samplesWorkerThreads;
+    }
+
+    /** @return le nombre de piles écartées parce que leur fil attendait (ADR-041) */
+    public long samplesIdle() {
+        return samplesIdle;
     }
 
     /** @return le recensement des méthodes chaudes non sondées, jamais {@code null} */
