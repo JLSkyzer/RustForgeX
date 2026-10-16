@@ -946,7 +946,10 @@ demandent une mesure ; les autres sont des tests de justesse.
         (`max_nesting`), au-delà exécution en ligne ; en attendant, un worker n'exécute que
         des tâches plus profondes, de sa propre file (pile bornée, pas d'interblocage).
         T-264 : arbres de profondeur 10 sur 1, 2, 4 workers et en série
-  - [ ] Sur-souscription : fils exécutables tiers, réduction du pool (R-421), T-265
+  - [x] Sur-souscription (R-421, FM-25, ADR-045) : `report_external_load`, workers actifs
+        divisés par deux au-dessus du seuil, +1 par relevé en dessous, série après huit
+        relevés à un worker. T-265 (4 tests, charge simulée)
+  - [ ] Capteur réel des fils exécutables tiers : côté Java ou sonde système, à choisir
   - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
   - [ ] Mesures : T-262 (échéances à 99 % sous `heavy`), T-267 (soumission < 200 ns)
 - [ ] C-18 Worker Runtime — T-270..T-273

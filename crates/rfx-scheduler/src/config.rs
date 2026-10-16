@@ -29,6 +29,9 @@ pub struct SchedulerConfig {
     /// Profondeur d'imbrication au-dela de laquelle une sous-tache s'execute en ligne,
     /// dans la tache qui la lance (PARTIE 5.17.9).
     pub max_nesting: u8,
+    /// Fils executables tiers au-dela desquels la machine est sur-souscrite et le pool
+    /// reduit ses workers actifs (R-421). Defaut : 1,5 fois les coeurs logiques.
+    pub oversubscription_threshold: usize,
 }
 
 impl SchedulerConfig {
@@ -43,6 +46,7 @@ impl SchedulerConfig {
             hard_limit: 8_192,
             force_serial: false,
             max_nesting: 4,
+            oversubscription_threshold: logical_cores * 3 / 2,
         }
     }
 

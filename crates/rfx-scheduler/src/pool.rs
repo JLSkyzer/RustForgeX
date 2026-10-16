@@ -28,7 +28,7 @@
 //! dormeur, et une soumission ordinaire n'en prend aucun.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -98,6 +98,11 @@ pub struct SchedulerStats {
     pub deadline_misses: u64,
     /// Sous-taches executees en ligne, la profondeur maximale etant atteinte.
     pub inline_spawns: u64,
+    /// Workers actifs (`rfx.sched.workers_active`).
+    pub active_workers: usize,
+    /// `true` si la sur-souscription persistante a fait passer en execution serie
+    /// (FM-25).
+    pub serial_fallback: bool,
 }
 
 /// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
@@ -133,6 +138,9 @@ const NORMAL: usize = 2;
 const LOW: usize = 3;
 const BACKGROUND: usize = 4;
 
+/// Releves sur-souscrits consecutifs, a un seul worker, avant l'execution serie (FM-25).
+const SERIAL_FALLBACK_STREAK: u32 = 8;
+
 /// Delai maximal d'un endormissement : un filet, au cas ou un reveil se perdrait malgre
 /// tout. Aucun ne devrait l'etre.
 const PARK_TIMEOUT: Duration = Duration::from_millis(10);
@@ -155,6 +163,14 @@ pub(crate) struct Shared {
     deadline_misses: AtomicU64,
     inline_spawns: AtomicU64,
     max_nesting: u8,
+    /// Workers demarres.
+    workers: usize,
+    /// Workers autorises a prendre du travail ; les autres dorment (R-421).
+    active: AtomicUsize,
+    /// Releves consecutifs de sur-souscription avec un seul worker actif.
+    oversubscribed_streak: AtomicU32,
+    /// FM-25 : execution serie sur le fil qui soumet.
+    serial_fallback: AtomicBool,
 }
 
 impl Shared {
@@ -165,7 +181,13 @@ impl Shared {
                 .sleep_lock
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            self.wake.notify_one();
+            if self.active.load(Ordering::Acquire) < self.workers {
+                // Un reveil unique pourrait echoir a un worker inactif, qui se
+                // rendormirait : le travail attendrait le delai de garde.
+                self.wake.notify_all();
+            } else {
+                self.wake.notify_one();
+            }
         }
     }
 
@@ -268,9 +290,24 @@ impl Shared {
     /// libere d'un graphe dont l'admission a eu lieu au depart.
     pub(crate) fn dispatch(&self, job: Job) {
         job.group.enter();
+        self.requeue(job);
+    }
+
+    /// Remet en file une tache deja comptee dans son groupe.
+    fn requeue(&self, job: Job) {
         self.queued.fetch_add(1, Ordering::Relaxed);
         self.lanes[lane(job.priority)].push(job);
         self.notify();
+    }
+
+    fn is_active(&self, index: usize) -> bool {
+        index < self.active.load(Ordering::Acquire)
+    }
+
+    /// `true` si les taches s'executent sur le fil qui soumet : `FORCE_SERIAL`, ou
+    /// sur-souscription persistante (FM-25).
+    pub(crate) fn runs_serial(&self) -> bool {
+        self.workers == 0 || self.serial_fallback.load(Ordering::Acquire)
     }
 }
 
@@ -361,15 +398,28 @@ fn worker_loop(index: usize, local: &Worker<Job>, shared: &Shared) {
     loop {
         let seen_epoch = shared.epoch.load(Ordering::SeqCst);
         round = round.wrapping_add(1);
-        if let Some(job) = shared.find_job(index, local, round) {
+        let active = shared.is_active(index);
+        if let Some(job) = active
+            .then(|| shared.find_job(index, local, round))
+            .flatten()
+        {
             idle_rounds = 0;
-            shared.run(job, Some(local));
+            if shared.is_active(index) {
+                shared.run(job, Some(local));
+            } else {
+                // Rendu inactif entre-temps : la tache revient a un worker actif.
+                shared.requeue(job);
+            }
             continue;
         }
         if shared.shutdown.load(Ordering::SeqCst) {
             if shared.lanes_empty() {
                 return;
             }
+            continue;
+        }
+        if !active {
+            shared.park(seen_epoch);
             continue;
         }
         idle_rounds += 1;
@@ -435,6 +485,10 @@ impl Scheduler {
             deadline_misses: AtomicU64::new(0),
             inline_spawns: AtomicU64::new(0),
             max_nesting: config.max_nesting,
+            workers,
+            active: AtomicUsize::new(workers),
+            oversubscribed_streak: AtomicU32::new(0),
+            serial_fallback: AtomicBool::new(false),
         });
         let mut scheduler = Self {
             shared,
@@ -498,8 +552,8 @@ impl Scheduler {
             depth: 0,
             on_done: None,
         };
-        if self.threads.is_empty() {
-            // FORCE_SERIAL : sur le fil qui soumet.
+        if self.shared.runs_serial() {
+            // FORCE_SERIAL, ou sur-souscription persistante : sur le fil qui soumet.
             group.0.enter();
             self.shared.run(job, None);
             return Ok(());
@@ -511,6 +565,38 @@ impl Scheduler {
     /// Etat partage avec les workers, pour l'execution d'un graphe.
     pub(crate) fn shared(&self) -> &Arc<Shared> {
         &self.shared
+    }
+
+    /// Releve de la charge externe : nombre de fils executables qui ne sont pas des
+    /// workers du pool (R-421, ADR-045).
+    ///
+    /// Au-dessus du seuil, les workers actifs sont divises par deux, sans descendre sous
+    /// un ; a un seul worker, huit releves sur-souscrits de suite font passer en
+    /// execution serie (FM-25). Sous le seuil, l'execution serie cesse et un worker de
+    /// plus est reactive. A appeler depuis un seul fil, a cadence reguliere.
+    pub fn report_external_load(&self, runnable_threads: usize) {
+        let shared = &self.shared;
+        if shared.workers == 0 {
+            return;
+        }
+        let active = shared.active.load(Ordering::Acquire);
+        if runnable_threads > self.config.oversubscription_threshold {
+            if active > 1 {
+                shared.active.store((active / 2).max(1), Ordering::Release);
+                shared.oversubscribed_streak.store(0, Ordering::Relaxed);
+            } else if shared.oversubscribed_streak.fetch_add(1, Ordering::Relaxed) + 1
+                >= SERIAL_FALLBACK_STREAK
+            {
+                shared.serial_fallback.store(true, Ordering::Release);
+            }
+            return;
+        }
+        shared.oversubscribed_streak.store(0, Ordering::Relaxed);
+        shared.serial_fallback.store(false, Ordering::Release);
+        if active < shared.workers {
+            shared.active.store(active + 1, Ordering::Release);
+            shared.notify();
+        }
     }
 
     /// Ouvre ou ferme la fenetre critique : pendant qu'elle est ouverte, aucune tache
@@ -540,6 +626,8 @@ impl Scheduler {
             parks: read(&self.shared.parks),
             deadline_misses: read(&self.shared.deadline_misses),
             inline_spawns: read(&self.shared.inline_spawns),
+            active_workers: self.shared.active.load(Ordering::Acquire),
+            serial_fallback: self.shared.serial_fallback.load(Ordering::Acquire),
         }
     }
 

@@ -239,7 +239,7 @@ impl Scheduler {
     ) -> GraphRun {
         let drain_at = Instant::now() + budget;
         let state = Arc::new(GraphState::new(graph, executor, drain_at));
-        if self.workers() == 0 {
+        if self.shared().runs_serial() {
             GraphState::run_serial(&state, self.shared());
         } else {
             for rank in state.roots() {
