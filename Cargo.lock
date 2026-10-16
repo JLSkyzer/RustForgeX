@@ -381,6 +381,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfx-cache"
+version = "0.1.0"
+dependencies = [
+ "rfx-model",
+ "serde",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "rfx-core"
 version = "0.1.0"
 dependencies = [

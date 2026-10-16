@@ -67,7 +67,7 @@ Le projet limite volontairement ses dépendances. À ce jalon :
 | `serde` | dérivation de sérialisation | MIT ou Apache-2.0 |
 | `ciborium` | encodage CBOR côté natif | Apache-2.0 |
 | `jni` | types et conventions d'appel JNI | MIT ou Apache-2.0 |
-| `xxhash-rust` | hachage des identifiants d'unités de travail | BSL-1.0 |
+| `xxhash-rust` | hachage des identifiants d'unités de travail ; somme de contrôle de `workload.db` (ADR-048) | BSL-1.0 |
 | `bumpalo` | arène des tâches de l'ordonnanceur ; seules ses allocations faillibles sont utilisées (ADR-047) | MIT ou Apache-2.0 |
 | `crossbeam-deque` | files à vol de travail de l'ordonnanceur (ADR-044) ; pas encore liée à la bibliothèque native | MIT ou Apache-2.0 |
 

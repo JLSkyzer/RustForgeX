@@ -1,0 +1,21 @@
+[package]
+name = "rfx-cache"
+description = "C-09, C-48 : base des unites de travail, persistance et rotation des fichiers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+xxhash-rust = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

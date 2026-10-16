@@ -972,7 +972,26 @@ demandent une mesure ; les autres sont des tests de justesse.
       10 000 tâches) ; T-272 porté par T-263. Piège de `bumpalo` 3.20 trouvé et contourné :
       un premier bloc au-dessus du plafond désactive le plafond
   - [ ] Faire entrer les arènes dans le budget de mémoire native (`max_native_mb`)
-- [ ] C-07, C-08, C-09, C-10, C-12, C-48 — ordre à fixer après le scheduler
+- [~] C-09 Workload DB et C-48 Persistance — crate `rfx-cache` (ADR-048), 21 tests,
+      seize défauts volontaires détectés :
+  - [x] `Fingerprint` (DM-05) dans `rfx-model` : environnement et unité de travail
+  - [x] Base indexée par identifiant et par propriétaire, historique borné à 32,
+        éviction des plus froides puis des moins récemment vues (T-183)
+  - [x] `workload.db` : en-tête, somme xxh3, tout ou rien ; autre environnement rejeté
+        sur l'en-tête, entrée au code changé écartée (T-180, T-181) ; fichier illisible
+        ou de schéma inconnu mis de côté en `.bak` (T-182)
+  - [x] Fil `RFX-IO`, file de 4 sans attente, écriture atomique, rotation par âge puis
+        taille ; disque plein → persistance désactivée, jeu inchangé (T-184, T-500 à
+        T-502, sur un système de fichiers simulé et un vrai répertoire)
+  - [ ] **Écarts à IF-12 à valider par Killian** (ADR-048, décision 7) : `hot()` en
+        `Vec`, `evict` par plafonds, `persist` par le fil d'écriture, `LoadOutcome`,
+        instantané complet plutôt qu'« append-only + index »
+  - [ ] Brancher dans `rfx-core` : relecture au démarrage, écriture périodique hors
+        tick, empreinte fournie par Java, options `max_workloads` / `max_db_size_mb`,
+        télémétrie `rfx.db.*`
+  - [ ] Acceptance : 20 000 unités en moins de 64 Mio, chargement en moins de 200 ms —
+        banc à écrire
+- [ ] C-07, C-08, C-10, C-12 — ordre à fixer
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

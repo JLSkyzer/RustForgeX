@@ -15,6 +15,7 @@
 
 pub mod config;
 pub mod dynamics;
+pub mod fingerprint;
 pub mod hardware;
 pub mod maturity;
 pub mod status;
@@ -23,6 +24,7 @@ pub mod workid;
 
 pub use config::{RuntimeConfig, RuntimeMode};
 pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};
+pub use fingerprint::Fingerprint;
 pub use hardware::{CoreTopology, HardwareClass, SimdCaps};
 pub use maturity::Maturity;
 pub use status::{
