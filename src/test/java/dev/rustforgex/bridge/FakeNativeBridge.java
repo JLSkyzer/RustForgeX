@@ -50,6 +50,11 @@ public class FakeNativeBridge implements NativeBridge {
     }
 
     @Override
+    public int schedReportExternalLoad(long handle, int runnableThreads) {
+        return 0;
+    }
+
+    @Override
     public long transferProbe(long handle, ByteBuffer buffer, int length) {
         return length;
     }

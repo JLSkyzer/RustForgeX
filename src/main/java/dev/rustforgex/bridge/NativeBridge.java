@@ -55,6 +55,14 @@ public interface NativeBridge {
 
     /**
      * @param handle handle du runtime
+     * @param runnableThreads fils tiers ayant consommé au moins 10 % d'un cœur depuis le
+     *     relevé précédent (ADR-046)
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    int schedReportExternalLoad(long handle, int runnableThreads);
+
+    /**
+     * @param handle handle du runtime
      * @param buffer tampon direct à faire lire au natif
      * @param length nombre d'octets à lire
      * @return un témoin de lecture positif, ou un code d'erreur négatif
@@ -203,6 +211,11 @@ public interface NativeBridge {
             @Override
             public int hwSetFfiCosts(long handle, int jniCallNs, int ffiBatchNsPerKb) {
                 return RfxNative.hwSetFfiCosts(handle, jniCallNs, ffiBatchNsPerKb);
+            }
+
+            @Override
+            public int schedReportExternalLoad(long handle, int runnableThreads) {
+                return RfxNative.schedReportExternalLoad(handle, runnableThreads);
             }
 
             @Override

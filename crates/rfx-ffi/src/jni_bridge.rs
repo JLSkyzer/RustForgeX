@@ -90,6 +90,22 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwProbe(
     to_jint(crate::rfx_hw_probe(handle as u64))
 }
 
+/// `RfxNative.schedReportExternalLoad(long, int)` : releve de charge externe (R-421).
+///
+/// Un compte negatif est une erreur de l'appelant, refusee et non tronquee.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_schedReportExternalLoad(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    runnable_threads: jint,
+) -> jint {
+    match u32::try_from(runnable_threads) {
+        Ok(count) => to_jint(crate::rfx_sched_report_external_load(handle as u64, count)),
+        Err(_) => to_jint(ErrorCode::InvalidArgument.ffi_code()),
+    }
+}
+
 /// `RfxNative.hwSetFfiCosts(long, int, int)` : publie les couts mesures par Java.
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwSetFfiCosts(

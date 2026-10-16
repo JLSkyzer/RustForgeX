@@ -28,6 +28,8 @@ import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.StackSampler;
 import dev.rustforgex.instrument.UnknownFrameIndex;
+import dev.rustforgex.sched.ExternalLoadReporter;
+import dev.rustforgex.sched.ExternalLoadSensor;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
@@ -77,6 +79,12 @@ public final class RfxRuntime {
     private final TickCycle tickCycle;
     private final ProbeSink probeSink;
     private final Instrumentation instrumentation;
+
+    /**
+     * Relevé de charge externe pour l'ordonnanceur (R-421, ADR-046), ou {@code null} si
+     * le runtime natif n'est pas actif.
+     */
+    private final ExternalLoadReporter loadReporter;
 
     /**
      * Inventaire des mods, ou {@code null} tant que la découverte n'a pas eu lieu.
@@ -142,6 +150,18 @@ public final class RfxRuntime {
                     recordIncident(Incident.nativePanic("tick"));
                 }
             });
+        }
+
+        this.loadReporter = live
+                ? new ExternalLoadReporter(new ExternalLoadSensor(), bridge, report.handle(),
+                        code -> {
+                            if (ErrorCode.fromNativeCode(code) == ErrorCode.PANIC_CAUGHT) {
+                                recordIncident(Incident.nativePanic("schedReportExternalLoad"));
+                            }
+                        })
+                : null;
+        if (loadReporter != null) {
+            loadReporter.start();
         }
 
         // C-05 avant C-04 : le profiler plafonne la profondeur des sondes, et une
@@ -691,6 +711,22 @@ public final class RfxRuntime {
         return profiler instanceof Map<?, ?> ? cast(profiler) : null;
     }
 
+    /**
+     * Charge externe relevée pour l'ordonnanceur, telle que le natif la publie (R-421).
+     *
+     * <p>Un appel natif : à n'appeler ni dans un tick ni dans une sonde.
+     *
+     * @return la table {@code scheduler} du statut natif, ou {@code null}
+     */
+    public Map<String, Object> schedulerCounters() {
+        Map<String, Object> status = nativeStatus();
+        if (status == null) {
+            return null;
+        }
+        Object scheduler = status.get("scheduler");
+        return scheduler instanceof Map<?, ?> ? cast(scheduler) : null;
+    }
+
     /** Lit et décode le statut natif, ou renvoie {@code null} si indisponible. */
     private Map<String, Object> nativeStatus() {
         if (!active()) {
@@ -731,6 +767,10 @@ public final class RfxRuntime {
         RfxProbes.uninstall();
         if (tickCycle != null) {
             tickCycle.stopSampling();
+        }
+        // Avant la fermeture du natif : le fil de relevé ne doit plus l'appeler.
+        if (loadReporter != null) {
+            loadReporter.stop();
         }
         if (eventObserver != null) {
             eventObserver.stop();

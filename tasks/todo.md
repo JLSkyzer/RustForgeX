@@ -951,7 +951,12 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] Sur-souscription (R-421, FM-25, ADR-045) : `report_external_load`, workers actifs
         divisés par deux au-dessus du seuil, +1 par relevé en dessous, série après huit
         relevés à un worker. T-265 (4 tests, charge simulée)
-  - [ ] Capteur réel des fils exécutables tiers : côté Java ou sonde système, à choisir
+  - [x] Capteur réel côté Java (ADR-046, décision de Killian) : fils tiers ayant consommé
+        ≥ 10 % d'un cœur depuis le relevé précédent, fil `RFX-LoadSensor`, une fois par
+        seconde, entrée FFI `rfx_sched_report_external_load`. Le compte des états
+        `RUNNABLE` relevait 49-50 sur le modpack (≈ 46 fils en attente native, vus au
+        `jcmd`) ; le temps CPU relève 3 (max 12). Vérifié en jeu, 299 relevés
+  - [ ] Transmettre le relevé à l'ordonnanceur quand `rfx-core` le démarrera
   - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
   - [ ] T-267 (soumission < 200 ns) **non tenu** dans ces mêmes conditions : 243 à 274 ns
         avec un jeton d'annulation neuf par tâche, 204 à 215 ns avec un jeton partagé

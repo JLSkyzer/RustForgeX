@@ -82,6 +82,31 @@ class TelemetryTest {
                 1e-9);
     }
 
+    /**
+     * R-421, R-660 : la charge externe n'est publiée qu'une fois relevée ; avant, seul
+     * le nombre de relevés, nul, apparaît.
+     */
+    @Test
+    @DisplayName("R-421 : la charge externe n'est publiée qu'après le premier relevé")
+    void theExternalLoadIsPublishedOnlyOnceMeasured() {
+        Map<String, Object> before = status();
+        before.put("scheduler", new LinkedHashMap<String, Object>(Map.of(
+                "external_runnable", 0L, "external_runnable_max", 0L,
+                "external_load_reports", 0L)));
+        MetricSet unmeasured = Telemetry.collect(before, null, null, null);
+        assertEquals(0, unmeasured.get("rfx.sched.external_load_reports").value());
+        assertNull(unmeasured.get("rfx.sched.external_runnable"));
+
+        Map<String, Object> after = status();
+        after.put("scheduler", new LinkedHashMap<String, Object>(Map.of(
+                "external_runnable", 12L, "external_runnable_max", 31L,
+                "external_load_reports", 4L)));
+        MetricSet measured = Telemetry.collect(after, null, null, null);
+        assertEquals(12, measured.get("rfx.sched.external_runnable").value());
+        assertEquals("fils", measured.get("rfx.sched.external_runnable").unit());
+        assertEquals(31, measured.get("rfx.sched.external_runnable_max").value());
+    }
+
     @Test
     @DisplayName("Une source absente ne produit aucune métrique, plutôt que des zéros")
     void anAbsentSourceProducesNoMetricRatherThanZeros() {
@@ -256,6 +281,9 @@ class TelemetryTest {
         complete.put("probes", new LinkedHashMap<String, Object>(Map.of(
                 "records_consumed", 1L, "records_lost", 0L,
                 "native_bytes", 0L, "native_limit_bytes", 0L)));
+        complete.put("scheduler", new LinkedHashMap<String, Object>(Map.of(
+                "external_runnable", 12L, "external_runnable_max", 31L,
+                "external_load_reports", 4L)));
 
         MetricSet set = Telemetry.collect(complete,
                 new Telemetry.InstrumentationCounts(true, 1, 1, 1, 0, 1, 0),

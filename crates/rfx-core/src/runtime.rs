@@ -12,7 +12,7 @@ use rfx_memory::probe_buffer::DEFAULT_BUFFER_BYTES;
 use rfx_memory::{MemoryBudget, Pool, ProbeBufferPool};
 use rfx_model::{
     ComponentStatus, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
-    RuntimeStatus, Side, TickStatus,
+    RuntimeStatus, SchedulerStatus, Side, TickStatus,
 };
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
@@ -73,6 +73,8 @@ pub struct Runtime {
     /// et le profiler ne signale un changement qu'une fois. Sans cette file d'attente,
     /// la premiere etape consommerait le changement et la seconde ne rendrait rien.
     pending_levels: Option<Vec<u8>>,
+    /// Charge externe relevee cote Java (R-421, ADR-046).
+    scheduler: SchedulerStatus,
 }
 
 impl Runtime {
@@ -106,6 +108,7 @@ impl Runtime {
             profiling_ns_this_tick: 0,
             profiler_over_budget: 0,
             pending_levels: None,
+            scheduler: SchedulerStatus::default(),
         }
     }
 
@@ -322,6 +325,19 @@ impl Runtime {
         self.coverage.ffi_transfer = ffi_batch_ns_per_kb > 0;
     }
 
+    /// Releve de la charge externe : fils tiers qui ont consomme au moins 10 % d'un coeur
+    /// depuis le releve precedent, comptes cote Java (R-421, ADR-046).
+    ///
+    /// Conserve et publie dans le statut. L'ordonnanceur (C-17) n'est pas encore demarre
+    /// par le runtime : quand il le sera, ce releve lui sera transmis tel quel
+    /// (`Scheduler::report_external_load`, ADR-045).
+    pub fn report_external_load(&mut self, runnable_threads: u32) {
+        self.scheduler.external_runnable = runnable_threads;
+        self.scheduler.external_runnable_max =
+            self.scheduler.external_runnable_max.max(runnable_threads);
+        self.scheduler.external_load_reports += 1;
+    }
+
     /// Fait passer le runtime en mode degrade. Sans effet si l'etat est terminal.
     pub fn degrade(&mut self) {
         if !self.state.is_terminal() {
@@ -418,6 +434,7 @@ impl Runtime {
                 native_limit_bytes: self.budget.limit(),
             },
             profiler: self.profiler.status(),
+            scheduler: self.scheduler,
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {

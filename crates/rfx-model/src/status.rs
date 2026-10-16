@@ -161,6 +161,20 @@ pub struct ComponentStatus {
     pub active: bool,
 }
 
+/// Charge externe relevee pour l'ordonnanceur (C-17, R-421, ADR-046).
+///
+/// Mesuree cote Java : le nombre de fils tiers qui ont consomme au moins 10 % d'un coeur
+/// depuis le releve precedent. Tous nuls tant qu'aucun releve n'est arrive (R-660).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulerStatus {
+    /// Dernier releve.
+    pub external_runnable: u32,
+    /// Plus grand releve depuis le demarrage.
+    pub external_runnable_max: u32,
+    /// Nombre de releves recus.
+    pub external_load_reports: u64,
+}
+
 /// Statut global du runtime natif.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeStatus {
@@ -186,6 +200,9 @@ pub struct RuntimeStatus {
     pub probes: ProbeStatus,
     /// Compteurs du profiler (C-05).
     pub profiler: ProfilerStatus,
+    /// Charge externe relevee pour l'ordonnanceur. Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub scheduler: SchedulerStatus,
 }
 
 #[cfg(test)]
@@ -211,6 +228,11 @@ mod tests {
             tick: TickStatus::default(),
             probes: ProbeStatus::default(),
             profiler: ProfilerStatus::default(),
+            scheduler: SchedulerStatus {
+                external_runnable: 12,
+                external_runnable_max: 31,
+                external_load_reports: 4,
+            },
         };
         let bytes = crate::to_cbor(&s).expect("encodage");
         let back: RuntimeStatus = crate::from_cbor(&bytes).expect("decodage");

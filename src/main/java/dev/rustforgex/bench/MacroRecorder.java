@@ -410,6 +410,7 @@ public final class MacroRecorder {
         appendProbeActivity(state);
         appendThreshold(state, runtime);
         appendProfilerLevel(state, runtime);
+        appendExternalLoad(state, runtime);
         appendDiscovery(state, runtime);
         appendTop(state, runtime);
         appendRanking(state, runtime, ranking, rankingTick);
@@ -732,6 +733,23 @@ public final class MacroRecorder {
     private static String stringValue(Map<String, Object> table, String key) {
         Object value = table == null ? null : table.get(key);
         return value instanceof String text ? text : "?";
+    }
+
+    /**
+     * Charge externe relevée pour l'ordonnanceur (R-421, ADR-046) : le dernier relevé, le
+     * plus haut, et leur nombre. C'est ce qui permettra de juger les constantes d'ADR-045
+     * sur un modpack réel.
+     */
+    private static void appendExternalLoad(StringBuilder state, RfxRuntime runtime) {
+        Map<String, Object> scheduler = runtime.schedulerCounters();
+        if (scheduler == null) {
+            return;
+        }
+        state.append(",\n    \"external_load\": {\"last\": ")
+                .append(longValue(scheduler, "external_runnable"))
+                .append(", \"max\": ").append(longValue(scheduler, "external_runnable_max"))
+                .append(", \"reports\": ")
+                .append(longValue(scheduler, "external_load_reports")).append('}');
     }
 
     private static void appendProfilerLevel(StringBuilder state, RfxRuntime runtime) {

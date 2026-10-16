@@ -89,6 +89,7 @@ public final class Telemetry {
         appendTick(set, mapOf(nativeStatus, "tick"));
         appendProbes(set, mapOf(nativeStatus, "probes"));
         appendProfiler(set, mapOf(nativeStatus, "profiler"));
+        appendScheduler(set, mapOf(nativeStatus, "scheduler"));
         appendInstrumentation(set, instrumentation);
         appendDiscovery(set, discovery);
         appendEvents(set, events);
@@ -199,6 +200,27 @@ public final class Telemetry {
         set.add(Metric.gauge("rfx.probes.native_limit_bytes",
                 longOf(probes, "native_limit_bytes"), "octets",
                 "Plafond de mémoire native (memory.max_native_mb)."));
+    }
+
+    /**
+     * Charge externe relevée pour l'ordonnanceur (C-17, R-421, ADR-046).
+     *
+     * <p>Zéro relevé veut dire « pas encore mesuré », jamais « aucune charge » : les
+     * jauges n'apparaissent qu'après le premier relevé (R-660).
+     */
+    private static void appendScheduler(MetricSet set, Map<String, Object> scheduler) {
+        if (scheduler == null) {
+            return;
+        }
+        long reports = longOf(scheduler, "external_load_reports");
+        set.add(Metric.counter("rfx.sched.external_load_reports", reports,
+                "Relevés de charge externe reçus par le natif, un par seconde (R-421)."));
+        set.addIfMeasured(reports > 0, () -> Metric.gauge("rfx.sched.external_runnable",
+                longOf(scheduler, "external_runnable"), "fils",
+                "Fils tiers ayant consommé au moins 10 % d'un cœur, au dernier relevé (R-421)."));
+        set.addIfMeasured(reports > 0, () -> Metric.gauge("rfx.sched.external_runnable_max",
+                longOf(scheduler, "external_runnable_max"), "fils",
+                "Plus haut relevé de fils exécutables tiers depuis le démarrage."));
     }
 
     private static void appendProfiler(MetricSet set, Map<String, Object> profiler) {

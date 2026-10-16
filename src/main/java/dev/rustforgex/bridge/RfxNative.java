@@ -83,6 +83,16 @@ public final class RfxNative {
     public static native int hwSetFfiCosts(long handle, int jniCallNs, int ffiBatchNsPerKb);
 
     /**
+     * Relève de la charge externe pour l'ordonnanceur (C-17, R-421, ADR-046).
+     *
+     * @param handle handle du runtime
+     * @param runnableThreads fils tiers ayant consommé au moins 10 % d'un cœur depuis le
+     *     relevé précédent (ADR-046) ; jamais négatif
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int schedReportExternalLoad(long handle, int runnableThreads);
+
+    /**
      * Fait lire au natif un tampon direct, pour mesurer le débit Java vers natif.
      *
      * @param handle handle du runtime

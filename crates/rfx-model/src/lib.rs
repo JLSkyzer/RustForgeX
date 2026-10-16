@@ -26,7 +26,8 @@ pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};
 pub use hardware::{CoreTopology, HardwareClass, SimdCaps};
 pub use maturity::Maturity;
 pub use status::{
-    ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, TickStatus,
+    ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, SchedulerStatus,
+    TickStatus,
 };
 pub use top::{assert_java_readable, CostSource, TopEntry, TopWorkloads};
 pub use workid::{Side, WorkDescriptor, WorkId};

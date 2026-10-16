@@ -11,7 +11,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rfx_model::{
     ComponentStatus, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, ProfilerStatus,
-    RuntimeStatus, TickStatus,
+    RuntimeStatus, SchedulerStatus, TickStatus,
 };
 
 fn status() -> RuntimeStatus {
@@ -34,6 +34,7 @@ fn status() -> RuntimeStatus {
         tick: TickStatus::default(),
         probes: ProbeStatus::default(),
         profiler: ProfilerStatus::default(),
+        scheduler: SchedulerStatus::default(),
     }
 }
 

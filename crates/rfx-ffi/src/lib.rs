@@ -172,6 +172,21 @@ pub extern "C" fn rfx_hw_set_ffi_costs(
     })
 }
 
+/// Releve de la charge externe pour l'ordonnanceur (C-17, R-421, ADR-046).
+///
+/// `runnable_threads` est le nombre de fils tiers qui ont consomme au moins 10 % d'un
+/// coeur depuis le releve precedent, compte par Java une fois par seconde sur son propre
+/// fil : aucun appel dans le tick (R-700).
+#[no_mangle]
+pub extern "C" fn rfx_sched_report_external_load(handle: u64, runnable_threads: u32) -> i32 {
+    guard_with_handle(handle, || {
+        match runtime::with(handle, |rt| rt.report_external_load(runnable_threads)) {
+            Ok(()) => OK,
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
 /// Lit un tampon fourni par Java, pour mesurer le debit de transfert Java vers natif.
 ///
 /// La somme de controle renvoyee force la lecture effective de chaque octet : sans
@@ -707,6 +722,29 @@ mod tests {
 
         assert_eq!(first, again);
         assert_ne!(first, other);
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// R-421, ADR-046 : le releve de charge externe arrive dans le statut ; un handle
+    /// inconnu est refuse.
+    #[test]
+    fn the_external_load_report_reaches_the_status() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        assert_eq!(read_status(handle).scheduler.external_load_reports, 0);
+
+        assert_eq!(rfx_sched_report_external_load(handle, 30), OK);
+        assert_eq!(rfx_sched_report_external_load(handle, 12), OK);
+
+        let scheduler = read_status(handle).scheduler;
+        assert_eq!(scheduler.external_runnable, 12);
+        assert_eq!(scheduler.external_runnable_max, 30);
+        assert_eq!(scheduler.external_load_reports, 2);
+        assert_ne!(
+            rfx_sched_report_external_load(handle ^ 1, 5),
+            OK,
+            "handle inconnu"
+        );
         assert_eq!(rfx_shutdown(handle), OK);
     }
 

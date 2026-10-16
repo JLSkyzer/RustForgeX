@@ -134,6 +134,19 @@ rapport de comparaison n'est pas connu.
 | `rfx.events.timed` | counter | — | Distributions chronométrées, une sur soixante-quatre |
 | `rfx.events.abandoned` | counter | — | Chronométrages abandonnés, imbrication trop profonde |
 
+### `rfx.sched` — ordonnanceur (C-17)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.sched.external_load_reports` | counter | — | Relevés de charge externe reçus par le natif, un par seconde (R-421, ADR-046) |
+| `rfx.sched.external_runnable` | gauge | fils | Fils tiers ayant consommé au moins 10 % d'un cœur depuis le relevé précédent, au dernier relevé — *conditionnelle* |
+| `rfx.sched.external_runnable_max` | gauge | fils | Plus haut relevé depuis le démarrage — *conditionnelle* |
+
+Le compte se fait sur le temps processeur consommé, et non sur l'état `RUNNABLE` de la
+JVM : un fil bloqué dans un appel natif — une attente réseau, par exemple — est
+`RUNNABLE` sans rien consommer, et sur le modpack d'essai ces fils étaient la grande
+majorité (ADR-046). Les fils internes de la JVM et les workers natifs n'y figurent pas.
+
 ### `rfx.hook` — gardes des accroches (C-01, FM-02)
 
 Une série par accroche : `setup`, `loadComplete`, `registerCommands`, `warmUpCommands`,
