@@ -5,12 +5,13 @@
 //! differente.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rfx_model::WorkId;
 use rfx_scheduler::{
-    GraphExecutor, RejectReason, Scheduler, SchedulerConfig, TaskContext, TaskOutcome,
+    GraphExecutor, JobOptions, RejectReason, Scheduler, SchedulerConfig, TaskContext, TaskGroup,
+    TaskOutcome,
 };
 use rfx_taskgraph::{
     CancelToken, Deadline, Priority, TaskGraph, TaskId, TaskKind, TaskNode, TaskPayload, TaskSpec,
@@ -378,4 +379,88 @@ fn an_empty_graph_completes_at_once() {
     );
     assert!(run.completed());
     assert!(run.drain().cancelled.is_empty());
+}
+
+/// Rouvre une porte a sa destruction, y compris pendant une assertion qui echoue.
+struct OpenOnDrop(Arc<AtomicBool>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+fn spec(handle: u64, priority: Priority, deadline: Deadline) -> TaskSpec {
+    TaskSpec {
+        work: WorkId(handle),
+        kind: TaskKind::Compute,
+        priority,
+        deadline,
+        estimated_ns: 1_000,
+        payload: TaskPayload::Unit(handle),
+        cancel: CancelToken::new(),
+    }
+}
+
+/// FM-24 : une tache `CRITICAL` qu'aucun worker ne prend est executee par le fil qui
+/// attend le graphe ; une tache d'une autre priorite, jamais.
+#[test]
+fn fm24_a_starving_critical_task_runs_on_the_waiting_thread() {
+    let pool = scheduler(1, false);
+    let release = Arc::new(AtomicBool::new(false));
+    let _open = OpenOnDrop(Arc::clone(&release));
+    let started = Arc::new(AtomicBool::new(false));
+    let (flag, gate) = (Arc::clone(&started), Arc::clone(&release));
+    pool.submit(
+        &TaskGroup::new(),
+        JobOptions::new(Priority::Critical),
+        move |_: &mut TaskContext<'_>| {
+            flag.store(true, Ordering::Release);
+            while !gate.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            TaskOutcome::Success
+        },
+    )
+    .unwrap();
+    while !started.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
+
+    let mut graph = TaskGraph::new();
+    let critical = graph.add_task(spec(1, Priority::Critical, Deadline::ThisTick));
+    let normal = graph.add_task(spec(2, Priority::Normal, Deadline::None));
+    let ran_on = Arc::new(Mutex::new(Vec::new()));
+    let record = Arc::clone(&ran_on);
+    let executor: GraphExecutor = Arc::new(move |node: &TaskNode, _: &mut TaskContext<'_>| {
+        record
+            .lock()
+            .unwrap()
+            .push((node.payload.clone(), std::thread::current().id()));
+        TaskOutcome::Success
+    });
+    let caller = std::thread::current().id();
+
+    let run = pool.run_graph(&graph, executor, Duration::from_millis(300));
+
+    assert_eq!(run.outcome(critical), Some(TaskOutcome::Success));
+    assert_eq!(
+        run.outcome(normal),
+        None,
+        "le fil qui attend ne prend que le CRITICAL"
+    );
+    assert!(!run.completed());
+    assert_eq!(
+        *ran_on.lock().unwrap(),
+        vec![(TaskPayload::Unit(1), caller)]
+    );
+    assert_eq!(pool.stats().famine_escalations, 1);
+
+    release.store(true, Ordering::Release);
+    assert!(run.wait_remaining(GUARD));
+    assert_eq!(
+        run.outcome(normal),
+        Some(TaskOutcome::Success),
+        "le worker libere la fait"
+    );
 }

@@ -957,7 +957,9 @@ demandent une mesure ; les autres sont des tests de justesse.
         `RUNNABLE` relevait 49-50 sur le modpack (≈ 46 fils en attente native, vus au
         `jcmd`) ; le temps CPU relève 3 (max 12). Vérifié en jeu, 299 relevés
   - [ ] Transmettre le relevé à l'ordonnanceur quand `rfx-core` le démarrera
-  - [ ] Famine `CRITICAL` > 1 ms → exécution en ligne (FM-24)
+  - [x] Famine (FM-24) : pendant `run_graph`, le fil qui attend exécute lui-même le travail
+        `CRITICAL` resté en file plus d'une milliseconde, et rien d'autre ; attente par
+        `yield` (un sommeil d'1 ms peut en durer 15 sous Windows). `famine_escalations`
   - [ ] T-267 (soumission < 200 ns) **non tenu** dans ces mêmes conditions : 243 à 274 ns
         avec un jeton d'annulation neuf par tâche, 204 à 215 ns avec un jeton partagé
         (l'allocation du jeton pèse ~50 ns). Supprimer les réveils quand un worker cherche

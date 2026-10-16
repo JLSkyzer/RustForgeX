@@ -245,9 +245,8 @@ impl Scheduler {
             for rank in state.roots() {
                 GraphState::dispatch(&state, self.shared(), rank);
             }
-            state
-                .group
-                .wait(drain_at.saturating_duration_since(Instant::now()));
+            // FM-24 : le fil qui attend execute le travail CRITICAL laisse en file.
+            self.shared().wait_helping_critical(&state.group, drain_at);
         }
         let completed = state
             .outcomes

@@ -103,6 +103,8 @@ pub struct SchedulerStats {
     /// `true` si la sur-souscription persistante a fait passer en execution serie
     /// (FM-25).
     pub serial_fallback: bool,
+    /// Taches `CRITICAL` executees par le fil qui attend, faute de worker (FM-24).
+    pub famine_escalations: u64,
 }
 
 /// Crochet appele avec l'issue d'une tache, quelle qu'elle soit : succes, annulation
@@ -138,6 +140,10 @@ const NORMAL: usize = 2;
 const LOW: usize = 3;
 const BACKGROUND: usize = 4;
 
+/// Attente au-dela de laquelle le fil qui attend execute lui-meme le travail `CRITICAL`
+/// encore en file (FM-24).
+const FAMINE_GRACE: Duration = Duration::from_millis(1);
+
 /// Releves sur-souscrits consecutifs, a un seul worker, avant l'execution serie (FM-25).
 const SERIAL_FALLBACK_STREAK: u32 = 8;
 
@@ -171,6 +177,7 @@ pub(crate) struct Shared {
     oversubscribed_streak: AtomicU32,
     /// FM-25 : execution serie sur le fil qui soumet.
     serial_fallback: AtomicBool,
+    famine_escalations: AtomicU64,
 }
 
 impl Shared {
@@ -291,6 +298,37 @@ impl Shared {
     pub(crate) fn dispatch(&self, job: Job) {
         job.group.enter();
         self.requeue(job);
+    }
+
+    /// FM-24 : attend la fin de `group`, au plus jusqu'a `deadline`, sans laisser une
+    /// tache `CRITICAL` en file plus de [`FAMINE_GRACE`].
+    ///
+    /// Passe ce delai, le fil qui attend prend lui-meme le travail `CRITICAL` restant :
+    /// c'est le fil autoritatif, qui n'a rien d'autre a faire que d'attendre son tick. Il
+    /// ne prend jamais une tache d'une autre priorite. L'attente cede le processeur
+    /// (`yield`) au lieu de dormir : sous Windows, un sommeil d'une milliseconde peut en
+    /// durer quinze, et la famine ne serait plus detectee a temps.
+    ///
+    /// Renvoie `true` si le groupe est vide au retour.
+    pub(crate) fn wait_helping_critical(&self, group: &TaskGroup, deadline: Instant) -> bool {
+        let started = Instant::now();
+        loop {
+            if group.pending() == 0 {
+                return true;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            if now.duration_since(started) >= FAMINE_GRACE {
+                if let Some(job) = self.take_from_lane(CRITICAL) {
+                    self.famine_escalations.fetch_add(1, Ordering::Relaxed);
+                    self.run(job, None);
+                    continue;
+                }
+            }
+            std::thread::yield_now();
+        }
     }
 
     /// Remet en file une tache deja comptee dans son groupe.
@@ -489,6 +527,7 @@ impl Scheduler {
             active: AtomicUsize::new(workers),
             oversubscribed_streak: AtomicU32::new(0),
             serial_fallback: AtomicBool::new(false),
+            famine_escalations: AtomicU64::new(0),
         });
         let mut scheduler = Self {
             shared,
@@ -628,6 +667,7 @@ impl Scheduler {
             inline_spawns: read(&self.shared.inline_spawns),
             active_workers: self.shared.active.load(Ordering::Acquire),
             serial_fallback: self.shared.serial_fallback.load(Ordering::Acquire),
+            famine_escalations: read(&self.shared.famine_escalations),
         }
     }
 
