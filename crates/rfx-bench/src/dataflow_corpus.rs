@@ -13,10 +13,13 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use rfx_analyzer::dataflow::{
-    analyze, intraprocedural_effects, DataflowLimits, DomainTable, Unanalysable, CLASS_ANCHORS,
-    INTERFACE_ANCHORS,
+    analyze, intraprocedural_effects, workload_effects, DataflowLimits, DomainTable, Unanalysable,
+    CLASS_ANCHORS, INTERFACE_ANCHORS,
 };
 use rfx_analyzer::hierarchy::{ClassIndex, Skeleton};
+use rfx_analyzer::{EdgeKind, MethodRef};
+
+use crate::callgraph_acceptance::build_like_the_game;
 use rfx_bytecode::ClassFile;
 use rfx_model::{Domains, Precision};
 use serde::Serialize;
@@ -196,6 +199,86 @@ pub fn run(corpus: &Corpus, limits: &DataflowLimits) -> Report {
     report.cells = Quantiles::of(cells);
     report.max_block_visits = Quantiles::of(visits);
     report.micros = Quantiles::of(micros);
+    report
+}
+
+/// Effets des unites de travail : une racine, son graphe d'appel construit comme en
+/// jeu, et les effets composes le long de ce graphe.
+#[derive(Debug, Default, Serialize)]
+pub struct WorkloadReport {
+    /// Racines.
+    pub roots: u64,
+    /// Precision des ecritures.
+    pub write_precision: BTreeMap<String, u64>,
+    /// Unites dont les ecritures touchent chaque domaine.
+    pub write_domains: BTreeMap<String, u64>,
+    /// Unites ayant au moins une cause d'inconnu, par cause.
+    pub unknown_causes: BTreeMap<String, u64>,
+    /// Aretes non resolues des graphes, par raison (C-07).
+    pub unresolved_edges: BTreeMap<String, u64>,
+    /// Methodes analysees par unite.
+    pub analysed_methods: Quantiles,
+    /// Duree de la composition des effets par unite, en millisecondes, analyse des
+    /// methodes comprise, construction du graphe exclue.
+    pub effects_ms: Quantiles,
+}
+
+/// Effets des unites de travail de racines `roots`.
+#[must_use]
+pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) -> WorkloadReport {
+    let mut index = ClassIndex::new();
+    for bytes in corpus.classes.values() {
+        if let Ok(class) = ClassFile::parse(bytes) {
+            index.declare(
+                &class.name,
+                Skeleton {
+                    super_name: class.super_name,
+                    access: class.access,
+                },
+            );
+        }
+    }
+    let table = DomainTable::new();
+    let mut report = WorkloadReport::default();
+    let (mut analysed, mut millis) = (Vec::new(), Vec::new());
+    for root in roots {
+        report.roots += 1;
+        let graph = build_like_the_game(&mut index, corpus, root);
+        for edge in graph.edges() {
+            if let EdgeKind::VirtualUnresolved(reason) = edge.kind {
+                *report
+                    .unresolved_edges
+                    .entry(format!("{reason:?}"))
+                    .or_default() += 1;
+            }
+        }
+        let begun = Instant::now();
+        let effects = workload_effects(&graph, &index, &table, limits);
+        millis.push(begun.elapsed().as_secs_f64() * 1e3);
+        analysed.push(f64::from(effects.analysed_methods));
+        *report
+            .write_precision
+            .entry(precision_name(effects.writes.precision))
+            .or_default() += 1;
+        for domain in domain_names(effects.writes.domains) {
+            *report.write_domains.entry(domain).or_default() += 1;
+        }
+        let causes = effects.causes;
+        for (name, present) in [
+            ("unresolved_sites", causes.unresolved_sites > 0),
+            ("unexplored_sites", causes.unexplored_sites > 0),
+            ("external_methods", causes.external_methods > 0),
+            ("unanalysable_methods", causes.unanalysable_methods > 0),
+            ("truncated", causes.truncated),
+            ("not_converged", causes.not_converged),
+        ] {
+            if present {
+                *report.unknown_causes.entry(name.to_owned()).or_default() += 1;
+            }
+        }
+    }
+    report.analysed_methods = Quantiles::of(analysed);
+    report.effects_ms = Quantiles::of(millis);
     report
 }
 

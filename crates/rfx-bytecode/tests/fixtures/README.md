@@ -43,3 +43,8 @@ paramètre ou la jonction de deux, alias d'un tableau lu dans un champ, statique
 verrou, `athrow` hors gestionnaire ou sous un gestionnaire d'un autre type, exception
 attrapée puis écrite, variable locale modifiée dans un bloc protégé, plusieurs
 `return`, boucle ; tableaux restés locaux ou échappés par transitivité.
+
+`Interproc` sert à la phase interprocédurale : constructeur et fabrique locaux,
+publication, écriture par paramètre, échappement par un appelé, `return this`,
+récursion, paramètre rangé dans un objet rendu, lambda, concaténation, interface
+ouverte, et un cas où le point fixe doit repasser sur un appelant.

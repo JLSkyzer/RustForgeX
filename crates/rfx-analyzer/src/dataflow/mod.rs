@@ -1,13 +1,14 @@
 //! C-11 : analyse de flux de donnees, phase intraprocedurale (ADR-055).
 //!
 //! Cahier des charges : PARTIE 5.11, R-380, R-381, FM-20. Maturite : `EXPERIMENTAL` —
-//! les effets des appels ne sont pas encore composes entre methodes, et rien ne
-//! consomme ces resultats en jeu.
+//! rien ne consomme encore ces resultats en jeu.
 //!
 //! - [`analyze`] : les faits du code d'une methode ([`MethodFacts`]) ;
 //! - [`intraprocedural_effects`] : ces faits ramenes aux domaines memoire (DM-06) et
 //!   aux effets de bord (DM-07), par une table derivee de la hierarchie
-//!   ([`DomainTable`]) et une analyse d'echappement des objets alloues.
+//!   ([`DomainTable`]) et une analyse d'echappement des objets alloues ;
+//! - [`workload_effects`] : les effets d'une unite de travail, en composant les
+//!   resumes ([`Summary`]) des methodes de son graphe d'appel (C-07).
 //!
 //! Chaque reference de la pile et des variables locales porte l'ensemble de ses
 //! sources possibles ([`Source`]) : parametre, allocation, valeur lue par un champ, un
@@ -23,10 +24,13 @@
 //! selon le chemin devient inutilisable, et une methode que l'analyse ne comprend pas
 //! ou qui depasse son budget rend [`Unanalysable`], jamais des faits partiels.
 
+mod compose;
 mod domains;
 mod effects;
 mod facts;
 mod interp;
+mod interproc;
+mod summary;
 mod value;
 
 pub use domains::{DomainTable, CLASS_ANCHORS, INTERFACE_ANCHORS};
@@ -35,6 +39,8 @@ pub use facts::{
     Access, Allocation, CallFact, MethodFacts, Monitor, Target, Throw, Unanalysable, Work,
 };
 pub use interp::DataflowLimits;
+pub use interproc::{workload_effects, UnknownCauses, WorkloadEffects, MAX_PASSES_PER_METHOD};
+pub use summary::Summary;
 pub use value::{Frame, Source, Sources, Value, MAX_SOURCES};
 
 use rfx_bytecode::{access, method_signature, ClassFile, MethodInfo, Slot};

@@ -184,7 +184,11 @@ pub fn run(corpus: &Corpus, roots: &[MethodRef]) -> (Report, String) {
 /// [`MAX_BYTECODE_CLASSES`] au debut d'une racine, puis des tours tant que des classes
 /// manquent, [`MAX_ROUNDS`] au plus ; une classe absente ou illisible est declaree
 /// absente.
-fn build_like_the_game(index: &mut ClassIndex, corpus: &Corpus, root: &MethodRef) -> CallGraph {
+pub(crate) fn build_like_the_game(
+    index: &mut ClassIndex,
+    corpus: &Corpus,
+    root: &MethodRef,
+) -> CallGraph {
     if index.len() > MAX_BYTECODE_CLASSES {
         index.clear_bytecode();
     }

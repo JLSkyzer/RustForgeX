@@ -948,6 +948,9 @@ fn dataflow_level() {
         }
     };
     let report = dataflow_corpus::run(&corpus, &limits);
+    let roots =
+        callgraph_acceptance::reference_methods(&corpus, callgraph_acceptance::REFERENCE_METHODS);
+    let workloads = dataflow_corpus::workloads(&corpus, &roots, &limits);
 
     #[derive(Serialize)]
     struct DataflowFile<'a> {
@@ -959,6 +962,7 @@ fn dataflow_level() {
         max_cells: Option<usize>,
         max_visits_per_block: Option<u32>,
         report: &'a dataflow_corpus::Report,
+        workloads: &'a dataflow_corpus::WorkloadReport,
     }
     let root = repository_root();
     let (commit, dirty) = git_state(&root);
@@ -973,6 +977,7 @@ fn dataflow_level() {
         max_visits_per_block: (limits.max_visits_per_block != u32::MAX)
             .then_some(limits.max_visits_per_block),
         report: &report,
+        workloads: &workloads,
     };
     let out_dir = root.join("benchmarks").join("results");
     let out = out_dir.join(format!("dataflow-{collected_at}-{}.json", short(&commit)));
@@ -1017,6 +1022,20 @@ fn dataflow_level() {
     );
     println!("domaines ecrits : {:?}", report.write_domains);
     println!("ancres absentes : {:?}", report.missing_anchors);
+    println!();
+    println!(
+        "unites de travail : {} methodes de reference, graphes construits comme en jeu",
+        workloads.roots
+    );
+    println!(
+        "  precision des ecritures : {:?}",
+        workloads.write_precision
+    );
+    println!("  domaines ecrits : {:?}", workloads.write_domains);
+    println!("  causes d'inconnu : {:?}", workloads.unknown_causes);
+    println!("  aretes non resolues : {:?}", workloads.unresolved_edges);
+    q("  methodes analysees", &workloads.analysed_methods);
+    q("  effets (ms)", &workloads.effects_ms);
     for (category, samples) in &report.samples {
         println!("[{category}]");
         for sample in samples {

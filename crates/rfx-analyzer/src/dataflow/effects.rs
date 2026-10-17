@@ -31,7 +31,7 @@ use crate::hierarchy::ClassIndex;
 const JDK_PACKAGES: [&str; 5] = ["java/", "javax/", "jdk/", "sun/", "com/sun/"];
 
 /// Domaines qu'une ecriture rend « modification du monde » (DM-07).
-const WORLD: [Domain; 9] = [
+pub(super) const WORLD: [Domain; 9] = [
     Domain::WorldBlocks,
     Domain::WorldFluids,
     Domain::WorldLighting,
@@ -133,32 +133,36 @@ fn domains_of(
     index: &ClassIndex,
     table: &DomainTable,
 ) -> Option<(Domains, bool)> {
-    let unknown = Domains::EMPTY.with(Domain::Unknown);
+    let domains = target_domains(&access.target, index, table);
     match &access.target {
-        Target::Static(field) => {
-            let jdk = JDK_PACKAGES.iter().any(|p| field.owner.starts_with(p));
-            let domain = if jdk {
-                Domain::JavaStatics
-            } else {
-                Domain::ModStatics
-            };
-            Some((Domains::EMPTY.with(domain), false))
-        }
-        Target::Field(field) => match reach(&access.base, escaping) {
+        Target::Static(_) => Some((domains, false)),
+        Target::Field(_) | Target::Element => match reach(&access.base, escaping) {
             Reach::Null | Reach::Local => None,
-            shared => Some((
-                table.of_class(index, &field.owner).unwrap_or(unknown),
-                shared == Reach::Mixed,
-            )),
-        },
-        Target::Element => match reach(&access.base, escaping) {
-            Reach::Null | Reach::Local => None,
-            shared => Some((unknown, shared == Reach::Mixed)),
+            shared => Some((domains, shared == Reach::Mixed)),
         },
     }
 }
 
-fn union(a: Domains, b: Domains) -> Domains {
+/// Domaines de ce qu'un acces atteint, sa base etant partagee : un statique est
+/// `JavaStatics` ou `ModStatics`, un champ prend les domaines de sa classe ou `Unknown`,
+/// un element de tableau est `Unknown`.
+pub(super) fn target_domains(target: &Target, index: &ClassIndex, table: &DomainTable) -> Domains {
+    let unknown = Domains::EMPTY.with(Domain::Unknown);
+    match target {
+        Target::Static(field) => {
+            let jdk = JDK_PACKAGES.iter().any(|p| field.owner.starts_with(p));
+            Domains::EMPTY.with(if jdk {
+                Domain::JavaStatics
+            } else {
+                Domain::ModStatics
+            })
+        }
+        Target::Field(field) => table.of_class(index, &field.owner).unwrap_or(unknown),
+        Target::Element => unknown,
+    }
+}
+
+pub(super) fn union(a: Domains, b: Domains) -> Domains {
     Domains(a.0 | b.0)
 }
 
