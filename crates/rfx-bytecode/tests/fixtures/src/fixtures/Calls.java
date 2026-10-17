@@ -66,6 +66,28 @@ public class Calls {
         return length.apply(sound.apply(dog));
     }
 
+    // --- memes cas, par une classe : la hierarchie chargee peut trancher ----------
+
+    public static int vehicle(Vehicle vehicle) {
+        return vehicle.wheels();
+    }
+
+    public static void tool(Tool tool) {
+        tool.use();
+    }
+
+    public static String speak(Speaker speaker) {
+        return speaker.greet();
+    }
+
+    public static String labelled(Labelled labelled) {
+        return labelled.label();
+    }
+
+    public static void work(Worker worker) {
+        worker.run();
+    }
+
     /** Methode par defaut, mais une interface du JDK pourrait en fournir une autre. */
     public static String label(Named named) {
         return named.label();

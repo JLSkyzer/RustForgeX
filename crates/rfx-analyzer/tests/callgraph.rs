@@ -115,46 +115,66 @@ fn t160_monomorphic_and_static_calls_are_resolved() {
     );
 }
 
-/// Polymorphisme borne : trois implementations, trois aretes ; non borne (cinq) :
-/// non resolu, sans aucune arete vers les implementations (R-341, P-02).
+/// Polymorphisme borne par une classe : trois sous-classes, trois aretes ; non borne
+/// (cinq) : non resolu, sans aucune arete vers les sous-classes (R-341, P-02).
 #[test]
 fn bounded_polymorphism_is_resolved_and_unbounded_is_not() {
-    let bounded = method("Calls", "bounded", "(Lfixtures/Shape;)D");
-    let graph = build(&bounded);
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let graph = build(&vehicle);
     assert_eq!(
-        resolved_from(&graph, &bounded),
+        resolved_from(&graph, &vehicle),
         vec![
             (
-                "fixtures/Circle.area()D".to_owned(),
+                "fixtures/Bike.wheels()I".to_owned(),
                 Resolution::Polymorphic
             ),
+            ("fixtures/Car.wheels()I".to_owned(), Resolution::Polymorphic),
             (
-                "fixtures/Square.area()D".to_owned(),
-                Resolution::Polymorphic
-            ),
-            (
-                "fixtures/Triangle.area()D".to_owned(),
+                "fixtures/Truck.wheels()I".to_owned(),
                 Resolution::Polymorphic
             ),
         ]
     );
 
-    let unbounded = method("Calls", "unbounded", "(Lfixtures/Handler;)V");
-    let graph = build(&unbounded);
-    assert!(resolved_from(&graph, &unbounded).is_empty());
+    let tool = method("Calls", "tool", "(Lfixtures/Tool;)V");
+    let graph = build(&tool);
+    assert!(resolved_from(&graph, &tool).is_empty());
     assert_eq!(
-        unresolved_from(&graph, &unbounded),
+        unresolved_from(&graph, &tool),
         vec![Unresolved::Megamorphic]
     );
-    assert_eq!(graph.nodes().len(), 1, "aucune implementation explorée");
+    assert_eq!(graph.nodes().len(), 1, "aucune sous-classe explorée");
 }
 
-/// Methode par defaut heritee par la seule implementation chargee.
+/// Zero faux resolu : une interface peut etre implementee par des lambdas, des `Proxy`
+/// ou des classes generees que l'index ne verra jamais. Meme avec trois
+/// implementations connues, l'appel n'est pas resolu (ADR-051).
+#[test]
+fn calls_through_an_interface_are_never_resolved() {
+    for (name, descriptor) in [
+        ("bounded", "(Lfixtures/Shape;)D"),
+        ("unbounded", "(Lfixtures/Handler;)V"),
+        ("greet", "(Lfixtures/Greeter;)Ljava/lang/String;"),
+        ("label", "(Lfixtures/Named;)Ljava/lang/String;"),
+        ("runJob", "(Lfixtures/Job;)V"),
+    ] {
+        let root = method("Calls", name, descriptor);
+        let graph = build(&root);
+        assert!(resolved_from(&graph, &root).is_empty(), "{name}");
+        assert_eq!(
+            unresolved_from(&graph, &root),
+            vec![Unresolved::OpenInterface],
+            "{name}"
+        );
+    }
+}
+
+/// Methode par defaut heritee par la seule sous-classe chargee, appelee par une classe.
 #[test]
 fn default_methods_are_selected_through_interfaces() {
-    let greet = method("Calls", "greet", "(Lfixtures/Greeter;)Ljava/lang/String;");
+    let speak = method("Calls", "speak", "(Lfixtures/Speaker;)Ljava/lang/String;");
     assert_eq!(
-        resolved_from(&build(&greet), &greet),
+        resolved_from(&build(&speak), &speak),
         vec![(
             "fixtures/Greeter.greet()Ljava/lang/String;".to_owned(),
             Resolution::Monomorphic
@@ -216,15 +236,15 @@ fn virtual_method_references_go_through_virtual_resolution() {
     );
 }
 
-/// Zero faux resolu : la seule implementation chargee herite sa methode d'une classe
-/// du JDK, absente de l'index. Rien n'est affirme.
+/// Zero faux resolu : la seule sous-classe chargee herite sa methode d'une classe du
+/// JDK, absente de l'index. Rien n'est affirme.
 #[test]
 fn a_method_inherited_from_an_absent_class_is_not_resolved() {
-    let run = method("Calls", "runJob", "(Lfixtures/Job;)V");
-    let graph = build(&run);
-    assert!(resolved_from(&graph, &run).is_empty());
+    let work = method("Calls", "work", "(Lfixtures/Worker;)V");
+    let graph = build(&work);
+    assert!(resolved_from(&graph, &work).is_empty());
     assert_eq!(
-        unresolved_from(&graph, &run),
+        unresolved_from(&graph, &work),
         vec![Unresolved::UnknownClass]
     );
 }
@@ -233,7 +253,11 @@ fn a_method_inherited_from_an_absent_class_is_not_resolved() {
 /// methode par defaut plus specifique que celle qu'on connait.
 #[test]
 fn a_default_method_next_to_an_absent_interface_is_not_resolved() {
-    let label = method("Calls", "label", "(Lfixtures/Named;)Ljava/lang/String;");
+    let label = method(
+        "Calls",
+        "labelled",
+        "(Lfixtures/Labelled;)Ljava/lang/String;",
+    );
     let graph = build(&label);
     assert!(resolved_from(&graph, &label).is_empty());
     assert_eq!(

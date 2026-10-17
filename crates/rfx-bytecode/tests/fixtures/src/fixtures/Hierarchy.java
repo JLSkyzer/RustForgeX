@@ -121,6 +121,92 @@ final class Item implements Named, Comparable<Item> {
     }
 }
 
+/** Trois sous-classes d'une classe : polymorphe borne. */
+abstract class Vehicle {
+    abstract int wheels();
+}
+
+final class Bike extends Vehicle {
+    @Override
+    int wheels() {
+        return 2;
+    }
+}
+
+final class Car extends Vehicle {
+    @Override
+    int wheels() {
+        return 4;
+    }
+}
+
+final class Truck extends Vehicle {
+    @Override
+    int wheels() {
+        return 6;
+    }
+}
+
+/** Cinq sous-classes d'une classe : polymorphe non borne. */
+abstract class Tool {
+    abstract void use();
+}
+
+final class T1 extends Tool {
+    @Override
+    void use() {
+    }
+}
+
+final class T2 extends Tool {
+    @Override
+    void use() {
+    }
+}
+
+final class T3 extends Tool {
+    @Override
+    void use() {
+    }
+}
+
+final class T4 extends Tool {
+    @Override
+    void use() {
+    }
+}
+
+final class T5 extends Tool {
+    @Override
+    void use() {
+    }
+}
+
+/** Methode par defaut atteinte par une classe : la seule sous-classe la herite. */
+abstract class Speaker implements Greeter {
+}
+
+final class Loud extends Speaker {
+}
+
+/** Methode par defaut atteinte par une classe, a cote d'une interface du JDK. */
+abstract class Labelled implements Named {
+}
+
+final class Tag extends Labelled implements Comparable<Tag> {
+    @Override
+    public int compareTo(Tag other) {
+        return 0;
+    }
+}
+
+/** Par une classe : la seule sous-classe herite sa methode de Thread, hors de l'index. */
+abstract class Worker extends Thread {
+}
+
+final class Busy extends Worker {
+}
+
 /** Appel a la super-classe : invokespecial vers la methode heritee. */
 class Base {
     int value() {

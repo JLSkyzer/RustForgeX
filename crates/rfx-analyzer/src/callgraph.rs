@@ -12,14 +12,23 @@
 //! - l'appel est lie statiquement (`invokestatic`, `invokespecial`, methode privee ou
 //!   finale, classe finale) : la cible est sure, meme dans une classe hors de l'index
 //!   (elle est alors un noeud externe, non explore) ;
-//! - l'appel est virtuel et les classes concretes chargees n'offrent qu'une a quatre
-//!   cibles : une arete par cible. Ce resultat vaut pour l'ensemble de classes donne ;
+//! - l'appel est virtuel, par une **classe**, et les classes concretes connues n'offrent
+//!   qu'une a quatre cibles : une arete par cible. Ce resultat vaut pour l'ensemble de classes donne ;
 //!   charger une nouvelle sous-classe peut l'invalider, d'ou un graphe a recalculer
 //!   quand l'index change (ADR-050) ;
 //! - une lambda dont la methode d'implementation est lisible dans le reservoir.
 //!
-//! Tout le reste — classe absente, plus de quatre cibles, aucune implementation,
-//! reflexion, autre `invokedynamic` — est une arete non resolue, comptee.
+//! Tout le reste — appel par une interface, classe absente, plus de quatre cibles,
+//! aucune implementation, reflexion, autre `invokedynamic` — est une arete non
+//! resolue, comptee.
+//!
+//! # Interfaces ouvertes
+//!
+//! Une interface peut etre implementee par des classes que l'index ne verra jamais :
+//! les classes cachees des lambdas (`LambdaMetafactory`), les `Proxy`, les classes
+//! generees a l'execution. Aucune enumeration de ses implementations n'est donc
+//! complete, et un appel par une interface n'est jamais declare resolu — sauf vers une
+//! methode privee de l'interface, qui ne peut pas etre redefinie (ADR-051).
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
@@ -78,6 +87,9 @@ pub enum Resolution {
 pub enum Unresolved {
     /// Une classe necessaire a la resolution est absente de l'index (FM-15).
     UnknownClass,
+    /// Appel par une interface : des classes invisibles a l'index (lambdas, `Proxy`,
+    /// classes generees) peuvent l'implementer (ADR-051).
+    OpenInterface,
     /// Plus de [`MAX_POLYMORPHIC_TARGETS`] cibles (R-341).
     Megamorphic,
     /// Aucune implementation concrete chargee.
@@ -481,6 +493,10 @@ fn resolve_virtual(
             Selection::Unknown => Err(Unresolved::UnknownClass),
             Selection::Ambiguous => Err(Unresolved::Ambiguous),
         };
+    }
+
+    if owner.is_interface() {
+        return Err(Unresolved::OpenInterface);
     }
 
     let receivers = classes
