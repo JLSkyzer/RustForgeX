@@ -1032,8 +1032,8 @@ demandent une mesure ; les autres sont des tests de justesse.
         (budget 5 %) ; sans charge, aucune unité chaude, donc aucun graphe
   - [x] Coût d'un graphe mesuré (ADR-052, `rfx-bench callgraph`) : sous-types
         mémorisés, médiane 119,1 → 23,2 s pour 32 graphes, graphes identiques
-  - [ ] Reste (ADR-052, « Ce qui reste ») : 1,5 à 2,6 s par gros graphe ; mesurer
-        la reconstruction à chaque tour et la purge de l'index par racine
+  - [x] Seconde étape (ADR-052) : appel redéfinissable par `Object` mégamorphe,
+        sous-types empruntés ; 32 graphes en 1,87 s (médiane), graphes identiques
   - [x] (ancien libellé) Mesurer le coût d'un graphe sur des classes réelles, et en isoler la
         cause avant d'optimiser (ADR-051, « Vérification en jeu »)
   - [ ] Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
