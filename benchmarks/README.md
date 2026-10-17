@@ -98,6 +98,24 @@ le micro-benchmark `tick_window/cycle`. `rfx-bench telemetry` juge le **pire** d
 rapports et écrit `results/telemetry-<horodatage>-<commit>.json`. Méthode, périmètre et
 limites : ADR-034.
 
+## Coût d'un graphe d'appel (C-07)
+
+```bash
+"$JDK/bin/jimage" extract --dir <jdk-extrait> "$JDK/lib/modules"
+python benchmarks/callgraph-corpus.py \
+    build/classpath/runGameTestServer_minecraftClasspath.txt <jdk-extrait> \
+    target/callgraph-corpus.bin
+cargo run -p rfx-bench --release -- callgraph target/callgraph-corpus.bin [répétitions] [racines]
+```
+
+Le corpus réunit les classes du jeu de développement (archives du classpath écrit par
+ForgeGradle après un `runGameTestServer`) et celles du JDK. Il reste sous `target/` :
+il contient des classes de Minecraft, de Forge et du JDK, qu'on ne redistribue pas.
+L'analyse native est pilotée comme en jeu, sans Java ni frontière FFI ; chaque
+répétition repart d'une analyse neuve. Résultat :
+`results/callgraph-<horodatage>-<commit>.json`, un échantillon par graphe et par
+répétition. Méthode, racines choisies et limites : ADR-052.
+
 ## Lire un résultat
 
 ```json

@@ -377,6 +377,8 @@ name = "rfx-bench"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "rfx-analyzer",
+ "rfx-bytecode",
  "rfx-cache",
  "rfx-core",
  "rfx-memory",

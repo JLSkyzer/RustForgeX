@@ -23,6 +23,7 @@
 //! et ne peut donc pas répondre à la question « quel est l'overhead de RUSTFORGE-X ».
 //! Cette réponse viendra du niveau B, décrit en PARTIE 21.2.
 
+mod callgraph_cost;
 mod digest_diff;
 mod macro_bench;
 mod ranking;
@@ -136,10 +137,11 @@ fn main() {
         "roundtrips" => roundtrips_level(),
         "telemetry" => telemetry_level(),
         "ranking" => ranking_level(),
+        "callgraph" => callgraph_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips | telemetry | ranking"
+                 | roundtrips | telemetry | ranking | callgraph"
             );
             std::process::exit(2);
         }
@@ -677,6 +679,159 @@ fn telemetry_level() {
         out.display()
     );
     std::process::exit(i32::from(!verdict.conforms));
+}
+
+/// Cout d'un graphe d'appel sur des classes reelles (C-07, ADR-052).
+///
+/// `rfx-bench callgraph <corpus> [repetitions] [racines]` : chaque repetition repart
+/// d'une analyse neuve, declare toute la hierarchie puis construit le graphe de chaque
+/// racine, comme le fil d'analyse en jeu. Ecrit `benchmarks/results/callgraph-*.json`.
+fn callgraph_level() {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let Some(path) = args.first() else {
+        eprintln!("usage : rfx-bench callgraph <corpus> [repetitions] [racines]");
+        std::process::exit(2);
+    };
+    let repetitions: usize = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(3).max(1);
+    let root_count: usize = args
+        .get(2)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(rfx_core::analysis::ROOTS_PER_REFILL);
+
+    let corpus = match callgraph_cost::Corpus::load(Path::new(path)) {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+    let started = std::time::Instant::now();
+    let (hierarchy, unreadable) = corpus.hierarchy();
+    let parse_ms = started.elapsed().as_secs_f64() * 1e3;
+    let roots = corpus.roots(root_count);
+    println!(
+        "corpus : {} classes, {} illisibles, en-tetes lus en {parse_ms:.0} ms ; {} racines",
+        corpus.classes.len(),
+        unreadable,
+        roots.len()
+    );
+
+    let mut runs = Vec::with_capacity(repetitions);
+    for repetition in 0..repetitions {
+        let run = callgraph_cost::run(&corpus, &hierarchy, &roots);
+        let total: u64 = run.graphs.iter().map(|g| g.total_ns).sum();
+        println!(
+            "repetition {} : hierarchie declaree en {:.1} ms, {} graphes en {:.1} ms",
+            repetition + 1,
+            run.declare_ns as f64 / 1e6,
+            run.graphs.len(),
+            total as f64 / 1e6
+        );
+        runs.push(run);
+    }
+
+    let ms = |ns: u64| ns as f64 / 1e6;
+    let all = || runs.iter().flat_map(|run| run.graphs.iter());
+    let total_ms: Vec<f64> = all().map(|g| ms(g.total_ns)).collect();
+    let step_ms: Vec<f64> = all().map(|g| ms(g.step_ns)).collect();
+    let provide_ms: Vec<f64> = all().map(|g| ms(g.provide_ns)).collect();
+    let declare_ms: Vec<f64> = runs.iter().map(|run| ms(run.declare_ns)).collect();
+
+    println!();
+    println!(
+        "{:<70} {:>9} {:>9} {:>9} {:>5} {:>6} {:>6} {:>5} {:>5}",
+        "racine (premiere repetition)",
+        "total ms",
+        "pas ms",
+        "lect. ms",
+        "tours",
+        "noeuds",
+        "fournies",
+        "res.",
+        "non r."
+    );
+    for graph in &runs[0].graphs {
+        println!(
+            "{:<70} {:>9.1} {:>9.1} {:>9.1} {:>5} {:>6} {:>6} {:>5} {:>5}{}",
+            graph.root.chars().take(70).collect::<String>(),
+            ms(graph.total_ns),
+            ms(graph.step_ns),
+            ms(graph.provide_ns),
+            graph.rounds,
+            graph.nodes,
+            graph.provided,
+            graph.resolved_calls,
+            graph.unresolved_calls,
+            if graph.truncated { " tronque" } else { "" }
+        );
+    }
+
+    #[derive(Serialize)]
+    struct CallGraphFile<'a> {
+        schema: u32,
+        benchmark: &'static str,
+        commit: String,
+        dirty: bool,
+        collected_at: u64,
+        corpus_classes: usize,
+        corpus_unreadable: usize,
+        roots: usize,
+        repetitions: usize,
+        graph_total_ms: callgraph_cost::Distribution,
+        graph_step_ms: callgraph_cost::Distribution,
+        graph_provide_ms: callgraph_cost::Distribution,
+        hierarchy_declare_ms: callgraph_cost::Distribution,
+        runs: &'a [callgraph_cost::Repetition],
+    }
+    let root = repository_root();
+    let (commit, dirty) = git_state(&root);
+    let collected_at = unix_time();
+    let file = CallGraphFile {
+        schema: RESULT_SCHEMA,
+        benchmark: "callgraph",
+        commit: commit.clone(),
+        dirty,
+        collected_at,
+        corpus_classes: corpus.classes.len(),
+        corpus_unreadable: unreadable,
+        roots: roots.len(),
+        repetitions,
+        graph_total_ms: callgraph_cost::Distribution::of(&total_ms),
+        graph_step_ms: callgraph_cost::Distribution::of(&step_ms),
+        graph_provide_ms: callgraph_cost::Distribution::of(&provide_ms),
+        hierarchy_declare_ms: callgraph_cost::Distribution::of(&declare_ms),
+        runs: &runs,
+    };
+    let out_dir = root.join("benchmarks").join("results");
+    let out = out_dir.join(format!("callgraph-{collected_at}-{}.json", short(&commit)));
+    let written = std::fs::create_dir_all(&out_dir)
+        .map_err(|e| e.to_string())
+        .and_then(|()| serde_json::to_string_pretty(&file).map_err(|e| e.to_string()))
+        .and_then(|json| std::fs::write(&out, json + "\n").map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("écriture impossible dans {} : {e}", out.display());
+        std::process::exit(1);
+    }
+    let d = &file.graph_total_ms;
+    println!();
+    println!(
+        "graphe : mediane {:.1} ms [IC95 {:.1} ; {:.1}], IQR {:.1} ms, p90 {:.1} ms, max \
+         {:.1} ms sur {} graphes — pas {:.1} ms, lecture {:.1} ms (medianes)",
+        d.median,
+        d.ci_lower,
+        d.ci_upper,
+        d.iqr,
+        d.p90,
+        d.max,
+        d.samples,
+        file.graph_step_ms.median,
+        file.graph_provide_ms.median
+    );
+    println!(
+        "{}{}",
+        out.display(),
+        if dirty { " (arbre modifie)" } else { "" }
+    );
 }
 
 /// Niveau A : collecte les micro-benchmarks de criterion.
