@@ -373,6 +373,13 @@ class TelemetryTest {
         analysis.put("last_build_ns", buildNs);
         analysis.put("queue", 4L);
         analysis.put("budget_refusals", 0L);
+        analysis.put("descriptors", 2L);
+        analysis.put("completed", 3L);
+        analysis.put("descriptors_truncated", 1L);
+        analysis.put("descriptors_unknown", 2L);
+        analysis.put("descriptor_changes", 1L);
+        analysis.put("recomputes", 1L);
+        analysis.put("step_ns", 2_500_000L);
         return analysis;
     }
 
@@ -397,7 +404,12 @@ class TelemetryTest {
         assertEquals(1.5, set.get("rfx.callgraph.build_ms").value(), 1e-9);
         assertEquals(7, set.get("rfx.callgraph.resolved_calls").value());
         assertEquals(5, set.get("rfx.callgraph.classes_absent").value());
-        assertEquals(4, set.get("rfx.callgraph.queue").value());
+        assertEquals(4, set.get("rfx.analysis.queue_depth").value());
+        assertEquals(3, set.get("rfx.analysis.completed").value());
+        assertEquals(1, set.get("rfx.analysis.truncated").value());
+        assertEquals(2.5, set.get("rfx.analysis.cpu_ms").value(), 1e-9);
+        assertEquals(2, set.get("rfx.analysis.unknown").value());
+        assertEquals(1, set.get("rfx.analysis.recomputes").value());
 
         Map<String, Object> disabled = analysis(52_000L, 7L, 3L, 0L);
         disabled.put("enabled", false);

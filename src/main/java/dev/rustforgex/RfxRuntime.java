@@ -814,6 +814,10 @@ public final class RfxRuntime {
                 table.get("graphs"), table.get("resolved_calls"), table.get("unresolved_calls"),
                 table.get("truncated"), table.get("classes_provided"),
                 table.get("classes_absent"));
+        LOGGER.info("Profileur d'unités de travail : {} descripteur(s), dont {} UNKNOWN "
+                + "(analyses C-10 à C-13 absentes, ADR-054) ; {} recalcul(s).",
+                table.get("descriptors"), table.get("descriptors_unknown"),
+                table.get("recomputes"));
     }
 
     private Map<String, Object> nativeStatus() {

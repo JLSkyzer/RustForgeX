@@ -185,12 +185,24 @@ l'ouvre quand l'inventaire des mods est connu, au chargement complet (ADR-049).
 | `rfx.callgraph.reflection` | counter | — | Graphes où un appel réflexif a été rencontré — *conditionnelle* : hiérarchie déclarée |
 | `rfx.callgraph.classes_provided` | counter | — | Classes dont le bytecode a été lu pour l'analyse — *conditionnelle* : hiérarchie déclarée |
 | `rfx.callgraph.classes_absent` | counter | — | Classes tenues pour inconnues : cibles de mixin, d'access transformer ou de coremod, introuvables ou illisibles — *conditionnelle* : hiérarchie déclarée |
-| `rfx.callgraph.queue` | gauge | unités | Unités chaudes en attente d'analyse — *conditionnelle* : hiérarchie déclarée |
 | `rfx.callgraph.build_ms` | gauge | ms | Durée de la dernière construction, hors tick — *conditionnelle* : au moins une construction |
 
 Rien de cette section n'est publié si `analysis.enabled` vaut `false`. Les graphes ne
 pilotent encore aucune décision : ces métriques décrivent ce que l'analyse sait, pas
 un gain (ADR-051).
+
+### `rfx.analysis` — profileur d'unités de travail (C-08)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.analysis.queue_depth` | gauge | unités | Unités chaudes en attente d'analyse, les plus rentables d'abord — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.completed` | counter | — | Descripteurs calculés, recalculs compris — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.truncated` | counter | — | Descripteurs tronqués par une borne ou par l'épuisement des tours : `UNKNOWN`, jamais optimistes (FM-16) — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.cpu_ms` | gauge | ms | Temps cumulé des pas d'analyse, horloge monotone du fil d'analyse : borne haute du temps processeur — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.descriptors` | gauge | unités | Descripteurs tenus à jour — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.unknown` | gauge | unités | Descripteurs `UNKNOWN` : un fait manque, traité comme le pire cas (P-02). Tant que C-10 à C-13 n'existent pas, tous le sont (ADR-054) — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.descriptor_changes` | counter | — | Changements significatifs d'un descripteur (drapeaux, ou confiance combinée de 0,1), destinés à C-15 — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.recomputes` | counter | — | Recalculs sur changement du bytecode de la méthode racine (R-350) — *conditionnelle* : hiérarchie déclarée |
 
 ### `rfx.hook` — gardes des accroches (C-01, FM-02)
 

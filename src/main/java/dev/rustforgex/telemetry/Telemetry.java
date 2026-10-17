@@ -279,10 +279,36 @@ public final class Telemetry {
                 longOf(analysis, "classes_absent"),
                 "Classes tenues pour inconnues : cibles de mixin, d'access transformer ou "
                         + "de coremod, illisibles."));
-        set.add(Metric.gauge("rfx.callgraph.queue", longOf(analysis, "queue"), "unités",
-                "Unités chaudes en attente d'analyse."));
         set.addIfMeasured(buildNs > 0, () -> Metric.gauge("rfx.callgraph.build_ms",
                 buildNs / 1_000_000.0, "ms", "Durée de la dernière construction, hors tick."));
+        appendWorkloadProfiler(set, analysis);
+    }
+
+    /**
+     * Profileur d'unités de travail (C-08, ADR-054) : descripteurs tirés des graphes.
+     * Publié avec la hiérarchie, comme le graphe d'appel dont il dépend.
+     */
+    private static void appendWorkloadProfiler(MetricSet set, Map<String, Object> analysis) {
+        set.add(Metric.gauge("rfx.analysis.queue_depth", longOf(analysis, "queue"), "unités",
+                "Unités chaudes en attente d'analyse."));
+        set.add(Metric.counter("rfx.analysis.completed", longOf(analysis, "completed"),
+                "Descripteurs calculés, recalculs compris."));
+        set.add(Metric.counter("rfx.analysis.truncated",
+                longOf(analysis, "descriptors_truncated"),
+                "Descripteurs tronqués par une borne ou par le budget : UNKNOWN (FM-16)."));
+        set.add(Metric.gauge("rfx.analysis.cpu_ms", longOf(analysis, "step_ns") / 1_000_000.0,
+                "ms", "Temps passé dans les pas d'analyse, mesuré à l'horloge monotone "
+                        + "du fil d'analyse : borne haute du temps processeur."));
+        set.add(Metric.gauge("rfx.analysis.descriptors", longOf(analysis, "descriptors"),
+                "unités", "Descripteurs tenus à jour."));
+        set.add(Metric.gauge("rfx.analysis.unknown", longOf(analysis, "descriptors_unknown"),
+                "unités", "Descripteurs UNKNOWN : un fait manque, traité comme le pire cas "
+                        + "(P-02)."));
+        set.add(Metric.counter("rfx.analysis.descriptor_changes",
+                longOf(analysis, "descriptor_changes"),
+                "Changements significatifs d'un descripteur : drapeaux, ou confiance de 0,1."));
+        set.add(Metric.counter("rfx.analysis.recomputes", longOf(analysis, "recomputes"),
+                "Recalculs sur changement du bytecode de la méthode racine (R-350)."));
     }
 
     private static void appendDb(MetricSet set, Map<String, Object> db) {

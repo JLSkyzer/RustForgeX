@@ -575,6 +575,13 @@ impl Runtime {
                         && self.analysis_status.hierarchy_classes > 0,
                 },
                 ComponentStatus {
+                    id: "C-08".to_owned(),
+                    name: "Workload Profiler".to_owned(),
+                    maturity: Maturity::Stable,
+                    active: self.analysis_status.enabled
+                        && self.analysis_status.hierarchy_classes > 0,
+                },
+                ComponentStatus {
                     id: "C-09".to_owned(),
                     name: "Workload Database".to_owned(),
                     maturity: Maturity::Stable,
@@ -956,6 +963,11 @@ mod tests {
             .components
             .iter()
             .any(|component| component.id == "C-07" && component.active));
+        assert!(published
+            .components
+            .iter()
+            .any(|component| component.id == "C-08" && component.active));
+        assert_eq!(published.analysis.descriptors, 1, "C-08 : un descripteur");
 
         // Un budget trop petit pour cette memoire est refuse.
         let mut tight = Runtime::new(RuntimeConfig {

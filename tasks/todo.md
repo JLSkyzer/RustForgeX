@@ -1048,16 +1048,20 @@ demandent une mesure ; les autres sont des tests de justesse.
       `UNKNOWN` (P-02) ; le graphe de C-07 ne sert qu'à compter non résolus et
       troncature, qui ne peuvent qu'aggraver (risques de l'ADR-051 sans effet tant
       qu'aucun drapeau permissif ne peut être posé)
-  - [ ] `rfx-model` : DM-06 (domaines, précision), DM-07, DM-08, DM-09, DM-10, DM-11,
+  - [x] `rfx-model` : DM-06 (domaines, précision), DM-07, DM-08, DM-09, DM-10, DM-11,
         DM-12 ; règles de cohérence T-011
-  - [ ] `rfx-analyzer` : `classify` pure (R-351), confiance (R-218) ; T-170 table de
-        vérité complète sur l'abstraction des faits
-  - [ ] `rfx-core` : descripteurs, sélection par score, troncature par épuisement des
+  - [x] `rfx-analyzer` : `classify` pure (R-351), confiance (R-218) ; T-170 table de
+        vérité complète (225 000 combinaisons, attentes recalculées à part)
+  - [x] `rfx-core` : descripteurs, sélection par score, troncature par épuisement des
         tours (FM-16, T-171), recalcul sur changement de `bytecode_hash` (R-350,
-        T-172), changements significatifs comptés
-  - [ ] Métriques `rfx.analysis.*` (queue_depth, completed, truncated, cpu_ms, …),
-        télémétrie Java, BENCHMARKS.md
-  - [ ] Build, tests, jeu lancé et journaux relus
+        T-172), changements significatifs comptés ; mutants tués
+  - [x] Métriques `rfx.analysis.*` (queue_depth, completed, truncated, cpu_ms, …),
+        télémétrie Java, BENCHMARKS.md ; `rfx.callgraph.queue` renommée
+        `rfx.analysis.queue_depth`
+  - [x] Build, tests, jeu lancé (`runGameTestServer`, aucune erreur). Sans charge, le
+        serveur de développement n'a pas d'unité chaude : les descripteurs ne se
+        voient pas en jeu ; la chaîne profileur → descripteur → statut est vérifiée
+        par le test d'intégration du runtime
   - [ ] Hors périmètre, à décider par Killian : persistance des descripteurs dans
         `workload.db` (change DM-17) ; acceptance (attend C-10 à C-13, profil `heavy`)
 - [ ] C-10, C-12 — après C-08
