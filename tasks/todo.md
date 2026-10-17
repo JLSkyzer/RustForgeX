@@ -1070,8 +1070,9 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] `rfx-bytecode` : décodeur d'instructions complet (effet sur la pile, champs,
         branchements, table des exceptions) ; `jsr`/`ret` => non analysable —
         599 749 méthodes du corpus réel rejouées à la hauteur exacte du compilateur
-  - [ ] `rfx-analyzer` : interprétation abstraite intraprocédurale (sources des
-        références, point fixe, gestionnaires d'exceptions)
+  - [x] `rfx-analyzer` : interprétation abstraite intraprocédurale (sources des
+        références, point fixe, gestionnaires d'exceptions) — 599 749 méthodes du
+        corpus analysées, aucune incohérente ; 10 mutants sur 10 tués
   - [ ] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
         dérivée de la hiérarchie ; objets locaux non échappés
   - [ ] Interprocédural : résumés des appelées, arguments, récursion, UNKNOWN (R-380)

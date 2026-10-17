@@ -145,6 +145,20 @@ erreur du décodeur, et le code de sortie vaut `1`. Ce n'est pas une mesure de
 performance : aucun temps n'y est rapporté. Résultat :
 `results/insn-<horodatage>-<commit>.json`. Méthode : ADR-055.
 
+## Interprétation intraprocédurale de C-11
+
+```bash
+cargo run -p rfx-bench --release -- dataflow target/callgraph-corpus.bin [max_cells] [max_visites]
+```
+
+Analyse chaque méthode du corpus sous le budget donné (illimité par défaut, pour le
+mesurer ; `65536 64` reproduit le budget du jeu). Une méthode jugée incohérente est une
+erreur de l'interpréteur, puisque la JVM accepte ce code : le code de sortie vaut alors
+`1`. Le rapport donne aussi la distribution du travail par méthode (blocs, emplacements
+d'état, passages), qui fixe le budget. Les durées viennent d'un seul passage : ce sont
+des observations, pas un benchmark au sens de R-581. Résultat :
+`results/dataflow-<horodatage>-<commit>.json`. Méthode : ADR-055.
+
 ## Lire un résultat
 
 ```json

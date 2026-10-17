@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "benchmark": "dataflow",
+  "commit": "fb3b72053aa6279d18d7bc0168c1f432072c696c",
+  "dirty": true,
+  "collected_at": 1792264126,
+  "max_cells": 65536,
+  "max_visits_per_block": 64,
+  "report": {
+    "classes": 64932,
+    "unreadable_classes": 8,
+    "methods": 599749,
+    "analysed": 599749,
+    "bytecode": 0,
+    "incoherent": 0,
+    "budget": 0,
+    "widened_methods": 1023,
+    "blocks": {
+      "p50": 1.0,
+      "p99": 27.0,
+      "p999": 79.0,
+      "max": 418.0
+    },
+    "cells": {
+      "p50": 6.0,
+      "p99": 403.0,
+      "p999": 1890.0,
+      "max": 17440.0
+    },
+    "max_block_visits": {
+      "p50": 1.0,
+      "p99": 2.0,
+      "p999": 6.0,
+      "max": 14.0
+    },
+    "micros": {
+      "p50": 2.0999999999999996,
+      "p99": 55.9,
+      "p999": 465.0,
+      "max": 9830.6
+    },
+    "total_ms": 4848.8934,
+    "samples": {}
+  }
+}
