@@ -37,3 +37,9 @@ recompilation :
 `synchronized`, `multianewarray`, `ldc` de chaque nature, conversions, et plus de 256
 emplacements locaux (`iload_w`, `dstore_w`, `iinc_w`). Vérifier avec
 `javap -c -p -cp classes fixtures.Flow`.
+
+`Effects` sert à l'analyse de flux de données de C-11 : écritures sur le receveur, un
+paramètre ou la jonction de deux, alias d'un tableau lu dans un champ, statiques,
+verrou, `athrow` hors gestionnaire ou sous un gestionnaire d'un autre type, exception
+attrapée puis écrite, variable locale modifiée dans un bloc protégé, plusieurs
+`return`, boucle.

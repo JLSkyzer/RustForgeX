@@ -26,7 +26,9 @@ mod mutf8;
 pub use class::{access, BootstrapMethod, ClassFile, MethodInfo};
 pub use code::{call_sites, CallSite, CallTarget, InvokeKind};
 pub use constant::{Constant, ConstantPool, MemberRef, MethodHandleRef};
-pub use insn::{method_signature, stack_depths, Handler, Instruction, Op, Slot, StackOp};
+pub use insn::{
+    apply_stack_op, method_signature, stack_depths, Handler, Instruction, Op, Slot, StackOp,
+};
 
 /// Pourquoi un fichier `.class` ne peut pas etre lu.
 #[derive(Debug, Clone, PartialEq, Eq)]

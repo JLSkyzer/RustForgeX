@@ -491,18 +491,22 @@ fn switch_targets(code: &[u8], offset: usize) -> Option<Vec<u32>> {
     Some(targets)
 }
 
-/// Pile en categories : la seule chose que les instructions de pile lisent. `None` si
-/// une categorie ne convient pas a l'operation.
-fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
-    fn narrow(slot: Slot) -> Option<Slot> {
-        (slot != Slot::Wide).then_some(slot)
-    }
+/// Applique une operation de pile (JVMS §6.5 `pop`..`swap`) a une pile de valeurs
+/// quelconques, dont `slot_of` donne la nature : ces operations ne lisent que la
+/// categorie. `None` si une categorie ne convient pas, ou s'il manque des valeurs.
+pub fn apply_stack_op<T: Copy>(
+    stack: &mut Vec<T>,
+    op: StackOp,
+    slot_of: impl Fn(&T) -> Slot,
+) -> Option<()> {
+    let wide = |value: &T| slot_of(value) == Slot::Wide;
+    let narrow = |value: T| (!wide(&value)).then_some(value);
     match op {
         StackOp::Pop => {
             narrow(stack.pop()?)?;
         }
         StackOp::Pop2 => {
-            if stack.pop()? != Slot::Wide {
+            if !wide(&stack.pop()?) {
                 narrow(stack.pop()?)?;
             }
         }
@@ -518,7 +522,7 @@ fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
         StackOp::DupX2 => {
             let v1 = narrow(stack.pop()?)?;
             let v2 = stack.pop()?;
-            if v2 == Slot::Wide {
+            if wide(&v2) {
                 stack.extend([v1, v2, v1]);
             } else {
                 let v3 = narrow(stack.pop()?)?;
@@ -527,7 +531,7 @@ fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
         }
         StackOp::Dup2 => {
             let v1 = stack.pop()?;
-            if v1 == Slot::Wide {
+            if wide(&v1) {
                 stack.extend([v1, v1]);
             } else {
                 let v2 = narrow(stack.pop()?)?;
@@ -536,7 +540,7 @@ fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
         }
         StackOp::Dup2X1 => {
             let v1 = stack.pop()?;
-            if v1 == Slot::Wide {
+            if wide(&v1) {
                 let v2 = narrow(stack.pop()?)?;
                 stack.extend([v1, v2, v1]);
             } else {
@@ -547,9 +551,9 @@ fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
         }
         StackOp::Dup2X2 => {
             let v1 = stack.pop()?;
-            if v1 == Slot::Wide {
+            if wide(&v1) {
                 let v2 = stack.pop()?;
-                if v2 == Slot::Wide {
+                if wide(&v2) {
                     stack.extend([v1, v2, v1]);
                 } else {
                     let v3 = narrow(stack.pop()?)?;
@@ -558,7 +562,7 @@ fn apply_stack_op(stack: &mut Vec<Slot>, op: StackOp) -> Option<()> {
             } else {
                 let v2 = narrow(stack.pop()?)?;
                 let v3 = stack.pop()?;
-                if v3 == Slot::Wide {
+                if wide(&v3) {
                     stack.extend([v2, v1, v3, v2, v1]);
                 } else {
                     let v4 = narrow(stack.pop()?)?;
@@ -629,7 +633,7 @@ fn step(stack: &mut Vec<Slot>, op: &Op) -> Option<()> {
             pop_values(stack, usize::from(*dims))?;
             stack.push(Slot::Ref);
         }
-        Op::Stack(stack_op) => apply_stack_op(stack, *stack_op)?,
+        Op::Stack(stack_op) => apply_stack_op(stack, *stack_op, |slot| *slot)?,
         Op::Return(_) | Op::Throw => stack.clear(),
     }
     Some(())
@@ -762,14 +766,14 @@ mod tests {
         ];
         for (before, op, after) in cases {
             let mut stack = before.to_vec();
-            let result = apply_stack_op(&mut stack, op);
+            let result = apply_stack_op(&mut stack, op, |slot| *slot);
             match after {
                 Some(after) => assert_eq!(stack, after, "{before:?} {op:?}"),
                 None => assert!(result.is_none(), "{before:?} {op:?} doit echouer"),
             }
         }
         // Pas assez de valeurs.
-        assert!(apply_stack_op(&mut vec![P], StackOp::DupX1).is_none());
+        assert!(apply_stack_op(&mut vec![P], StackOp::DupX1, |slot| *slot).is_none());
     }
 
     #[test]

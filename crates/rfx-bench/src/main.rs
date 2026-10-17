@@ -25,6 +25,7 @@
 
 mod callgraph_acceptance;
 mod callgraph_cost;
+mod dataflow_corpus;
 mod digest_diff;
 mod insn_corpus;
 mod macro_bench;
@@ -142,10 +143,12 @@ fn main() {
         "callgraph" => callgraph_level(),
         "callgraph-acceptance" => callgraph_acceptance_level(),
         "insn" => insn_level(),
+        "dataflow" => dataflow_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance | insn"
+                 | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance | insn \
+                 | dataflow"
             );
             std::process::exit(2);
         }
@@ -913,6 +916,112 @@ fn insn_level() {
         if dirty { " (arbre modifie)" } else { "" }
     );
     if !report.sound() {
+        std::process::exit(1);
+    }
+}
+
+/// Analyse intraprocedurale de C-11 sur un corpus reel (ADR-055).
+///
+/// `rfx-bench dataflow <corpus> [max_cells] [max_visites_par_bloc]` : analyse chaque
+/// methode sous ce budget (illimite par defaut, pour le mesurer) ; rapporte les
+/// methodes jugees incoherentes et la distribution du travail. Ecrit
+/// `benchmarks/results/dataflow-*.json`. Code de sortie : `0` aucune methode
+/// incoherente, `1` sinon, `2` entree invalide.
+fn dataflow_level() {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let Some(path) = args.first() else {
+        eprintln!("usage : rfx-bench dataflow <corpus> [max_cells] [max_visites_par_bloc]");
+        std::process::exit(2);
+    };
+    let limits = rfx_analyzer::dataflow::DataflowLimits {
+        max_cells: args
+            .get(1)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(usize::MAX),
+        max_visits_per_block: args.get(2).and_then(|v| v.parse().ok()).unwrap_or(u32::MAX),
+    };
+    let corpus = match callgraph_cost::Corpus::load(Path::new(path)) {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+    let report = dataflow_corpus::run(&corpus, &limits);
+
+    #[derive(Serialize)]
+    struct DataflowFile<'a> {
+        schema: u32,
+        benchmark: &'static str,
+        commit: String,
+        dirty: bool,
+        collected_at: u64,
+        max_cells: Option<usize>,
+        max_visits_per_block: Option<u32>,
+        report: &'a dataflow_corpus::Report,
+    }
+    let root = repository_root();
+    let (commit, dirty) = git_state(&root);
+    let collected_at = unix_time();
+    let file = DataflowFile {
+        schema: RESULT_SCHEMA,
+        benchmark: "dataflow",
+        commit: commit.clone(),
+        dirty,
+        collected_at,
+        max_cells: (limits.max_cells != usize::MAX).then_some(limits.max_cells),
+        max_visits_per_block: (limits.max_visits_per_block != u32::MAX)
+            .then_some(limits.max_visits_per_block),
+        report: &report,
+    };
+    let out_dir = root.join("benchmarks").join("results");
+    let out = out_dir.join(format!("dataflow-{collected_at}-{}.json", short(&commit)));
+    let written = std::fs::create_dir_all(&out_dir)
+        .map_err(|e| e.to_string())
+        .and_then(|()| serde_json::to_string_pretty(&file).map_err(|e| e.to_string()))
+        .and_then(|json| {
+            std::fs::write(
+                &out,
+                json + "
+",
+            )
+            .map_err(|e| e.to_string())
+        });
+    if let Err(e) = written {
+        eprintln!("écriture impossible dans {} : {e}", out.display());
+        std::process::exit(1);
+    }
+    println!(
+        "{} classes ({} illisibles), {} methodes avec code, analysees en {:.0} ms",
+        report.classes, report.unreadable_classes, report.methods, report.total_ms
+    );
+    println!(
+        "analysees : {} ; bytecode : {} ; INCOHERENTES : {} ; hors budget : {}",
+        report.analysed, report.bytecode, report.incoherent, report.budget
+    );
+    println!("bornes de sources atteintes : {}", report.widened_methods);
+    let q = |name: &str, q: &dataflow_corpus::Quantiles| {
+        println!(
+            "{name:<24} p50 {:>10.1}  p99 {:>10.1}  p99.9 {:>10.1}  max {:>12.1}",
+            q.p50, q.p99, q.p999, q.max
+        );
+    };
+    q("blocs", &report.blocks);
+    q("emplacements d'etat", &report.cells);
+    q("passages max par bloc", &report.max_block_visits);
+    q("duree (us)", &report.micros);
+    for (category, samples) in &report.samples {
+        println!("[{category}]");
+        for sample in samples {
+            println!("  {sample}");
+        }
+    }
+    println!(
+        "{}{}",
+        out.display(),
+        if dirty { " (arbre modifie)" } else { "" }
+    );
+    if report.incoherent > 0 {
         std::process::exit(1);
     }
 }

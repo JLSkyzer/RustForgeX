@@ -8,7 +8,9 @@
 //! - [`callgraph::CallGraph`] : le graphe d'appel partiel d'une methode, borne, avec
 //!   ses aretes resolues, non resolues et observees, et ses cycles ;
 //! - [`classify`] : les drapeaux et la confiance d'une unite de travail, fonctions pures
-//!   des faits que les analyses ont produits (C-08, ADR-054).
+//!   des faits que les analyses ont produits (C-08, ADR-054) ;
+//! - [`dataflow`] : ce que le code d'une methode lit, ecrit, appelle et laisse
+//!   echapper, avec l'origine de chaque reference (C-11, ADR-055).
 //!
 //! # Sens des dependances
 //!
@@ -18,6 +20,7 @@
 
 pub mod callgraph;
 pub mod classify;
+pub mod dataflow;
 pub mod hierarchy;
 
 pub use callgraph::{CallGraph, Edge, EdgeKind, Limits, Node, Resolution, Unresolved};
