@@ -2,16 +2,23 @@
 //!
 //! Cahier des charges : PARTIE 5.11, FM-20. Maturite : `STABLE`.
 //!
-//! Analyse chaque methode avec du code du corpus, sous le budget donne. Sert deux
+//! Analyse chaque methode avec du code du corpus, sous le budget donne. Sert trois
 //! fins : verifier qu'aucune methode compilee et acceptee par la JVM n'est jugee
-//! incoherente (ce serait une erreur de l'interpreteur), et mesurer le travail par
-//! methode pour fixer les budgets sur des chiffres plutot qu'au juge.
+//! incoherente (ce serait une erreur de l'interpreteur), mesurer le travail par
+//! methode pour fixer les budgets sur des chiffres plutot qu'au juge, et decrire ce que
+//! les effets intraproceduraux savent dire, avec la hierarchie complete du corpus : la
+//! repartition des precisions et des domaines, et les ancres absentes.
 
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use rfx_analyzer::dataflow::{analyze, DataflowLimits, Unanalysable};
+use rfx_analyzer::dataflow::{
+    analyze, intraprocedural_effects, DataflowLimits, DomainTable, Unanalysable, CLASS_ANCHORS,
+    INTERFACE_ANCHORS,
+};
+use rfx_analyzer::hierarchy::{ClassIndex, Skeleton};
 use rfx_bytecode::ClassFile;
+use rfx_model::{Domains, Precision};
 use serde::Serialize;
 
 use crate::callgraph_cost::Corpus;
@@ -77,8 +84,16 @@ pub struct Report {
     pub cells: Quantiles,
     /// Plus grand nombre de passages dans un meme bloc, par methode.
     pub max_block_visits: Quantiles,
-    /// Duree d'analyse par methode, en microsecondes, decodage compris.
+    /// Duree par methode, en microsecondes : decodage, analyse et effets.
     pub micros: Quantiles,
+    /// Precision des ecritures : `EXACT`, `OVER_APPROX`, `UNKNOWN`.
+    pub write_precision: BTreeMap<String, u64>,
+    /// La meme, pour les seules methodes sans appel.
+    pub write_precision_without_calls: BTreeMap<String, u64>,
+    /// Methodes dont les ecritures touchent chaque domaine.
+    pub write_domains: BTreeMap<String, u64>,
+    /// Ancres de la table des domaines absentes de la hierarchie du corpus.
+    pub missing_anchors: Vec<String>,
     /// Duree totale, en millisecondes.
     pub total_ms: f64,
     /// Exemples par categorie : `classe.methode descripteur : detail`.
@@ -98,6 +113,25 @@ impl Report {
 #[must_use]
 pub fn run(corpus: &Corpus, limits: &DataflowLimits) -> Report {
     let mut report = Report::default();
+    let mut index = ClassIndex::new();
+    for bytes in corpus.classes.values() {
+        if let Ok(class) = ClassFile::parse(bytes) {
+            index.declare(
+                &class.name,
+                Skeleton {
+                    super_name: class.super_name,
+                    access: class.access,
+                },
+            );
+        }
+    }
+    report.missing_anchors = CLASS_ANCHORS
+        .iter()
+        .chain(INTERFACE_ANCHORS.iter())
+        .filter(|(name, _)| index.superclass(name).is_none())
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    let table = DomainTable::new();
     let mut names: Vec<&String> = corpus.classes.keys().collect();
     names.sort();
     let (mut blocks, mut cells, mut visits, mut micros) =
@@ -116,11 +150,25 @@ pub fn run(corpus: &Corpus, limits: &DataflowLimits) -> Report {
             report.methods += 1;
             let id = || format!("{}.{} {}", class.name, method.name, method.descriptor);
             let begun = Instant::now();
-            let result = analyze(&class, method, limits);
+            let result = analyze(&class, method, limits).map(|facts| {
+                let effects = intraprocedural_effects(&facts, &index, &table);
+                (facts, effects)
+            });
             micros.push(begun.elapsed().as_secs_f64() * 1e6);
             match result {
-                Ok(facts) => {
+                Ok((facts, effects)) => {
                     report.analysed += 1;
+                    let precision = precision_name(effects.writes.precision);
+                    *report.write_precision.entry(precision.clone()).or_default() += 1;
+                    if facts.calls.is_empty() {
+                        *report
+                            .write_precision_without_calls
+                            .entry(precision)
+                            .or_default() += 1;
+                    }
+                    for domain in domain_names(effects.writes.domains) {
+                        *report.write_domains.entry(domain).or_default() += 1;
+                    }
                     if facts.widened > 0 {
                         report.widened_methods += 1;
                     }
@@ -149,4 +197,43 @@ pub fn run(corpus: &Corpus, limits: &DataflowLimits) -> Report {
     report.max_block_visits = Quantiles::of(visits);
     report.micros = Quantiles::of(micros);
     report
+}
+
+fn precision_name(precision: Precision) -> String {
+    format!("{precision:?}")
+}
+
+/// Noms des domaines d'un ensemble, dans l'ordre de DM-06.
+fn domain_names(domains: Domains) -> Vec<String> {
+    use rfx_model::Domain::{
+        BlockEntityState, Capabilities, ChunkData, ChunkStatus, EntityInventory, EntityState,
+        FileSystem, JavaStatics, LevelGlobals, ModStatics, NativeExternal, Network, Random,
+        Registries, ThreadLocals, Time, Unknown, WorldBlocks, WorldFluids, WorldLighting,
+    };
+    [
+        WorldBlocks,
+        WorldFluids,
+        WorldLighting,
+        ChunkData,
+        ChunkStatus,
+        EntityState,
+        EntityInventory,
+        BlockEntityState,
+        LevelGlobals,
+        Registries,
+        Capabilities,
+        ModStatics,
+        JavaStatics,
+        ThreadLocals,
+        Network,
+        FileSystem,
+        NativeExternal,
+        Random,
+        Time,
+        Unknown,
+    ]
+    .into_iter()
+    .filter(|domain| domains.contains(*domain))
+    .map(|domain| format!("{domain:?}"))
+    .collect()
 }

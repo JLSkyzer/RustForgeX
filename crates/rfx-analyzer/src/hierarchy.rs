@@ -230,6 +230,19 @@ impl ClassIndex {
         self.declared.len()
     }
 
+    /// Super-classe d'une classe : de son bytecode, a defaut de la hierarchie. `None` si
+    /// la classe est inconnue ; `Some(None)` si elle n'a pas de super-classe.
+    #[must_use]
+    pub fn superclass(&self, name: &str) -> Option<Option<&str>> {
+        match self.classes.get(name) {
+            Some(class) => Some(class.super_name.as_deref()),
+            None => self
+                .declared
+                .get(name)
+                .map(|skeleton| skeleton.super_name.as_deref()),
+        }
+    }
+
     /// Drapeaux d'une classe : de son bytecode, a defaut de la hierarchie.
     fn access_of(&self, name: &str) -> Option<u16> {
         self.classes

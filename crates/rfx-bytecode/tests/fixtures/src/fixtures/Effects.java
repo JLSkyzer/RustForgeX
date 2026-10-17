@@ -127,6 +127,24 @@ public class Effects {
         return b;
     }
 
+    /** Deux tableaux locaux, l'un dans l'autre : rien ne s'echappe. */
+    static int localOnly() {
+        Object[] outer = new Object[1];
+        Object[] inner = new Object[1];
+        outer[0] = inner;
+        inner[0] = "x";
+        return outer.length;
+    }
+
+    /** Le tableau exterieur s'echappe dans un statique, l'interieur avec lui. */
+    static void nested() {
+        Object[] outer = new Object[1];
+        Object[] inner = new Object[1];
+        outer[0] = inner;
+        inner[0] = "x";
+        shared = outer;
+    }
+
     /** Boucle : la valeur rendue est un element du tableau, ou null. */
     static Object last(Object[] items) {
         Object last = null;

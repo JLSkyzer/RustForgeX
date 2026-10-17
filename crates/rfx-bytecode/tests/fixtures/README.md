@@ -42,4 +42,4 @@ emplacements locaux (`iload_w`, `dstore_w`, `iinc_w`). Vérifier avec
 paramètre ou la jonction de deux, alias d'un tableau lu dans un champ, statiques,
 verrou, `athrow` hors gestionnaire ou sous un gestionnaire d'un autre type, exception
 attrapée puis écrite, variable locale modifiée dans un bloc protégé, plusieurs
-`return`, boucle.
+`return`, boucle ; tableaux restés locaux ou échappés par transitivité.

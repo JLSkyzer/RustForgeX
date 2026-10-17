@@ -1010,6 +1010,13 @@ fn dataflow_level() {
     q("emplacements d'etat", &report.cells);
     q("passages max par bloc", &report.max_block_visits);
     q("duree (us)", &report.micros);
+    println!("precision des ecritures : {:?}", report.write_precision);
+    println!(
+        "  methodes sans appel : {:?}",
+        report.write_precision_without_calls
+    );
+    println!("domaines ecrits : {:?}", report.write_domains);
+    println!("ancres absentes : {:?}", report.missing_anchors);
     for (category, samples) in &report.samples {
         println!("[{category}]");
         for sample in samples {
