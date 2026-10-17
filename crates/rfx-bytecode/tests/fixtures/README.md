@@ -21,4 +21,9 @@ recompilation :
   (`StringConcatFactory`) ;
 - `tableswitch`, `lookupswitch`, `iinc_w` (préfixe `wide`) ;
 - réflexion (`Method.invoke`, `MethodHandle.invokeExact`), récursion directe et
-  mutuelle, une chaîne de vingt appels et un éventail de 8 × 8.
+  mutuelle, une chaîne de vingt appels et un éventail de 8 × 8 ;
+- références de méthode virtuelles (`REF_invokeVirtual` : `Dog::sound`,
+  `String::length`), et une implémentation unique qui hérite sa méthode d'une classe
+  du JDK (`ThreadJob extends Thread`) ;
+- une méthode par défaut connue, dans une classe qui implémente aussi une interface
+  du JDK (`Item implements Named, Comparable`).

@@ -59,6 +59,23 @@ public class Calls {
         return f.apply(2) + parse.apply("3");
     }
 
+    /** References de methode virtuelles : la cible depend du receveur. */
+    public static int methodReferences(Dog dog) {
+        Function<Dog, String> sound = Dog::sound;
+        Function<String, Integer> length = String::length;
+        return length.apply(sound.apply(dog));
+    }
+
+    /** Methode par defaut, mais une interface du JDK pourrait en fournir une autre. */
+    public static String label(Named named) {
+        return named.label();
+    }
+
+    /** L'implementation unique herite sa methode d'une classe du JDK. */
+    public static void runJob(Job job) {
+        job.run();
+    }
+
     // --- concatenation : invokedynamic qui n'est pas une lambda --------------------
 
     public static String concat(String a, int b) {

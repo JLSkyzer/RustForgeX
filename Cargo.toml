@@ -8,6 +8,7 @@ members = [
     "crates/rfx-scheduler",
     "crates/rfx-cache",
     "crates/rfx-bytecode",
+    "crates/rfx-analyzer",
     "crates/rfx-core",
     "crates/rfx-ffi",
     "crates/rfx-bench",
@@ -30,6 +31,7 @@ rfx-taskgraph = { path = "crates/rfx-taskgraph" }
 rfx-scheduler = { path = "crates/rfx-scheduler" }
 rfx-cache = { path = "crates/rfx-cache" }
 rfx-bytecode = { path = "crates/rfx-bytecode" }
+rfx-analyzer = { path = "crates/rfx-analyzer" }
 rfx-bench = { path = "crates/rfx-bench" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

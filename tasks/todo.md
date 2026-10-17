@@ -1019,7 +1019,7 @@ demandent une mesure ; les autres sont des tests de justesse.
       C-07 d'abord, C-10 s'appuie sur son graphe, C-08 orchestre les analyses
   - [x] `rfx-bytecode` : lecture d'un `.class` (JVMS §4) sans dépendance, jamais de
         panic sur une entrée malformée ; sites d'appel `invoke*`, méthodes d'amorçage
-  - [ ] `rfx-analyzer` : index des classes chargées, résolution statique, monomorphe,
+  - [x] `rfx-analyzer` : index des classes chargées, résolution statique, monomorphe,
         polymorphe bornée (≤ 4), lambda, réflexion → non résolue, Tarjan, bornes
         (`max_call_depth` 12, `max_nodes_per_workload` 2000 → `truncated`)
   - [x] Classes de test compilées par `javac` depuis des sources du dépôt (aucune

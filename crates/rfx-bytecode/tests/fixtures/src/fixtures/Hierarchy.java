@@ -93,6 +93,34 @@ interface Greeter {
 final class Polite implements Greeter {
 }
 
+/**
+ * Seule implementation chargee, mais sa methode vient d'une classe du JDK absente de
+ * l'index : l'appel ne doit pas etre declare resolu.
+ */
+interface Job {
+    void run();
+}
+
+final class ThreadJob extends Thread implements Job {
+}
+
+/**
+ * Methode par defaut connue, mais la classe implemente aussi une interface du JDK
+ * absente de l'index, qui pourrait en fournir une plus specifique : rien n'est affirme.
+ */
+interface Named {
+    default String label() {
+        return "nom";
+    }
+}
+
+final class Item implements Named, Comparable<Item> {
+    @Override
+    public int compareTo(Item other) {
+        return 0;
+    }
+}
+
 /** Appel a la super-classe : invokespecial vers la methode heritee. */
 class Base {
     int value() {

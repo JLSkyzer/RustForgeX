@@ -1,0 +1,20 @@
+[package]
+name = "rfx-analyzer"
+description = "C-07 (Call Graph), puis C-08, C-10 a C-13 : analyse statique des unites de travail"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-bytecode = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# Analyse pure de donnees : aucun bloc `unsafe`.
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
