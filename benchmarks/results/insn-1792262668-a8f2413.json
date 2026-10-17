@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "benchmark": "insn",
+  "commit": "a8f2413014aa9e0b7c670129dcb99e46b9d75370",
+  "dirty": true,
+  "collected_at": 1792262668,
+  "sound": true,
+  "report": {
+    "classes": 64932,
+    "unreadable_classes": 8,
+    "methods": 599749,
+    "replayed": 599749,
+    "depth_equal": 599749,
+    "depth_below": 0,
+    "depth_above": 0,
+    "locals_out_of_range": 0,
+    "subroutines": 0,
+    "decode_errors": 0,
+    "replay_errors": 0,
+    "samples": {}
+  }
+}

@@ -132,6 +132,19 @@ trancher, et l'acceptance est refusée. Le `java` doit être celui du JDK dont v
 les classes du corpus. Résultat : `results/callgraph-acceptance-<horodatage>-<commit>.json`.
 Méthode et limites : ADR-053.
 
+## Décodeur d'instructions de C-11
+
+```bash
+cargo run -p rfx-bench --release -- insn target/callgraph-corpus.bin
+```
+
+Sur le même corpus, chaque méthode est décodée et sa pile rejouée ; la hauteur obtenue
+doit égaler le `max_stack` écrit par le compilateur, que la JVM fait respecter. Une
+hauteur supérieure, un rejeu impossible ou une variable locale hors bornes trahit une
+erreur du décodeur, et le code de sortie vaut `1`. Ce n'est pas une mesure de
+performance : aucun temps n'y est rapporté. Résultat :
+`results/insn-<horodatage>-<commit>.json`. Méthode : ADR-055.
+
 ## Lire un résultat
 
 ```json

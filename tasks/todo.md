@@ -1067,8 +1067,9 @@ demandent une mesure ; les autres sont des tests de justesse.
 - [~] C-11 Data Flow Analyzer — T-200..T-205 (R-380..R-382, FM-20), ADR-055. Avant
       C-10, qui a besoin de ses ensembles d'accès (demande de Killian du 2026-10-17,
       « ok go la suite »)
-  - [ ] `rfx-bytecode` : décodeur d'instructions complet (effet sur la pile, champs,
-        branchements, table des exceptions) ; `jsr`/`ret` => non analysable
+  - [x] `rfx-bytecode` : décodeur d'instructions complet (effet sur la pile, champs,
+        branchements, table des exceptions) ; `jsr`/`ret` => non analysable —
+        599 749 méthodes du corpus réel rejouées à la hauteur exacte du compilateur
   - [ ] `rfx-analyzer` : interprétation abstraite intraprocédurale (sources des
         références, point fixe, gestionnaires d'exceptions)
   - [ ] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
