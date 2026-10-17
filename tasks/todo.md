@@ -1015,7 +1015,18 @@ demandent une mesure ; les autres sont des tests de justesse.
         (64,1 Mio : enregistrements en ligne dans un `Vec` qui double) ni l'autre
         (423 ms : historique en CBOR nommé, décodage en série) ; corrigés par `Box`,
         historique en entiers et décodage parallèle par blocs
-- [ ] C-07, C-08, C-10, C-12 — ordre à fixer
+- [~] C-07 Call Graph — T-160..T-164 (R-340, R-341, FM-15), ADR-050. Ordre retenu :
+      C-07 d'abord, C-10 s'appuie sur son graphe, C-08 orchestre les analyses
+  - [x] `rfx-bytecode` : lecture d'un `.class` (JVMS §4) sans dépendance, jamais de
+        panic sur une entrée malformée ; sites d'appel `invoke*`, méthodes d'amorçage
+  - [ ] `rfx-analyzer` : index des classes chargées, résolution statique, monomorphe,
+        polymorphe bornée (≤ 4), lambda, réflexion → non résolue, Tarjan, bornes
+        (`max_call_depth` 12, `max_nodes_per_workload` 2000 → `truncated`)
+  - [x] Classes de test compilées par `javac` depuis des sources du dépôt (aucune
+        classe tierce redistribuée)
+  - [ ] Brancher : faire parvenir les octets des classes depuis C-04, puis C-08
+  - [ ] Acceptance (200 méthodes de référence, > 80 % résolues, zéro faux résolu)
+- [ ] C-08, C-10, C-12 — après C-07
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

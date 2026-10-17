@@ -1,0 +1,21 @@
+[package]
+name = "rfx-bytecode"
+description = "Lecture des fichiers .class (JVMS 4) pour l'analyse statique de C-07"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Aucune dependance : le format est stable et borne, et un lecteur maison se teste
+# entierement (ADR-050).
+[dependencies]
+
+[lints.rust]
+missing_docs = "deny"
+# Lecture d'octets non fiables : aucun `unsafe`, et aucune panic (PARTIE 19.2).
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

@@ -382,6 +382,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfx-bytecode"
+version = "0.1.0"
+
+[[package]]
 name = "rfx-cache"
 version = "0.1.0"
 dependencies = [
