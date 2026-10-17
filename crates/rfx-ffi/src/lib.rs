@@ -251,8 +251,8 @@ fn with_analysis<R>(
     let mut analysis = shared
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    for (work_id, method) in staged {
-        analysis.note(work_id, method);
+    for (work_id, method, side) in staged {
+        analysis.note(work_id, method, side);
     }
     Ok(f(&mut analysis))
 }

@@ -19,8 +19,8 @@ use std::time::Instant;
 
 use rfx_analyzer::MethodRef;
 use rfx_bytecode::ClassFile;
-use rfx_core::analysis::{Analysis, StepState};
-use rfx_model::{HierarchyEntry, RuntimeConfig, WorkId};
+use rfx_core::analysis::{Analysis, HotWorkload, StepState};
+use rfx_model::{Heat, HierarchyEntry, RuntimeConfig, Side, WorkId};
 use serde::Serialize;
 
 /// Signature du fichier de corpus.
@@ -181,7 +181,7 @@ pub fn run(corpus: &Corpus, hierarchy: &[HierarchyEntry], roots: &[MethodRef]) -
         .enumerate()
         .map(|(index, root)| {
             let id = WorkId(index as u64 + 1);
-            analysis.note(id, root.clone());
+            analysis.note(id, root.clone(), Side::Common);
             drive(&mut analysis, corpus, id, root)
         })
         .collect();
@@ -206,7 +206,12 @@ fn drive(analysis: &mut Analysis, corpus: &Corpus, id: WorkId, root: &MethodRef)
     };
     for _ in 0..MAX_STEPS {
         let started = Instant::now();
-        let state = analysis.step(&[id]);
+        // La chaleur ne change rien au graphe : seulement a l'ordre et aux drapeaux.
+        let state = analysis.step(&[HotWorkload {
+            work_id: id,
+            heat: Heat::Hot,
+            observation_quality: 1.0,
+        }]);
         cost.step_ns += elapsed_ns(started);
         cost.steps += 1;
         if state != StepState::NeedsClasses {

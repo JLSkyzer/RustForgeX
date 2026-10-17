@@ -45,6 +45,29 @@ pub struct AnalysisStatus {
     pub queue: u64,
     /// Refus du budget memoire natif : l'analyse s'est alors arretee (R-533).
     pub budget_refusals: u64,
+    /// Descripteurs tenus a jour (C-08, `rfx.analysis.descriptors`).
+    #[serde(default)]
+    pub descriptors: u64,
+    /// Descripteurs calcules, recalculs compris (`rfx.analysis.completed`).
+    #[serde(default)]
+    pub completed: u64,
+    /// Descripteurs dont l'analyse a ete tronquee : borne ou budget (FM-16,
+    /// `rfx.analysis.truncated`).
+    #[serde(default)]
+    pub descriptors_truncated: u64,
+    /// Descripteurs `UNKNOWN` en ce moment (P-02).
+    #[serde(default)]
+    pub descriptors_unknown: u64,
+    /// Changements significatifs d'un descripteur, a notifier a C-15.
+    #[serde(default)]
+    pub descriptor_changes: u64,
+    /// Recalculs sur changement du bytecode de la methode racine (R-350).
+    #[serde(default)]
+    pub recomputes: u64,
+    /// Temps passe dans les pas d'analyse, en nanosecondes, horloge monotone du fil
+    /// d'analyse (`rfx.analysis.cpu_ms`) : une borne haute du temps processeur.
+    #[serde(default)]
+    pub step_ns: u64,
 }
 
 #[cfg(test)]

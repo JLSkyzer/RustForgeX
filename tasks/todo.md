@@ -1043,7 +1043,24 @@ demandent une mesure ; les autres sont des tests de justesse.
         200 méthodes de référence résolus ; 26 033 sites résolus confrontés à la JVM,
         0 faux résolu, 0 invérifiable. L'oracle a d'abord trouvé 9 faux résolus,
         corrigés (troncature, résolution JVMS)
-- [ ] C-08, C-10, C-12 — après C-07
+- [~] C-08 Workload Profiler — T-170..T-172 (R-350, R-351, FM-16), ADR-054. Demande de
+      Killian du 2026-10-17. C-10 à C-13 absents : leurs faits sont `None`, donc
+      `UNKNOWN` (P-02) ; le graphe de C-07 ne sert qu'à compter non résolus et
+      troncature, qui ne peuvent qu'aggraver (risques de l'ADR-051 sans effet tant
+      qu'aucun drapeau permissif ne peut être posé)
+  - [ ] `rfx-model` : DM-06 (domaines, précision), DM-07, DM-08, DM-09, DM-10, DM-11,
+        DM-12 ; règles de cohérence T-011
+  - [ ] `rfx-analyzer` : `classify` pure (R-351), confiance (R-218) ; T-170 table de
+        vérité complète sur l'abstraction des faits
+  - [ ] `rfx-core` : descripteurs, sélection par score, troncature par épuisement des
+        tours (FM-16, T-171), recalcul sur changement de `bytecode_hash` (R-350,
+        T-172), changements significatifs comptés
+  - [ ] Métriques `rfx.analysis.*` (queue_depth, completed, truncated, cpu_ms, …),
+        télémétrie Java, BENCHMARKS.md
+  - [ ] Build, tests, jeu lancé et journaux relus
+  - [ ] Hors périmètre, à décider par Killian : persistance des descripteurs dans
+        `workload.db` (change DM-17) ; acceptance (attend C-10 à C-13, profil `heavy`)
+- [ ] C-10, C-12 — après C-08
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

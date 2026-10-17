@@ -16,7 +16,7 @@ use rfx_model::{
 };
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
-use crate::analysis::{Analysis, ROOTS_PER_REFILL};
+use crate::analysis::{Analysis, HotWorkload, StagedRoot, ROOTS_PER_REFILL};
 use crate::db::DbLink;
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
@@ -84,7 +84,7 @@ pub struct Runtime {
     /// construit sans tenir celui que partage le tick.
     analysis: Arc<Mutex<Analysis>>,
     /// Methodes sondees depuis le dernier pas d'analyse, a lui confier.
-    analysis_staging: Vec<(rfx_model::WorkId, rfx_analyzer::MethodRef)>,
+    analysis_staging: Vec<StagedRoot>,
     /// Dernier etat publie par l'analyse.
     analysis_status: AnalysisStatus,
     /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
@@ -208,6 +208,7 @@ impl Runtime {
                         &descriptor.method_name,
                         &descriptor.method_descriptor,
                     ),
+                    descriptor.side,
                 ));
             }
         }
@@ -216,27 +217,27 @@ impl Runtime {
 
     /// Analyse statique, a piloter hors du verrou du registre (ADR-051), et les methodes
     /// sondees depuis le dernier pas, a lui confier.
-    pub fn analysis_handoff(
-        &mut self,
-    ) -> (
-        Arc<Mutex<Analysis>>,
-        Vec<(rfx_model::WorkId, rfx_analyzer::MethodRef)>,
-    ) {
+    pub fn analysis_handoff(&mut self) -> (Arc<Mutex<Analysis>>, Vec<StagedRoot>) {
         (
             Arc::clone(&self.analysis),
             std::mem::take(&mut self.analysis_staging),
         )
     }
 
-    /// Unites les plus couteuses deja mesurees : racines des prochains graphes.
+    /// Unites les plus couteuses deja mesurees : racines des prochains graphes, avec
+    /// leur chaleur et la qualite de leur observation (C-08).
     #[must_use]
-    pub fn hot_workloads(&self) -> Vec<rfx_model::WorkId> {
+    pub fn hot_workloads(&self) -> Vec<HotWorkload> {
         self.profiler
             .store()
             .hottest(ROOTS_PER_REFILL)
             .into_iter()
             .filter(|entry| entry.cost_ns_per_tick() > 0)
-            .map(|entry| entry.work_id)
+            .map(|entry| HotWorkload {
+                work_id: entry.work_id,
+                heat: rfx_model::Heat::classify(entry.cost_ns_per_tick()),
+                observation_quality: entry.dynamics.observation_quality,
+            })
             .collect()
     }
 
@@ -931,11 +932,16 @@ mod tests {
         let (shared, staged) = rt.analysis_handoff();
         assert_eq!(staged.len(), 1, "la methode sondee attend l'analyse");
         let hot = rt.hot_workloads();
-        assert_eq!(hot, vec![work_id], "mesuree, donc chaude");
+        assert_eq!(
+            hot.iter().map(|h| h.work_id).collect::<Vec<_>>(),
+            vec![work_id],
+            "mesuree, donc chaude"
+        );
+        assert!(hot[0].observation_quality > 0.0);
         let (status, bytes) = {
             let mut analysis = shared.lock().unwrap();
-            for (id, method) in staged {
-                analysis.note(id, method);
+            for (id, method, side) in staged {
+                analysis.note(id, method, side);
             }
             analysis.declare(hierarchy(&classes));
             assert_eq!(drive(&mut analysis, &hot, &classes), StepState::Finished);
