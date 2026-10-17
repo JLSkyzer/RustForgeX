@@ -239,27 +239,42 @@ impl ClassIndex {
     }
 
     /// Classes concretes qui sont `name` ou en descendent, d'apres le bytecode fourni et
-    /// la hierarchie declaree, dans un ordre stable. `None` si `name` est inconnue.
+    /// la hierarchie declaree, triees par nom. `None` si `name` est inconnue.
+    ///
+    /// Les noms sont empruntes a l'index, jamais copies : sous `java/lang/Object`, le
+    /// sous-arbre est l'installation entiere, et le copier nom par nom dominait le cout
+    /// d'un graphe (ADR-052).
     #[must_use]
-    pub fn concrete_subtypes(&self, name: &str) -> Option<Vec<String>> {
-        self.access_of(name)?;
-        let mut seen = HashSet::new();
-        let mut queue = VecDeque::from([name.to_owned()]);
-        let mut found = BTreeSet::new();
+    pub fn concrete_subtypes(&self, name: &str) -> Option<Vec<&str>> {
+        // Le nom tel que l'index le detient : le resultat n'emprunte qu'a l'index.
+        let name = self
+            .classes
+            .get_key_value(name)
+            .map(|(key, _)| key.as_str())
+            .or_else(|| {
+                self.declared
+                    .get_key_value(name)
+                    .map(|(key, _)| key.as_str())
+            })?;
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut queue: VecDeque<&str> = VecDeque::from([name]);
+        let mut found: Vec<&str> = Vec::new();
         while let Some(current) = queue.pop_front() {
-            if !seen.insert(current.clone()) {
+            if !seen.insert(current) {
                 continue;
             }
-            if let Some(flags) = self.access_of(&current) {
+            if let Some(flags) = self.access_of(current) {
                 if flags & (access::INTERFACE | access::ABSTRACT) == 0 {
-                    found.insert(current.clone());
+                    found.push(current);
                 }
             }
-            if let Some(children) = self.subtypes.get(&current) {
-                queue.extend(children.iter().cloned());
+            if let Some(children) = self.subtypes.get(current) {
+                queue.extend(children.iter().map(String::as_str));
             }
         }
-        Some(found.into_iter().collect())
+        // `seen` garantit l'unicite ; l'ordre est celui des noms, comme avant.
+        found.sort_unstable();
+        Some(found)
     }
 
     /// Methode executee quand `name descriptor` est appelee sur un objet de classe

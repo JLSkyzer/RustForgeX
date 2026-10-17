@@ -174,6 +174,19 @@ const REFLECTIVE: [(&str, &str); 6] = [
 
 const LAMBDA_FACTORY: &str = "java/lang/invoke/LambdaMetafactory";
 
+/// Racine de toute hierarchie de classes.
+const OBJECT: &str = "java/lang/Object";
+
+/// Methodes de `java/lang/Object` qu'une classe peut redefinir (JDK 17) ; les autres
+/// sont finales et suivent la voie des cibles fixes.
+const OBJECT_OVERRIDABLE: [(&str, &str); 5] = [
+    ("equals", "(Ljava/lang/Object;)Z"),
+    ("hashCode", "()I"),
+    ("toString", "()Ljava/lang/String;"),
+    ("clone", "()Ljava/lang/Object;"),
+    ("finalize", "()V"),
+];
+
 /// L'index, et les sous-types concrets deja enumeres pendant une construction.
 ///
 /// Enumerer les sous-types d'une classe parcourt tout son sous-arbre ; une meme classe
@@ -184,7 +197,7 @@ const LAMBDA_FACTORY: &str = "java/lang/invoke/LambdaMetafactory";
 /// la memoire meurt avec la construction.
 struct Resolver<'a> {
     classes: &'a ClassIndex,
-    subtypes: RefCell<HashMap<String, Option<Rc<[String]>>>>,
+    subtypes: RefCell<HashMap<String, Option<Rc<[&'a str]>>>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -196,11 +209,11 @@ impl<'a> Resolver<'a> {
     }
 
     /// [`ClassIndex::concrete_subtypes`], une seule fois par classe et par construction.
-    fn concrete_subtypes(&self, name: &str) -> Option<Rc<[String]>> {
+    fn concrete_subtypes(&self, name: &str) -> Option<Rc<[&'a str]>> {
         if let Some(known) = self.subtypes.borrow().get(name) {
             return known.clone();
         }
-        let found: Option<Rc<[String]>> = self.classes.concrete_subtypes(name).map(Rc::from);
+        let found: Option<Rc<[&'a str]>> = self.classes.concrete_subtypes(name).map(Rc::from);
         self.subtypes
             .borrow_mut()
             .insert(name.to_owned(), found.clone());
@@ -518,6 +531,17 @@ fn resolve_virtual(
     if REFLECTIVE.contains(&(member.owner.as_str(), member.name.as_str())) {
         return Err(Unresolved::Reflection);
     }
+    // Par `java/lang/Object`, toute classe de l'installation est un receveur, et ces
+    // methodes y sont redefinies bien plus de MAX_POLYMORPHIC_TARGETS fois : java.base
+    // du JDK 17 en declare a lui seul 682 `toString`, 362 `equals`, 360 `hashCode`,
+    // 137 `clone` et 6 `finalize`. Megamorphe, sans enumerer un sous-arbre qui est
+    // l'installation entiere : mesure sur les classes du jeu, ces enumerations faisaient
+    // les deux tiers du cout d'un graphe (ADR-052).
+    if member.owner == OBJECT
+        && OBJECT_OVERRIDABLE.contains(&(member.name.as_str(), member.descriptor.as_str()))
+    {
+        return Err(Unresolved::Megamorphic);
+    }
     let Some(owner) = classes.class(&member.owner) else {
         // Absente, ou demandee : dans les deux cas, rien n'est affirme a ce tour.
         return Err(Unresolved::UnknownClass);
@@ -554,7 +578,7 @@ fn resolve_virtual(
     let mut targets: Vec<MethodRef> = Vec::new();
     let mut pending = false;
     let mut asked = 0;
-    for receiver in receivers.iter() {
+    for &receiver in receivers.iter() {
         if classes.get(receiver).is_none() {
             if !classes.is_fetchable(receiver) {
                 // Sous-classe concrete dont le bytecode ne sera jamais fourni (cible de

@@ -72,6 +72,11 @@ public class Calls {
         return vehicle.wheels();
     }
 
+    /** Par `Object` : toute classe est un receveur. */
+    public static int objectHash(Object value) {
+        return value.hashCode();
+    }
+
     /** Deux hierarchies de classes dans le meme graphe : chacune a ses sous-classes. */
     public static int twoHierarchies(Vehicle vehicle, Tool tool) {
         tool(tool);

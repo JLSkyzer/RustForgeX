@@ -388,6 +388,18 @@ fn observed_edges_complete_the_graph() {
     assert!(graph.find(&unbounded).unwrap().recursive, "cycle observe");
 }
 
+/// Par `java/lang/Object`, une methode redefinissable est megamorphe, sans que le
+/// bytecode d'`Object` ni ses sous-classes soient necessaires (ADR-052).
+#[test]
+fn an_overridable_call_through_object_is_megamorphic() {
+    let root = method("Calls", "objectHash", "(Ljava/lang/Object;)I");
+    let graph = build(&root);
+    assert_eq!(
+        unresolved_from(&graph, &root),
+        vec![Unresolved::Megamorphic]
+    );
+}
+
 /// Deux hierarchies de classes dans le meme graphe : les sous-types memorises pendant
 /// la construction (ADR-052) restent ceux de chaque classe.
 #[test]
