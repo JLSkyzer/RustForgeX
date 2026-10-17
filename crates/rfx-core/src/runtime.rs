@@ -5,17 +5,18 @@
 //! Maturite : `STABLE`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use rfx_memory::probe_buffer::DEFAULT_BUFFER_BYTES;
 use rfx_memory::{MemoryBudget, Pool, ProbeBufferPool};
 use rfx_model::{
-    ComponentStatus, DbOpen, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
-    RuntimeStatus, SchedulerStatus, Side, TickStatus, WorkDescriptor,
+    AnalysisStatus, ComponentStatus, DbOpen, HardwareClass, Maturity, ProbeCoverage, ProbeStatus,
+    RuntimeConfig, RuntimeStatus, SchedulerStatus, Side, TickStatus, WorkDescriptor,
 };
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
+use crate::analysis::{Analysis, ROOTS_PER_REFILL};
 use crate::db::DbLink;
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
@@ -79,6 +80,15 @@ pub struct Runtime {
     scheduler: SchedulerStatus,
     /// Base des unites de travail (C-09, ADR-049).
     db: DbLink,
+    /// Analyse statique (C-07, ADR-051), sous son propre verrou : un graphe se
+    /// construit sans tenir celui que partage le tick.
+    analysis: Arc<Mutex<Analysis>>,
+    /// Methodes sondees depuis le dernier pas d'analyse, a lui confier.
+    analysis_staging: Vec<(rfx_model::WorkId, rfx_analyzer::MethodRef)>,
+    /// Dernier etat publie par l'analyse.
+    analysis_status: AnalysisStatus,
+    /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
+    analysis_reserved: u64,
 }
 
 impl Runtime {
@@ -96,6 +106,11 @@ impl Runtime {
             baseline_cycles: config.profiler_baseline_cycles,
         };
         let db = DbLink::new(&config);
+        let analysis = Arc::new(Mutex::new(Analysis::new(&config)));
+        let analysis_status = AnalysisStatus {
+            enabled: config.analysis_enabled,
+            ..AnalysisStatus::default()
+        };
         Self {
             config,
             hardware: HardwareClass::default(),
@@ -115,6 +130,10 @@ impl Runtime {
             pending_levels: None,
             scheduler: SchedulerStatus::default(),
             db,
+            analysis,
+            analysis_staging: Vec::new(),
+            analysis_status,
+            analysis_reserved: 0,
         }
     }
 
@@ -179,8 +198,62 @@ impl Runtime {
         let probe_id = self.profiler.register(work_id);
         if probe_id.is_some() {
             self.db.note(descriptor);
+            if self.analysis_status.enabled
+                && self.analysis_staging.len() < self.config.profiler_max_workloads as usize
+            {
+                self.analysis_staging.push((
+                    work_id,
+                    rfx_analyzer::MethodRef::new(
+                        &descriptor.class_internal_name,
+                        &descriptor.method_name,
+                        &descriptor.method_descriptor,
+                    ),
+                ));
+            }
         }
         probe_id
+    }
+
+    /// Analyse statique, a piloter hors du verrou du registre (ADR-051), et les methodes
+    /// sondees depuis le dernier pas, a lui confier.
+    pub fn analysis_handoff(
+        &mut self,
+    ) -> (
+        Arc<Mutex<Analysis>>,
+        Vec<(rfx_model::WorkId, rfx_analyzer::MethodRef)>,
+    ) {
+        (
+            Arc::clone(&self.analysis),
+            std::mem::take(&mut self.analysis_staging),
+        )
+    }
+
+    /// Unites les plus couteuses deja mesurees : racines des prochains graphes.
+    #[must_use]
+    pub fn hot_workloads(&self) -> Vec<rfx_model::WorkId> {
+        self.profiler
+            .store()
+            .hottest(ROOTS_PER_REFILL)
+            .into_iter()
+            .filter(|entry| entry.cost_ns_per_tick() > 0)
+            .map(|entry| entry.work_id)
+            .collect()
+    }
+
+    /// Publie l'etat de l'analyse et compte sa memoire dans le budget natif (R-533).
+    /// Rend `false` si le budget la refuse : l'analyse doit alors s'arreter.
+    pub fn publish_analysis(&mut self, status: AnalysisStatus, bytes: u64) -> bool {
+        self.analysis_status = status;
+        self.budget.release(Pool::Runtime, self.analysis_reserved);
+        self.analysis_reserved = 0;
+        if bytes == 0 {
+            return true;
+        }
+        if self.budget.reserve(Pool::Runtime, bytes).is_err() {
+            return false;
+        }
+        self.analysis_reserved = bytes;
+        true
     }
 
     /// Ouvre la base des unites de travail (C-09). Le fichier est relu en arriere-plan :
@@ -494,6 +567,13 @@ impl Runtime {
                     active: self.coverage.cores,
                 },
                 ComponentStatus {
+                    id: "C-07".to_owned(),
+                    name: "Call Graph".to_owned(),
+                    maturity: Maturity::Stable,
+                    active: self.analysis_status.enabled
+                        && self.analysis_status.hierarchy_classes > 0,
+                },
+                ComponentStatus {
                     id: "C-09".to_owned(),
                     name: "Workload Database".to_owned(),
                     maturity: Maturity::Stable,
@@ -509,6 +589,7 @@ impl Runtime {
             profiler: self.profiler.status(),
             scheduler: self.scheduler,
             db: self.db.status(),
+            analysis: self.analysis_status,
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {
@@ -812,6 +893,72 @@ mod tests {
     /// C-09 (ADR-049) : les mesures du profileur atteignent le fichier. Le serveur de
     /// test du jeu s'arrete apres un tick, trop tot pour le montrer : ce test fait
     /// tourner quarante ticks avec de vrais enregistrements de sonde.
+    /// C-07 (ADR-051) : une unite sondee qui tourne devient chaude, son graphe est
+    /// construit hors du verrou du registre, et le statut le publie.
+    #[test]
+    fn a_hot_probed_workload_gets_its_call_graph() {
+        use crate::analysis::tests::{drive, fixtures, hierarchy};
+        use crate::analysis::StepState;
+        use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
+
+        let classes = fixtures();
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+        let descriptor = WorkDescriptor {
+            owner_id: "fixtures".to_owned(),
+            class_internal_name: "fixtures/Calls".to_owned(),
+            method_name: "vehicle".to_owned(),
+            method_descriptor: "(Lfixtures/Vehicle;)I".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+        let probe_id = rt.register_workload(&descriptor, work_id).expect("sondee");
+        assert!(rt.acquire_probe_buffer(3).is_some());
+        let record = ProbeRecord {
+            probe_id,
+            value: 50_000,
+            kind: RecordKind::Exit.to_byte(),
+            ..ProbeRecord::default()
+        };
+        for tick in 1..=40 {
+            rt.tick_begin(tick, Side::Server, Instant::now());
+            let buffer = rt.probe_buffers.get_mut(3).expect("tampon");
+            assert!(buffer.write_at(0, &record.encode()));
+            rt.flush_probe_buffer(3, PROBE_RECORD_SIZE);
+            rt.tick_end(Instant::now());
+        }
+
+        let (shared, staged) = rt.analysis_handoff();
+        assert_eq!(staged.len(), 1, "la methode sondee attend l'analyse");
+        let hot = rt.hot_workloads();
+        assert_eq!(hot, vec![work_id], "mesuree, donc chaude");
+        let (status, bytes) = {
+            let mut analysis = shared.lock().unwrap();
+            for (id, method) in staged {
+                analysis.note(id, method);
+            }
+            analysis.declare(hierarchy(&classes));
+            assert_eq!(drive(&mut analysis, &hot, &classes), StepState::Finished);
+            (analysis.status(), analysis.estimated_bytes())
+        };
+        assert!(rt.publish_analysis(status, bytes));
+        let published = rt.status();
+        assert_eq!(published.analysis.graphs, 1);
+        assert_eq!(published.analysis.resolved_calls, 1);
+        assert!(published.probes.native_bytes >= bytes, "memoire comptee");
+        assert!(published
+            .components
+            .iter()
+            .any(|component| component.id == "C-07" && component.active));
+
+        // Un budget trop petit pour cette memoire est refuse.
+        let mut tight = Runtime::new(RuntimeConfig {
+            max_native_mb: 16,
+            ..RuntimeConfig::default()
+        });
+        assert!(!tight.publish_analysis(status, 64 * 1024 * 1024));
+    }
+
     #[test]
     fn profiler_measurements_reach_the_workload_database() {
         use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};

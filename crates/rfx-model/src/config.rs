@@ -116,6 +116,15 @@ pub struct RuntimeConfig {
     /// (R-362, PARTIE 28). Comptee aussi dans `max_native_mb`.
     #[serde(default = "default_cache_max_memory_mb")]
     pub cache_max_memory_mb: u32,
+    /// `analysis.enabled` : `false` signifie qu'aucun graphe d'appel n'est construit.
+    #[serde(default = "default_analysis_enabled")]
+    pub analysis_enabled: bool,
+    /// `analysis.max_call_depth` : profondeur d'exploration d'un graphe (R-340).
+    #[serde(default = "default_analysis_max_call_depth")]
+    pub analysis_max_call_depth: u32,
+    /// `analysis.max_nodes_per_workload` : noeuds au plus par graphe (R-340).
+    #[serde(default = "default_analysis_max_nodes")]
+    pub analysis_max_nodes: u32,
 }
 
 /// Plafond d'unites de travail par defaut (PARTIE 5.5).
@@ -153,6 +162,21 @@ fn default_cache_max_memory_mb() -> u32 {
     128
 }
 
+/// Analyse statique active par defaut (PARTIE 28).
+fn default_analysis_enabled() -> bool {
+    true
+}
+
+/// Profondeur d'exploration par defaut (PARTIE 28, R-340).
+fn default_analysis_max_call_depth() -> u32 {
+    12
+}
+
+/// Noeuds par graphe par defaut (PARTIE 28, R-340).
+fn default_analysis_max_nodes() -> u32 {
+    2_000
+}
+
 impl Default for RuntimeConfig {
     /// Valeurs par defaut de la PARTIE 28.2. Tout defaut est sur (R-590).
     fn default() -> Self {
@@ -170,6 +194,9 @@ impl Default for RuntimeConfig {
             profiler_baseline_cycles: default_baseline_cycles(),
             cache_enabled: default_cache_enabled(),
             cache_max_memory_mb: default_cache_max_memory_mb(),
+            analysis_enabled: default_analysis_enabled(),
+            analysis_max_call_depth: default_analysis_max_call_depth(),
+            analysis_max_nodes: default_analysis_max_nodes(),
         }
     }
 }

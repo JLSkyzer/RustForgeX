@@ -9,6 +9,7 @@
 //! dependances est donc `rfx-ffi` vers `rfx-core` vers `rfx-model`, jamais l'inverse
 //! (INV-13).
 
+pub mod analysis;
 pub mod db;
 pub mod error;
 pub mod hw;

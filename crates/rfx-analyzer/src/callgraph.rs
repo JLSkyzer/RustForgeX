@@ -356,6 +356,12 @@ impl CallGraph {
         self.reflection
     }
 
+    /// Sites d'appel resolus.
+    #[must_use]
+    pub fn resolved_calls(&self) -> u32 {
+        self.resolved_calls
+    }
+
     /// Sites d'appel non resolus.
     #[must_use]
     pub fn unresolved_calls(&self) -> u32 {

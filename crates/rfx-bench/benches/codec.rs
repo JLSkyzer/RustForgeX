@@ -48,6 +48,16 @@ fn status() -> RuntimeStatus {
             persist_ms: 140,
             ..rfx_model::DbStatus::default()
         },
+        analysis: rfx_model::AnalysisStatus {
+            enabled: true,
+            hierarchy_classes: 90_000,
+            classes_provided: 2_000,
+            graphs: 32,
+            nodes: 6_400,
+            resolved_calls: 4_000,
+            unresolved_calls: 3_000,
+            ..rfx_model::AnalysisStatus::default()
+        },
     }
 }
 

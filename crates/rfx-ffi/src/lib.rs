@@ -241,6 +241,184 @@ pub unsafe extern "C" fn rfx_db_sync(handle: u64, out_done: *mut u32) -> i32 {
     })
 }
 
+/// Execute `f` sur l'analyse, sous son propre verrou, sans tenir celui du runtime : la
+/// construction d'un graphe ne doit jamais faire attendre le tick (ADR-051).
+fn with_analysis<R>(
+    handle: u64,
+    f: impl FnOnce(&mut rfx_core::analysis::Analysis) -> R,
+) -> Result<R, ErrorCode> {
+    let (shared, staged) = runtime::with(handle, |rt| rt.analysis_handoff())?;
+    let mut analysis = shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for (work_id, method) in staged {
+        analysis.note(work_id, method);
+    }
+    Ok(f(&mut analysis))
+}
+
+/// Declare des classes de la hierarchie de l'installation (C-07, ADR-051).
+///
+/// `entries` est un blob CBOR : tableau de `[nom, super-classe, drapeaux]`. Appelable
+/// plusieurs fois, par lots.
+///
+/// # Safety
+///
+/// `entries` doit pointer sur au moins `len` octets lisibles.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_analysis_hierarchy(
+    handle: u64,
+    entries: *const u8,
+    len: usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if entries.is_null() || len == 0 || len > MAX_TRANSFER_SIZE {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : precondition de la fonction, non nul et longueur verifies ci-dessus.
+        let bytes = unsafe { std::slice::from_raw_parts(entries, len) };
+        let Ok(entries) = rfx_model::from_cbor::<Vec<rfx_model::HierarchyEntry>>(bytes) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        match with_analysis(handle, |analysis| analysis.declare(entries)) {
+            Ok(()) => OK,
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
+/// Fournit le bytecode d'une classe demandee (C-07, ADR-051). `bytes_len == 0` declare
+/// la classe absente : son bytecode final est inconnu (cible de mixin) ou illisible.
+///
+/// # Safety
+///
+/// `name` doit pointer sur `name_len` octets lisibles en UTF-8 ; `bytes` sur
+/// `bytes_len` octets lisibles, ou etre nul si `bytes_len` vaut zero.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_analysis_class(
+    handle: u64,
+    name: *const u8,
+    name_len: usize,
+    bytes: *const u8,
+    bytes_len: usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if name.is_null()
+            || name_len == 0
+            || name_len > 4_096
+            || (bytes.is_null() && bytes_len > 0)
+            || bytes_len > MAX_TRANSFER_SIZE
+        {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : precondition de la fonction, non nul et longueur verifies ci-dessus.
+        let name = unsafe { std::slice::from_raw_parts(name, name_len) };
+        let Ok(name) = std::str::from_utf8(name) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        let class = (bytes_len > 0).then(|| {
+            // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+            unsafe { std::slice::from_raw_parts(bytes, bytes_len) }
+        });
+        match with_analysis(handle, |analysis| analysis.provide(name, class)) {
+            Ok(()) => OK,
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
+/// Avance l'analyse d'un pas (C-07, ADR-051), hors du tick. Ecrit dans `out_state` :
+/// 0 rien a faire, 1 du bytecode manque (lire `rfx_analysis_requests`, le fournir, puis
+/// rappeler), 2 un graphe vient d'etre termine.
+///
+/// # Safety
+///
+/// `out_state` doit pointer sur un `u32` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_analysis_step(handle: u64, out_state: *mut u32) -> i32 {
+    guard_with_handle(handle, || {
+        if out_state.is_null() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        let needs_roots = match with_analysis(handle, |analysis| analysis.needs_roots()) {
+            Ok(needs) => needs,
+            Err(e) => return e.ffi_code(),
+        };
+        let hot = if needs_roots {
+            match runtime::with(handle, |rt| rt.hot_workloads()) {
+                Ok(hot) => hot,
+                Err(e) => return e.ffi_code(),
+            }
+        } else {
+            Vec::new()
+        };
+        let stepped = with_analysis(handle, |analysis| {
+            let state = analysis.step(&hot);
+            (state, analysis.status(), analysis.estimated_bytes())
+        });
+        let (state, status, bytes) = match stepped {
+            Ok(stepped) => stepped,
+            Err(e) => return e.ffi_code(),
+        };
+        let accepted = match runtime::with(handle, |rt| rt.publish_analysis(status, bytes)) {
+            Ok(accepted) => accepted,
+            Err(e) => return e.ffi_code(),
+        };
+        if !accepted {
+            // R-533 : le budget refuse la memoire de l'analyse, qui s'arrete et la rend.
+            let stopped = with_analysis(handle, |analysis| {
+                analysis.disable();
+                analysis.status()
+            });
+            if let Ok(status) = stopped {
+                let _ = runtime::with(handle, |rt| rt.publish_analysis(status, 0));
+            }
+        }
+        // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+        unsafe { out_state.write(state as u32) };
+        OK
+    })
+}
+
+/// Classes voulues par le dernier pas (CBOR : tableau de noms internes). Meme protocole
+/// en deux temps que [`rfx_status`].
+///
+/// # Safety
+///
+/// `out` doit pointer sur au moins `cap` octets inscriptibles (il peut etre nul si
+/// `cap` vaut zero), et `out_len` sur un `usize` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_analysis_requests(
+    handle: u64,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if out_len.is_null() || (out.is_null() && cap > 0) {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        let blob = match with_analysis(handle, |analysis| rfx_model::to_cbor(&analysis.requests()))
+        {
+            Ok(Ok(blob)) => blob,
+            Ok(Err(_)) => return ErrorCode::InvalidArgument.ffi_code(),
+            Err(e) => return e.ffi_code(),
+        };
+        // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+        unsafe { out_len.write(blob.len()) };
+        if cap == 0 {
+            return OK;
+        }
+        if cap < blob.len() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : `out` possede au moins `cap` octets inscriptibles, `cap` couvre la
+        // longueur copiee, et `blob` est une allocation locale distincte.
+        unsafe { std::ptr::copy_nonoverlapping(blob.as_ptr(), out, blob.len()) };
+        OK
+    })
+}
+
 /// Lit un tampon fourni par Java, pour mesurer le debit de transfert Java vers natif.
 ///
 /// La somme de controle renvoyee force la lecture effective de chaque octet : sans
@@ -849,6 +1027,179 @@ mod tests {
         assert!(!dir.0.exists());
     }
 
+    /// Hierarchie et bytecode des classes de test de `rfx-bytecode`.
+    fn analysis_fixtures() -> Vec<(rfx_model::HierarchyEntry, Vec<u8>)> {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../rfx-bytecode/tests/fixtures/classes/fixtures");
+        std::fs::read_dir(&dir)
+            .expect("classes de test")
+            .map(|entry| entry.expect("entree").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "class"))
+            .map(|path| {
+                let bytes = std::fs::read(&path).expect("lecture");
+                (class_header(&bytes), bytes)
+            })
+            .collect()
+    }
+
+    /// Nom, super-classe et drapeaux d'un `.class`, lus sans dependre de `rfx-bytecode`
+    /// (le crate FFI n'en depend pas) : en-tete JVMS §4.1, reservoir de constantes saute.
+    fn class_header(bytes: &[u8]) -> rfx_model::HierarchyEntry {
+        let u16_at = |at: usize| u16::from_be_bytes([bytes[at], bytes[at + 1]]);
+        let count = u16_at(8);
+        let mut at = 10;
+        let mut utf8 = std::collections::HashMap::new();
+        let mut classes = std::collections::HashMap::new();
+        let mut index = 1;
+        while index < count {
+            match bytes[at] {
+                1 => {
+                    let len = usize::from(u16_at(at + 1));
+                    let text = String::from_utf8_lossy(&bytes[at + 3..at + 3 + len]);
+                    utf8.insert(index, text.into_owned());
+                    at += 3 + len;
+                }
+                7 => {
+                    classes.insert(index, u16_at(at + 1));
+                    at += 3;
+                }
+                8 | 16 | 19 | 20 => at += 3,
+                15 => at += 4,
+                3 | 4 | 9 | 10 | 11 | 12 | 17 | 18 => at += 5,
+                5 | 6 => {
+                    at += 9;
+                    index += 1;
+                }
+                other => panic!("etiquette {other}"),
+            }
+            index += 1;
+        }
+        let access = u32::from(u16_at(at));
+        let name = utf8[&classes[&u16_at(at + 2)]].clone();
+        let super_index = u16_at(at + 4);
+        let super_name = if super_index == 0 {
+            String::new()
+        } else {
+            utf8[&classes[&super_index]].clone()
+        };
+        rfx_model::HierarchyEntry(name, super_name, access)
+    }
+
+    fn step(handle: u64) -> u32 {
+        let mut state = u32::MAX;
+        assert_eq!(unsafe { rfx_analysis_step(handle, &mut state) }, OK);
+        state
+    }
+
+    /// C-07 (ADR-051) : la hierarchie et les classes passent la frontiere, les pas
+    /// avancent, et le statut publie ce qui a ete recu.
+    #[test]
+    fn the_analysis_entry_points_cross_the_boundary() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        let fixtures = analysis_fixtures();
+        let entries: Vec<_> = fixtures.iter().map(|(entry, _)| entry.clone()).collect();
+        let blob = rfx_model::to_cbor(&entries).expect("encodage");
+        assert_eq!(
+            unsafe { rfx_analysis_hierarchy(handle, blob.as_ptr(), blob.len()) },
+            OK
+        );
+        let (entry, bytes) = &fixtures[0];
+        assert_eq!(
+            unsafe {
+                rfx_analysis_class(
+                    handle,
+                    entry.0.as_ptr(),
+                    entry.0.len(),
+                    bytes.as_ptr(),
+                    bytes.len(),
+                )
+            },
+            OK
+        );
+        assert_eq!(
+            unsafe {
+                rfx_analysis_class(handle, b"fixtures/Car".as_ptr(), 12, std::ptr::null(), 0)
+            },
+            OK,
+            "classe declaree absente"
+        );
+
+        assert_eq!(step(handle), 0, "aucune unite chaude : rien a analyser");
+        let analysis = read_status(handle).analysis;
+        assert!(analysis.enabled);
+        assert_eq!(analysis.hierarchy_classes, entries.len() as u64);
+        assert_eq!((analysis.classes_provided, analysis.classes_absent), (1, 1));
+
+        let mut size = 0_usize;
+        assert_eq!(
+            unsafe { rfx_analysis_requests(handle, std::ptr::null_mut(), 0, &mut size) },
+            OK
+        );
+        let mut buffer = vec![0_u8; size];
+        let mut written = 0_usize;
+        assert_eq!(
+            unsafe { rfx_analysis_requests(handle, buffer.as_mut_ptr(), size, &mut written) },
+            OK
+        );
+        let requests: Vec<String> = rfx_model::from_cbor(&buffer[..written]).expect("CBOR");
+        assert!(requests.is_empty());
+
+        // Arguments aberrants : refuses, jamais une panic.
+        let refused = ErrorCode::InvalidArgument.ffi_code();
+        assert_eq!(
+            unsafe { rfx_analysis_hierarchy(handle, [0xff_u8].as_ptr(), 1) },
+            refused
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_hierarchy(handle, std::ptr::null(), 4) },
+            refused
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_class(handle, [0xff_u8].as_ptr(), 1, std::ptr::null(), 0) },
+            refused,
+            "nom en UTF-8 invalide"
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_class(handle, std::ptr::null(), 3, std::ptr::null(), 0) },
+            refused
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_class(handle, b"a/B".as_ptr(), 3, std::ptr::null(), 8) },
+            refused,
+            "longueur sans tampon"
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_step(handle, std::ptr::null_mut()) },
+            refused
+        );
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// `analysis.enabled = false` : la hierarchie est ignoree, rien n'est analyse.
+    #[test]
+    fn a_disabled_analysis_does_nothing() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig {
+            analysis_enabled: false,
+            ..RuntimeConfig::default()
+        });
+        let entries: Vec<_> = analysis_fixtures()
+            .into_iter()
+            .map(|(entry, _)| entry)
+            .collect();
+        let blob = rfx_model::to_cbor(&entries).expect("encodage");
+        assert_eq!(
+            unsafe { rfx_analysis_hierarchy(handle, blob.as_ptr(), blob.len()) },
+            OK
+        );
+        assert_eq!(step(handle), 0);
+        let analysis = read_status(handle).analysis;
+        assert!(!analysis.enabled);
+        assert_eq!(analysis.hierarchy_classes, 0);
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
     /// Enregistre une unite de travail et rend son identifiant de sonde.
     fn register(handle: u64, method_name: &str) -> Option<u32> {
         let descriptor = rfx_model::WorkDescriptor {
@@ -1056,6 +1407,26 @@ mod tests {
         assert_eq!(rfx_hw_set_ffi_costs(fake, 1, 1), expected);
         let mut done = 0_u32;
         assert_eq!(unsafe { rfx_db_sync(fake, &mut done) }, expected);
+        assert_eq!(unsafe { rfx_analysis_step(fake, &mut done) }, expected);
+        let hierarchy = rfx_model::to_cbor(&vec![rfx_model::HierarchyEntry(
+            "a/B".to_owned(),
+            String::new(),
+            0,
+        )])
+        .expect("encodage");
+        assert_eq!(
+            unsafe { rfx_analysis_hierarchy(fake, hierarchy.as_ptr(), hierarchy.len()) },
+            expected
+        );
+        assert_eq!(
+            unsafe { rfx_analysis_class(fake, b"a/B".as_ptr(), 3, std::ptr::null(), 0) },
+            expected
+        );
+        let mut requested = 0_usize;
+        assert_eq!(
+            unsafe { rfx_analysis_requests(fake, std::ptr::null_mut(), 0, &mut requested) },
+            expected
+        );
         let open = rfx_model::to_cbor(&db_open(&std::env::temp_dir())).expect("encodage");
         assert_eq!(
             unsafe { rfx_db_open(fake, open.as_ptr(), open.len()) },

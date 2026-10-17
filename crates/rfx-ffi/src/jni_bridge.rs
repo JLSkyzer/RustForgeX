@@ -140,6 +140,100 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_dbSync(
     jint::from(done == 1)
 }
 
+/// `RfxNative.analysisHierarchy(long, byte[])` : declare des classes de la hierarchie.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_analysisHierarchy(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    entries_cbor: JByteArray,
+) -> jint {
+    let Ok(bytes) = env.convert_byte_array(&entries_cbor) else {
+        return to_jint(ErrorCode::InvalidArgument.ffi_code());
+    };
+    // SAFETY : `bytes` est un `Vec<u8>` vivant de longueur exacte pendant tout l'appel.
+    to_jint(unsafe { crate::rfx_analysis_hierarchy(handle as u64, bytes.as_ptr(), bytes.len()) })
+}
+
+/// `RfxNative.analysisClass(long, byte[], byte[])` : fournit une classe demandee, ou la
+/// declare absente quand le bytecode est `null`.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_analysisClass(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    name_utf8: JByteArray,
+    class_bytes: JByteArray,
+) -> jint {
+    let Ok(name) = env.convert_byte_array(&name_utf8) else {
+        return to_jint(ErrorCode::InvalidArgument.ffi_code());
+    };
+    let bytes = if class_bytes.is_null() {
+        Vec::new()
+    } else {
+        let Ok(bytes) = env.convert_byte_array(&class_bytes) else {
+            return to_jint(ErrorCode::InvalidArgument.ffi_code());
+        };
+        bytes
+    };
+    let pointer = if bytes.is_empty() {
+        std::ptr::null()
+    } else {
+        bytes.as_ptr()
+    };
+    // SAFETY : `name` et `bytes` sont des `Vec<u8>` vivants de longueur exacte pendant
+    // tout l'appel ; un tampon vide est passe nul avec une longueur nulle.
+    to_jint(unsafe {
+        crate::rfx_analysis_class(
+            handle as u64,
+            name.as_ptr(),
+            name.len(),
+            pointer,
+            bytes.len(),
+        )
+    })
+}
+
+/// `RfxNative.analysisStep(long)` : avance l'analyse d'un pas.
+///
+/// Rend l'etat (0, 1 ou 2), ou un code d'erreur de l'annexe A.2, inferieur ou egal a
+/// `-1000` : les domaines sont disjoints.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_analysisStep(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    let mut state: u32 = 0;
+    // SAFETY : `state` est une variable locale, valide pendant tout l'appel.
+    let result = unsafe { crate::rfx_analysis_step(handle as u64, &mut state) };
+    if result != OK {
+        return to_jint(result);
+    }
+    jint::try_from(state).unwrap_or(0)
+}
+
+/// `RfxNative.analysisRequests(long)` : classes voulues, en CBOR, ou `null`.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_analysisRequests(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jbyteArray {
+    let null_array: jbyteArray = std::ptr::null_mut();
+    // SAFETY : `out` est nul avec une capacite nulle pour interroger la taille, ou un
+    // tampon local de `cap` octets inscriptibles ; `len` est une locale.
+    let Some(buffer) = read_sized_blob(|out, cap, len| unsafe {
+        crate::rfx_analysis_requests(handle as u64, out, cap, len)
+    }) else {
+        return null_array;
+    };
+    match env.byte_array_from_slice(&buffer) {
+        Ok(array) => array.into_raw(),
+        Err(_) => null_array,
+    }
+}
+
 /// `RfxNative.hwSetFfiCosts(long, int, int)` : publie les couts mesures par Java.
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwSetFfiCosts(

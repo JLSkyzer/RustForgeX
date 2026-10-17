@@ -405,6 +405,8 @@ dependencies = [
 name = "rfx-core"
 version = "0.1.0"
 dependencies = [
+ "rfx-analyzer",
+ "rfx-bytecode",
  "rfx-cache",
  "rfx-memory",
  "rfx-model",

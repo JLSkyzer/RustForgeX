@@ -206,6 +206,9 @@ pub struct RuntimeStatus {
     /// Base des unites de travail (C-09). Absent d'un blob ancien : zero.
     #[serde(default)]
     pub db: crate::DbStatus,
+    /// Analyse statique (C-07). Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub analysis: crate::AnalysisStatus,
 }
 
 #[cfg(test)]
@@ -243,6 +246,11 @@ mod tests {
                 entries: 9,
                 writes: 2,
                 ..crate::DbStatus::default()
+            },
+            analysis: crate::AnalysisStatus {
+                enabled: true,
+                graphs: 4,
+                ..crate::AnalysisStatus::default()
             },
         };
         let bytes = crate::to_cbor(&s).expect("encodage");

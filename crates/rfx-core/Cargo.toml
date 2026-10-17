@@ -16,6 +16,9 @@ rfx-profiler = { workspace = true }
 rfx-cache = { workspace = true }
 # Hachage des chaines de l'environnement pour l'empreinte (DM-05), deja dans le SBOM.
 xxhash-rust = { workspace = true }
+# Graphe d'appel (C-07, ADR-051).
+rfx-analyzer = { workspace = true }
+rfx-bytecode = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"
