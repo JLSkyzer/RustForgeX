@@ -1015,7 +1015,7 @@ demandent une mesure ; les autres sont des tests de justesse.
         (64,1 Mio : enregistrements en ligne dans un `Vec` qui double) ni l'autre
         (423 ms : historique en CBOR nommé, décodage en série) ; corrigés par `Box`,
         historique en entiers et décodage parallèle par blocs
-- [~] C-07 Call Graph — T-160..T-164 (R-340, R-341, FM-15), ADR-050. Ordre retenu :
+- [x] C-07 Call Graph — T-160..T-164 (R-340, R-341, FM-15), ADR-050. Ordre retenu :
       C-07 d'abord, C-10 s'appuie sur son graphe, C-08 orchestre les analyses
   - [x] `rfx-bytecode` : lecture d'un `.class` (JVMS §4) sans dépendance, jamais de
         panic sur une entrée malformée ; sites d'appel `invoke*`, méthodes d'amorçage
@@ -1039,7 +1039,10 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [ ] Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
         résiduels de l'ADR-051 (classes générées, coremods à noms calculés,
         transformateurs tiers)
-  - [ ] Acceptance (200 méthodes de référence, > 80 % résolues, zéro faux résolu)
+  - [x] Acceptance (ADR-053, demande de Killian du 2026-10-17) : 85,2 % des sites des
+        200 méthodes de référence résolus ; 26 033 sites résolus confrontés à la JVM,
+        0 faux résolu, 0 invérifiable. L'oracle a d'abord trouvé 9 faux résolus,
+        corrigés (troncature, résolution JVMS)
 - [ ] C-08, C-10, C-12 — après C-07
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)

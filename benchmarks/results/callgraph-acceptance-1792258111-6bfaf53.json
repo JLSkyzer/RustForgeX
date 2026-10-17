@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "benchmark": "callgraph-acceptance",
+  "commit": "6bfaf538de3225a9c6a454afb061bd5b5a17f838",
+  "dirty": true,
+  "native": {
+    "methods": 200,
+    "reference_sites": 992,
+    "reference_resolved": 845,
+    "graph_sites": 31390,
+    "graph_resolved": 26033,
+    "truncated_graphs": 98,
+    "reference_unresolved_by_reason": {
+      "Ambiguous": 1,
+      "Dynamic": 6,
+      "Megamorphic": 10,
+      "OpenInterface": 126,
+      "UnknownClass": 4
+    },
+    "oracle_lines": 26033,
+    "undescribed": 0
+  },
+  "oracle": {
+    "loaded_classes": 64859,
+    "unloadable_classes": 73,
+    "load_ms": 12599,
+    "members_read_by_asm": 2,
+    "sites": 26033,
+    "exact": 26033,
+    "false_resolved": 0,
+    "imprecise": 0,
+    "unverifiable": 0,
+    "by_resolution": {"Exact": 6929, "Lambda": 454, "Monomorphic": 6395, "Polymorphic": 1185, "Special": 5058, "Static": 6012},
+    "false_by_resolution": {},
+    "false_examples": [],
+    "imprecise_examples": [],
+    "unverifiable_examples": []
+  },
+  "resolution_rate_pct": 85.18,
+  "min_resolution_pct": 80.0,
+  "accepted": true
+}
