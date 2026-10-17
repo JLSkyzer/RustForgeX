@@ -189,6 +189,18 @@ abstract class Speaker implements Greeter {
 final class Loud extends Speaker {
 }
 
+/** Base sans `greet` : elle herite le defaut de `Greeter`. */
+abstract class Quiet implements Greeter {
+}
+
+/** `super.greet()` : `Quiet` ne la declare pas, la JVM resout le defaut de `Greeter`. */
+final class Courteous extends Quiet {
+    @Override
+    public String greet() {
+        return "poliment, " + super.greet();
+    }
+}
+
 /** Methode par defaut atteinte par une classe, a cote d'une interface du JDK. */
 abstract class Labelled implements Named {
 }

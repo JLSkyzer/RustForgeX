@@ -37,7 +37,7 @@ use std::time::Instant;
 
 use rfx_bytecode::{CallSite, CallTarget, InvokeKind, MemberRef};
 
-use crate::hierarchy::{ClassIndex, MethodRef, Selection};
+use crate::hierarchy::{ClassIndex, MethodRef, Selection, OBJECT, OBJECT_METHODS};
 
 /// Profondeur d'exploration par defaut (`analysis.max_call_depth`, R-340).
 pub const DEFAULT_MAX_CALL_DEPTH: u32 = 12;
@@ -107,6 +107,9 @@ pub enum Unresolved {
     Reflection,
     /// Code illisible : la methode n'a pas pu etre parcourue.
     Malformed,
+    /// Les cibles du site ne tiennent pas toutes sous la borne de noeuds (R-340) :
+    /// aucune n'est affirmee, un ensemble partiel serait un faux resolu (ADR-053).
+    Truncated,
 }
 
 /// Attribut d'une arete (PARTIE 5.7).
@@ -173,9 +176,6 @@ const REFLECTIVE: [(&str, &str); 6] = [
 ];
 
 const LAMBDA_FACTORY: &str = "java/lang/invoke/LambdaMetafactory";
-
-/// Racine de toute hierarchie de classes.
-const OBJECT: &str = "java/lang/Object";
 
 /// Methodes de `java/lang/Object` qu'une classe peut redefinir (JDK 17) ; les autres
 /// sont finales et suivent la voie des cibles fixes.
@@ -308,14 +308,21 @@ impl CallGraph {
         match resolve(resolver, site) {
             Err(reason) => self.push_unresolved(from, reference, Some(site.offset), reason),
             Ok(targets) => {
+                // Toutes les cibles, ou aucune : un site resolu dont une cible manque
+                // affirmerait un ensemble faux (ADR-053, acceptance de C-07).
+                let new = targets
+                    .iter()
+                    .filter(|(target, _)| !self.by_method.contains_key(target))
+                    .count();
+                if self.nodes.len() + new > limits.max_nodes {
+                    self.truncated = true;
+                    self.push_unresolved(from, reference, Some(site.offset), Unresolved::Truncated);
+                    return;
+                }
                 self.resolved_calls = self.resolved_calls.saturating_add(1);
                 for (target, resolution) in targets {
                     let to = match self.by_method.get(&target) {
                         Some(&known) => known,
-                        None if self.nodes.len() >= limits.max_nodes => {
-                            self.truncated = true;
-                            continue;
-                        }
                         None => {
                             let added = self.add_node(target, depth);
                             queue.push_back(added);
@@ -471,11 +478,12 @@ fn resolve(
     let classes = resolver.classes;
     match (&site.target, site.kind) {
         (CallTarget::Member(member), InvokeKind::Static) => {
-            Ok(vec![(declared_up(classes, member), Resolution::Static)])
+            Ok(vec![(static_target(classes, member)?, Resolution::Static)])
         }
-        (CallTarget::Member(member), InvokeKind::Special) => {
-            Ok(vec![(declared_up(classes, member), Resolution::Special)])
-        }
+        (CallTarget::Member(member), InvokeKind::Special) => Ok(vec![(
+            special_target(classes, member)?,
+            Resolution::Special,
+        )]),
         (CallTarget::Member(member), _) => resolve_virtual(resolver, member),
         (
             CallTarget::Dynamic {
@@ -494,8 +502,17 @@ fn resolve(
                 return Err(Unresolved::Dynamic);
             };
             match implementation.kind {
-                // invokeStatic, invokeSpecial, newInvokeSpecial : cible sure.
-                6..=8 => Ok(vec![(
+                // invokeStatic, invokeSpecial, newInvokeSpecial : cible sure, une fois
+                // resolue comme l'appel qu'elle remplace.
+                6 => Ok(vec![(
+                    static_target(classes, &implementation.member)?,
+                    Resolution::Lambda,
+                )]),
+                7 => Ok(vec![(
+                    special_target(classes, &implementation.member)?,
+                    Resolution::Lambda,
+                )]),
+                8 => Ok(vec![(
                     reference_of(&implementation.member),
                     Resolution::Lambda,
                 )]),
@@ -507,20 +524,149 @@ fn resolve(
     }
 }
 
-/// Classe qui declare la methode, en remontant depuis le proprietaire ecrit ; a defaut,
-/// la reference telle qu'ecrite (la JVM la resoudra a l'identique).
-fn declared_up(classes: &ClassIndex, member: &MemberRef) -> MethodRef {
+/// Methode designee par une reference, resolue comme la JVM (JVMS §5.4.3.3).
+struct Declaration {
+    /// La methode resolue.
+    method: MethodRef,
+    /// `true` si elle est abstraite.
+    is_abstract: bool,
+    /// `true` si elle vient d'une super-interface, non de la chaine des super-classes.
+    from_interface: bool,
+}
+
+/// Resolution d'une reference de methode (JVMS §5.4.3.3) : la chaine des super-classes
+/// d'abord, puis la methode maximalement specifique des super-interfaces. Une classe
+/// inconnue sur le chemin, et rien n'est affirme : l'ancienne regle, qui retombait sur
+/// la reference telle qu'ecrite, designait parfois une methode qui n'existe pas
+/// (`super.m()` vers une methode par defaut, ADR-053).
+///
+/// `Ok(None)` : la methode n'existe nulle part.
+fn declaration(
+    classes: &ClassIndex,
+    member: &MemberRef,
+) -> Result<Option<Declaration>, Unresolved> {
+    let named = |owner: &str| MethodRef::new(owner, &member.name, &member.descriptor);
+    let mut chain = Vec::new();
     let mut current = Some(member.owner.as_str());
     while let Some(name) = current {
         let Some(class) = classes.class(name) else {
-            break;
+            // `java/lang/Object` decide sans son bytecode : ses methodes sont fixees.
+            if name == OBJECT {
+                let method = (member.name.as_str(), member.descriptor.as_str());
+                if OBJECT_METHODS.contains(&method) || method == ("<init>", "()V") {
+                    return Ok(Some(Declaration {
+                        method: named(OBJECT),
+                        is_abstract: false,
+                        from_interface: false,
+                    }));
+                }
+                break;
+            }
+            return Err(Unresolved::UnknownClass);
         };
-        if class.method(&member.name, &member.descriptor).is_some() {
-            return MethodRef::new(name, &member.name, &member.descriptor);
+        if let Some(method) = class.method(&member.name, &member.descriptor) {
+            return Ok(Some(Declaration {
+                method: named(name),
+                is_abstract: method.is_abstract(),
+                from_interface: false,
+            }));
         }
+        chain.push(class);
         current = class.super_name.as_deref();
     }
-    reference_of(member)
+
+    // Super-interfaces, transitivement : toutes doivent etre connues.
+    let mut interfaces: Vec<&rfx_bytecode::ClassFile> = Vec::new();
+    let mut pending: VecDeque<&str> = chain
+        .iter()
+        .flat_map(|class| class.interfaces.iter().map(String::as_str))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some(name) = pending.pop_front() {
+        if !seen.insert(name) {
+            continue;
+        }
+        let Some(iface) = classes.class(name) else {
+            return Err(Unresolved::UnknownClass);
+        };
+        pending.extend(iface.interfaces.iter().map(String::as_str));
+        interfaces.push(iface);
+    }
+    let candidates: Vec<&rfx_bytecode::ClassFile> = interfaces
+        .iter()
+        .copied()
+        .filter(|iface| {
+            iface
+                .method(&member.name, &member.descriptor)
+                .is_some_and(|m| !m.is_static() && !m.is_private())
+        })
+        .collect();
+    // Maximalement specifiques : aucune autre candidate n'en herite.
+    let inherits = |sub: &rfx_bytecode::ClassFile, sup: &str| -> bool {
+        let mut stack: Vec<&str> = sub.interfaces.iter().map(String::as_str).collect();
+        let mut visited = std::collections::HashSet::new();
+        while let Some(name) = stack.pop() {
+            if name == sup {
+                return true;
+            }
+            if visited.insert(name) {
+                if let Some(next) = classes.get(name) {
+                    stack.extend(next.interfaces.iter().map(String::as_str));
+                }
+            }
+        }
+        false
+    };
+    let maximal: Vec<&rfx_bytecode::ClassFile> = candidates
+        .iter()
+        .copied()
+        .filter(|c| {
+            !candidates
+                .iter()
+                .any(|o| o.name != c.name && inherits(o, &c.name))
+        })
+        .collect();
+    let concrete: Vec<&rfx_bytecode::ClassFile> = maximal
+        .iter()
+        .copied()
+        .filter(|iface| {
+            iface
+                .method(&member.name, &member.descriptor)
+                .is_some_and(|m| !m.is_abstract())
+        })
+        .collect();
+    match (concrete.as_slice(), maximal.first()) {
+        ([one], _) => Ok(Some(Declaration {
+            method: named(&one.name),
+            is_abstract: false,
+            from_interface: true,
+        })),
+        ([], Some(abstract_one)) => Ok(Some(Declaration {
+            method: named(&abstract_one.name),
+            is_abstract: true,
+            from_interface: true,
+        })),
+        ([], None) => Ok(None),
+        _ => Err(Unresolved::Ambiguous),
+    }
+}
+
+/// Cible d'un `invokestatic` : une methode de la chaine des super-classes ; une methode
+/// d'interface heritee ne peut pas etre statique.
+fn static_target(classes: &ClassIndex, member: &MemberRef) -> Result<MethodRef, Unresolved> {
+    match declaration(classes, member)? {
+        Some(found) if !found.from_interface => Ok(found.method),
+        _ => Err(Unresolved::NoImplementation),
+    }
+}
+
+/// Cible d'un `invokespecial` (constructeur, methode privee, `super`) : la methode
+/// resolue, concrete, eventuellement methode par defaut d'une interface.
+fn special_target(classes: &ClassIndex, member: &MemberRef) -> Result<MethodRef, Unresolved> {
+    match declaration(classes, member)? {
+        Some(found) if !found.is_abstract => Ok(found.method),
+        _ => Err(Unresolved::NoImplementation),
+    }
 }
 
 fn resolve_virtual(
@@ -548,17 +694,17 @@ fn resolve_virtual(
     };
 
     // Cible qui ne peut pas etre redefinie : classe finale, methode privee ou finale.
-    let declared = declared_up(classes, member);
-    let fixed = owner.is_final()
-        || classes
+    let declared = declaration(classes, member)?.map(|found| found.method);
+    let fixed_method = declared.as_ref().filter(|declared| {
+        classes
             .class(&declared.owner)
             .and_then(|class| class.method(&declared.name, &declared.descriptor))
-            .is_some_and(|method| method.is_private() || method.is_final());
-    if fixed {
-        let receiver = if owner.is_final() {
-            member.owner.as_str()
-        } else {
-            declared.owner.as_str()
+            .is_some_and(|method| method.is_private() || method.is_final())
+    });
+    if owner.is_final() || fixed_method.is_some() {
+        let receiver = match fixed_method {
+            Some(declared) if !owner.is_final() => declared.owner.as_str(),
+            _ => member.owner.as_str(),
         };
         return match classes.select(receiver, &member.name, &member.descriptor) {
             Selection::Found(target) => Ok(vec![(target, Resolution::Exact)]),

@@ -196,15 +196,13 @@ fn t161_lambdas_resolve_to_their_implementation() {
         ),
         "{targets:?}"
     );
-    assert!(targets.contains(&(
-        "java/lang/Integer.parseInt(Ljava/lang/String;)I".to_owned(),
-        Resolution::Lambda
-    )));
-    // `Function.apply` deux fois, puis le deballage `Integer.intValue` deux fois :
-    // classes du JDK, absentes de l'index (FM-15). Ordre et nombre verifies par javap.
+    // La reference de methode `Integer::parseInt`, l'emballage `Integer.valueOf`,
+    // `Function.apply` deux fois et le deballage `Integer.intValue` deux fois : classes
+    // du JDK, absentes de l'index, donc non resolues (FM-15 ; ADR-053 : plus de repli
+    // sur la reference ecrite). Sites verifies par javap.
     assert_eq!(
         unresolved_from(&graph, &lambda),
-        vec![Unresolved::UnknownClass; 4]
+        vec![Unresolved::UnknownClass; 6]
     );
     // Le corps de la lambda appelle `helper` : l'exploration le suit.
     assert!(graph.find(&method("Calls", "helper", "(I)I")).is_some());
@@ -340,8 +338,8 @@ fn t164_bounds_are_respected() {
     assert_eq!(one_level.nodes().len(), 9);
 }
 
-/// FM-15 : une classe absente ne fait jamais echouer la construction. Un appel
-/// statique vers elle reste resolu (lie statiquement) vers un noeud externe.
+/// FM-15 : une classe absente ne fait jamais echouer la construction, et l'appel vers
+/// elle est non resolu : la methode peut etre heritee, ou ne pas exister (ADR-053).
 #[test]
 fn absent_classes_never_break_the_build() {
     let outside = method("Bounds", "outside", "()Ljava/lang/String;");
@@ -351,7 +349,11 @@ fn absent_classes_never_break_the_build() {
         "getProperty",
         "(Ljava/lang/String;)Ljava/lang/String;",
     );
-    assert!(graph.find(&target).unwrap().external);
+    assert!(graph.find(&target).is_none());
+    assert_eq!(
+        unresolved_from(&graph, &outside),
+        vec![Unresolved::UnknownClass]
+    );
 
     let missing_root = MethodRef::new("absent/Classe", "run", "()V");
     let graph = build(&missing_root);
@@ -386,6 +388,48 @@ fn observed_edges_complete_the_graph() {
     assert!(!graph.find(&unbounded).unwrap().recursive);
     assert!(graph.add_observed(&observed, &unbounded, Limits::default()));
     assert!(graph.find(&unbounded).unwrap().recursive, "cycle observe");
+}
+
+/// `super.m()` vers une methode par defaut : la cible est celle de l'interface, pas la
+/// reference telle qu'ecrite, qui n'existe pas (JVMS §5.4.3.3, ADR-053).
+#[test]
+fn a_super_call_reaches_the_inherited_default_method() {
+    let root = method("Courteous", "greet", "()Ljava/lang/String;");
+    let graph = build(&root);
+    let targets: Vec<String> = resolved_from(&graph, &root)
+        .into_iter()
+        .filter(|(_, resolution)| *resolution == Resolution::Special)
+        .map(|(target, _)| target)
+        .collect();
+    assert!(
+        targets.contains(&"fixtures/Greeter.greet()Ljava/lang/String;".to_owned()),
+        "{targets:?}"
+    );
+    assert!(
+        !targets.contains(&"fixtures/Quiet.greet()Ljava/lang/String;".to_owned()),
+        "Quiet ne declare pas greet"
+    );
+}
+
+/// Un site dont toutes les cibles ne tiennent pas sous la borne de noeuds n'est pas
+/// resolu : un ensemble partiel serait un faux resolu (ADR-053).
+#[test]
+fn a_site_whose_targets_do_not_fit_is_not_resolved() {
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let tight = Limits {
+        max_nodes: 2,
+        ..Limits::default()
+    };
+    let graph = CallGraph::build(&index(), &vehicle, tight);
+    assert!(graph.truncated());
+    assert!(
+        resolved_from(&graph, &vehicle).is_empty(),
+        "trois cibles, une place"
+    );
+    assert_eq!(
+        unresolved_from(&graph, &vehicle),
+        vec![Unresolved::Truncated]
+    );
 }
 
 /// Par `java/lang/Object`, une methode redefinissable est megamorphe, sans que le

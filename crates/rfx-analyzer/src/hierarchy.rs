@@ -367,11 +367,11 @@ impl ClassIndex {
 }
 
 /// Racine de toute hierarchie de classes.
-const OBJECT: &str = "java/lang/Object";
+pub(crate) const OBJECT: &str = "java/lang/Object";
 
 /// Methodes d'instance de `java/lang/Object` (JDK 17), les seules qu'elle puisse fournir
 /// a une selection.
-const OBJECT_METHODS: [(&str, &str); 11] = [
+pub(crate) const OBJECT_METHODS: [(&str, &str); 11] = [
     ("equals", "(Ljava/lang/Object;)Z"),
     ("hashCode", "()I"),
     ("toString", "()Ljava/lang/String;"),
