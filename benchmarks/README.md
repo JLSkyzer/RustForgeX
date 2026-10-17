@@ -158,6 +158,9 @@ erreur de l'interpréteur, puisque la JVM accepte ce code : le code de sortie va
 d'état, passages), qui fixe le budget, puis ce que les effets intraproceduraux en
 tirent avec la hiérarchie complète du corpus : précision des écritures, domaines écrits,
 et ancres de la table des domaines absentes du corpus (il ne doit y en avoir aucune).
+Enfin, sur les 200 méthodes de référence de l'acceptance de C-07, graphes construits
+comme en jeu : effets composés de chaque unité, précision, causes d'inconnu et raisons
+de non-résolution des arêtes.
 Les durées viennent d'un seul passage : ce sont
 des observations, pas un benchmark au sens de R-581. Résultat :
 `results/dataflow-<horodatage>-<commit>.json`. Méthode : ADR-055.

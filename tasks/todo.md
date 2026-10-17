@@ -1076,7 +1076,11 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
         dérivée de la hiérarchie ; objets locaux non échappés — 26 ancres toutes
         présentes dans le corpus ; 12 mutants sur 12 tués
-  - [ ] Interprocédural : résumés des appelées, arguments, récursion, UNKNOWN (R-380)
+  - [x] Interprocédural : résumés des appelées, arguments, récursion, UNKNOWN (R-380)
+        — 9 mutants sur 9 tués ; 19 unités `EXACT` sur 200 méthodes de référence
+  - [ ] Réduire l'inconnu, par ordre de poids mesuré : appels par interface (12 746
+        arêtes sur 200 graphes), bornes du graphe (98 tronqués), cibles sans code.
+        Chaque signature connue est une affirmation à prouver (ADR à écrire)
   - [ ] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*`
   - [ ] Acceptance : corpus annoté de 150 méthodes, zéro sous-approximation
