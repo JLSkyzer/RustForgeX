@@ -116,6 +116,22 @@ répétition repart d'une analyse neuve. Résultat :
 `results/callgraph-<horodatage>-<commit>.json`, un échantillon par graphe et par
 répétition. Méthode, racines choisies et limites : ADR-052.
 
+## Acceptance de C-07
+
+```bash
+./benchmarks/run-callgraph-acceptance.sh "$JDK/bin/java"
+```
+
+Sur le même corpus, le graphe de 200 méthodes de référence (classes serveur de
+Minecraft, échantillon régulier) est construit comme en jeu ; le taux de résolution de
+leurs sites doit dépasser 80 %. Puis chaque site résolu de tous les graphes est confronté
+à la JVM par `CallGraphOracle.java` : classes chargées sans initialisation, résolution et
+sélection JVMS réécrites sur la réflexion (ASM en repli quand elle échoue), rien de
+partagé avec le code Rust. Un seul faux résolu, ou un site que l'oracle ne peut pas
+trancher, et l'acceptance est refusée. Le `java` doit être celui du JDK dont viennent
+les classes du corpus. Résultat : `results/callgraph-acceptance-<horodatage>-<commit>.json`.
+Méthode et limites : ADR-053.
+
 ## Lire un résultat
 
 ```json

@@ -23,6 +23,7 @@
 //! et ne peut donc pas répondre à la question « quel est l'overhead de RUSTFORGE-X ».
 //! Cette réponse viendra du niveau B, décrit en PARTIE 21.2.
 
+mod callgraph_acceptance;
 mod callgraph_cost;
 mod digest_diff;
 mod macro_bench;
@@ -138,10 +139,11 @@ fn main() {
         "telemetry" => telemetry_level(),
         "ranking" => ranking_level(),
         "callgraph" => callgraph_level(),
+        "callgraph-acceptance" => callgraph_acceptance_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips | telemetry | ranking | callgraph"
+                 | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance"
             );
             std::process::exit(2);
         }
@@ -831,6 +833,86 @@ fn callgraph_level() {
         "{}{}",
         out.display(),
         if dirty { " (arbre modifie)" } else { "" }
+    );
+}
+
+/// Acceptance de C-07, moitie native (ADR-053).
+///
+/// `rfx-bench callgraph-acceptance <corpus> <sites.tsv>` : construit le graphe des 200
+/// methodes de reference, ecrit le taux de resolution et la liste des sites resolus,
+/// que `benchmarks/CallGraphOracle.java` confronte ensuite a la JVM.
+fn callgraph_acceptance_level() {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let (Some(corpus_path), Some(out)) = (args.first(), args.get(1)) else {
+        eprintln!("usage : rfx-bench callgraph-acceptance <corpus> <sites.tsv>");
+        std::process::exit(2);
+    };
+    let corpus = match callgraph_cost::Corpus::load(Path::new(corpus_path)) {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+    let roots =
+        callgraph_acceptance::reference_methods(&corpus, callgraph_acceptance::REFERENCE_METHODS);
+    let started = std::time::Instant::now();
+    let (report, lines) = callgraph_acceptance::run(&corpus, &roots);
+    let elapsed = started.elapsed().as_secs_f64();
+    let roots_text: String = roots
+        .iter()
+        .map(|r| {
+            format!(
+                "{r}
+"
+            )
+        })
+        .collect();
+    let written = std::fs::write(out, &lines)
+        .and_then(|()| std::fs::write(format!("{out}.roots"), roots_text))
+        .and_then(|()| {
+            std::fs::write(
+                format!("{out}.report.json"),
+                serde_json::to_string_pretty(&report).unwrap_or_default()
+                    + "
+",
+            )
+        });
+    if let Err(e) = written {
+        eprintln!("écriture impossible dans {out} : {e}");
+        std::process::exit(1);
+    }
+    let pct = |a: u64, b: u64| {
+        if b == 0 {
+            0.0
+        } else {
+            a as f64 * 100.0 / b as f64
+        }
+    };
+    println!(
+        "{} methodes de reference, graphes construits en {elapsed:.1} s",
+        report.methods
+    );
+    println!(
+        "sites des methodes de reference : {} resolus sur {} ({:.1} %)",
+        report.reference_resolved,
+        report.reference_sites,
+        pct(report.reference_resolved, report.reference_sites)
+    );
+    println!(
+        "sites de tous les graphes : {} resolus sur {} ({:.1} %) ; {} graphes tronques",
+        report.graph_resolved,
+        report.graph_sites,
+        pct(report.graph_resolved, report.graph_sites),
+        report.truncated_graphs
+    );
+    println!(
+        "non resolus (methodes de reference) : {:?}",
+        report.reference_unresolved_by_reason
+    );
+    println!(
+        "{} sites resolus ecrits pour l'oracle dans {out} ; {} non decrits",
+        report.oracle_lines, report.undescribed
     );
 }
 

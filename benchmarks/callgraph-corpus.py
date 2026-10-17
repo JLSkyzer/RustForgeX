@@ -22,11 +22,34 @@ import zipfile
 
 MAGIC = b"RFXCORP1"
 
+# Version de Java du jeu : celle dont la JVM choisit les entrées des jars multi-release.
+RUNTIME = 17
+
 
 def wanted(entry):
     return (entry.endswith(".class") and not entry.startswith("META-INF/")
             and not entry.endswith("module-info.class")
             and not entry.endswith("package-info.class"))
+
+
+def release_versions(jar):
+    """Jar multi-release (JEP 238) : pour chaque classe, l'entrée que charge la JVM —
+    `META-INF/versions/N/` de plus haut N <= RUNTIME, sinon la version de base."""
+    try:
+        manifest = jar.read("META-INF/MANIFEST.MF").decode("utf-8", "replace")
+    except KeyError:
+        return {}
+    if not any(line.strip().lower() == "multi-release: true" for line in manifest.splitlines()):
+        return {}
+    best = {}
+    for entry in jar.namelist():
+        parts = entry.split("/", 3)
+        if len(parts) == 4 and parts[0] == "META-INF" and parts[1] == "versions" \
+                and parts[2].isdigit() and int(parts[2]) <= RUNTIME and parts[3].endswith(".class"):
+            version = int(parts[2])
+            if version > best.get(parts[3], (0, ""))[0]:
+                best[parts[3]] = (version, entry)
+    return {base: entry for base, (_, entry) in best.items()}
 
 
 def write(out, seen, name, data):
@@ -56,9 +79,11 @@ def main(classpath, jdk, output):
             if not archive.endswith(".jar") or not os.path.isfile(archive):
                 continue
             with zipfile.ZipFile(archive) as jar:
+                versions = release_versions(jar)
                 for entry in jar.namelist():
                     if wanted(entry):
-                        counts["archives"] += write(out, seen, entry[:-6], jar.read(entry))
+                        source = versions.get(entry, entry)
+                        counts["archives"] += write(out, seen, entry[:-6], jar.read(source))
         # jimage extract : <dossier>/<module>/<paquet>/<Classe>.class
         for module in sorted(os.listdir(jdk)):
             root = os.path.join(jdk, module)
