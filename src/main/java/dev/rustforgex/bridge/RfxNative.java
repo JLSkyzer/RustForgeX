@@ -113,6 +113,41 @@ public final class RfxNative {
     public static native int dbSync(long handle);
 
     /**
+     * Déclare des classes de la hiérarchie de l'installation (C-07, ADR-051).
+     *
+     * @param handle handle du runtime
+     * @param entriesCbor tableau CBOR de {@code [nom, super-classe, drapeaux]}
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int analysisHierarchy(long handle, byte[] entriesCbor);
+
+    /**
+     * Fournit le bytecode d'une classe demandée, ou la déclare absente.
+     *
+     * @param handle handle du runtime
+     * @param nameUtf8 nom interne en UTF-8
+     * @param bytes bytecode, ou {@code null} si la classe ne sera pas fournie
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int analysisClass(long handle, byte[] nameUtf8, byte[] bytes);
+
+    /**
+     * Avance l'analyse d'un pas. Jamais depuis le tick.
+     *
+     * @param handle handle du runtime
+     * @return {@code 0} rien à faire, {@code 1} des classes manquent, {@code 2} un graphe
+     *     est terminé, ou un code d'erreur négatif
+     */
+    public static native int analysisStep(long handle);
+
+    /**
+     * @param handle handle du runtime
+     * @return les classes voulues par le dernier pas (tableau CBOR de noms), ou
+     *     {@code null}
+     */
+    public static native byte[] analysisRequests(long handle);
+
+    /**
      * Fait lire au natif un tampon direct, pour mesurer le débit Java vers natif.
      *
      * @param handle handle du runtime

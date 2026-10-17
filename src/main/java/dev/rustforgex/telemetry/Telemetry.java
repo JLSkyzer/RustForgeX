@@ -91,6 +91,7 @@ public final class Telemetry {
         appendProfiler(set, mapOf(nativeStatus, "profiler"));
         appendScheduler(set, mapOf(nativeStatus, "scheduler"));
         appendDb(set, mapOf(nativeStatus, "db"));
+        appendCallGraph(set, mapOf(nativeStatus, "analysis"));
         appendInstrumentation(set, instrumentation);
         appendDiscovery(set, discovery);
         appendEvents(set, events);
@@ -231,6 +232,59 @@ public final class Telemetry {
      * d'ouverture (R-660). Les entrées relues n'ont de sens qu'une fois la relecture
      * terminée, la durée d'écriture qu'après la première écriture.
      */
+    /**
+     * Graphe d'appel (C-07, ADR-051).
+     *
+     * <p>Rien tant que la hiérarchie n'est pas déclarée : avant, aucun graphe ne peut
+     * exister. La part d'appels non résolus n'a de sens qu'une fois un site rencontré.
+     */
+    private static void appendCallGraph(MetricSet set, Map<String, Object> analysis) {
+        if (analysis == null || !Boolean.TRUE.equals(analysis.get("enabled"))) {
+            return;
+        }
+        long hierarchy = longOf(analysis, "hierarchy_classes");
+        set.add(Metric.gauge("rfx.callgraph.hierarchy_classes", hierarchy, "classes",
+                "Classes de l'installation déclarées à l'analyse (nom, super-classe, "
+                        + "drapeaux)."));
+        set.add(Metric.counter("rfx.callgraph.budget_refusals",
+                longOf(analysis, "budget_refusals"),
+                "Refus du budget mémoire natif ; le premier arrête l'analyse (R-533)."));
+        if (hierarchy == 0) {
+            return;
+        }
+        long resolved = longOf(analysis, "resolved_calls");
+        long unresolved = longOf(analysis, "unresolved_calls");
+        long buildNs = longOf(analysis, "last_build_ns");
+        set.add(Metric.counter("rfx.callgraph.graphs", longOf(analysis, "graphs"),
+                "Graphes d'appel construits, un par unité chaude."));
+        set.add(Metric.counter("rfx.callgraph.rounds", longOf(analysis, "rounds"),
+                "Tours de construction, relances comprises quand une classe manquait."));
+        set.add(Metric.counter("rfx.callgraph.nodes", longOf(analysis, "nodes"),
+                "Méthodes, sommées sur tous les graphes."));
+        set.add(Metric.counter("rfx.callgraph.resolved_calls", resolved,
+                "Sites d'appel dont toutes les cibles sont connues."));
+        set.add(Metric.counter("rfx.callgraph.unresolved_calls", unresolved,
+                "Sites d'appel non résolus : interface, classe inconnue, réflexion..."));
+        set.addIfMeasured(resolved + unresolved > 0, () -> Metric.ratio(
+                "rfx.callgraph.unresolved_ratio", unresolved * 100.0 / (resolved + unresolved),
+                "Part des sites d'appel non résolus (FM-15)."));
+        set.add(Metric.counter("rfx.callgraph.truncated", longOf(analysis, "truncated"),
+                "Graphes arrêtés par une borne : profondeur ou nombre de méthodes (R-340)."));
+        set.add(Metric.counter("rfx.callgraph.reflection", longOf(analysis, "reflection"),
+                "Graphes où un appel réflexif a été rencontré."));
+        set.add(Metric.counter("rfx.callgraph.classes_provided",
+                longOf(analysis, "classes_provided"),
+                "Classes dont le bytecode a été lu pour l'analyse."));
+        set.add(Metric.counter("rfx.callgraph.classes_absent",
+                longOf(analysis, "classes_absent"),
+                "Classes tenues pour inconnues : cibles de mixin, d'access transformer ou "
+                        + "de coremod, illisibles."));
+        set.add(Metric.gauge("rfx.callgraph.queue", longOf(analysis, "queue"), "unités",
+                "Unités chaudes en attente d'analyse."));
+        set.addIfMeasured(buildNs > 0, () -> Metric.gauge("rfx.callgraph.build_ms",
+                buildNs / 1_000_000.0, "ms", "Durée de la dernière construction, hors tick."));
+    }
+
     private static void appendDb(MetricSet set, Map<String, Object> db) {
         if (db == null || !Boolean.TRUE.equals(db.get("enabled"))) {
             return;

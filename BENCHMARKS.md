@@ -169,6 +169,29 @@ majorité (ADR-046). Les fils internes de la JVM et les workers natifs n'y figur
 Rien de cette section n'est publié tant que la base n'est pas ouverte (R-660) : Java
 l'ouvre quand l'inventaire des mods est connu, au chargement complet (ADR-049).
 
+### `rfx.callgraph` — graphe d'appel (C-07)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.callgraph.hierarchy_classes` | gauge | classes | Classes de l'installation déclarées à l'analyse (nom, super-classe, drapeaux), lues dans les archives par le fil `rustforgex-analysis` |
+| `rfx.callgraph.budget_refusals` | counter | — | Refus du budget mémoire natif ; le premier arrête l'analyse (R-533) |
+| `rfx.callgraph.graphs` | counter | — | Graphes construits, un par unité chaude — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.rounds` | counter | — | Tours de construction, relances comprises quand une classe manquait — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.nodes` | counter | — | Méthodes, sommées sur tous les graphes — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.resolved_calls` | counter | — | Sites d'appel dont toutes les cibles sont connues — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.unresolved_calls` | counter | — | Sites d'appel non résolus : classe inconnue ou transformée, appel par une interface, plus de quatre cibles, aucune implémentation, méthodes par défaut ambiguës, `invokedynamic` hors lambda, réflexion, code illisible — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.unresolved_ratio` | ratio | % | Part des sites d'appel non résolus (FM-15) — *conditionnelle* : au moins un site rencontré |
+| `rfx.callgraph.truncated` | counter | — | Graphes arrêtés par une borne, `analysis.max_call_depth` ou `analysis.max_nodes_per_workload` (R-340) — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.reflection` | counter | — | Graphes où un appel réflexif a été rencontré — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.classes_provided` | counter | — | Classes dont le bytecode a été lu pour l'analyse — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.classes_absent` | counter | — | Classes tenues pour inconnues : cibles de mixin, d'access transformer ou de coremod, introuvables ou illisibles — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.queue` | gauge | unités | Unités chaudes en attente d'analyse — *conditionnelle* : hiérarchie déclarée |
+| `rfx.callgraph.build_ms` | gauge | ms | Durée de la dernière construction, hors tick — *conditionnelle* : au moins une construction |
+
+Rien de cette section n'est publié si `analysis.enabled` vaut `false`. Les graphes ne
+pilotent encore aucune décision : ces métriques décrivent ce que l'analyse sait, pas
+un gain (ADR-051).
+
 ### `rfx.hook` — gardes des accroches (C-01, FM-02)
 
 Une série par accroche : `setup`, `loadComplete`, `registerCommands`, `warmUpCommands`,

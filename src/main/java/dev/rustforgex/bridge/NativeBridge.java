@@ -77,6 +77,18 @@ public interface NativeBridge {
      */
     int dbSync(long handle);
 
+    /** @see RfxNative#analysisHierarchy(long, byte[]) */
+    int analysisHierarchy(long handle, byte[] entriesCbor);
+
+    /** @see RfxNative#analysisClass(long, byte[], byte[]) */
+    int analysisClass(long handle, byte[] nameUtf8, byte[] bytes);
+
+    /** @see RfxNative#analysisStep(long) */
+    int analysisStep(long handle);
+
+    /** @see RfxNative#analysisRequests(long) */
+    byte[] analysisRequests(long handle);
+
     /**
      * @param handle handle du runtime
      * @param buffer tampon direct à faire lire au natif
@@ -242,6 +254,26 @@ public interface NativeBridge {
             @Override
             public int dbSync(long handle) {
                 return RfxNative.dbSync(handle);
+            }
+
+            @Override
+            public int analysisHierarchy(long handle, byte[] entriesCbor) {
+                return RfxNative.analysisHierarchy(handle, entriesCbor);
+            }
+
+            @Override
+            public int analysisClass(long handle, byte[] nameUtf8, byte[] bytes) {
+                return RfxNative.analysisClass(handle, nameUtf8, bytes);
+            }
+
+            @Override
+            public int analysisStep(long handle) {
+                return RfxNative.analysisStep(handle);
+            }
+
+            @Override
+            public byte[] analysisRequests(long handle) {
+                return RfxNative.analysisRequests(handle);
             }
 
             @Override

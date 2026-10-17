@@ -68,6 +68,15 @@ mise à jour d'un mod, classe de matériel, ou **n'importe quelle option** de ce
 C'est voulu : une mesure faite dans un autre contexte ne doit pas guider le runtime
 (R-360). Un fichier illisible est renommé en `workload.db.bak`, jamais lu en partie.
 
+### Graphe d'appel (C-07, ADR-051)
+
+| Clé | Type | Défaut | Plage | Redémarrage | Effet |
+|---|---|---|---|---|---|
+| `analysis.enabled` | booléen | `true` | `true` / `false` | oui | Graphe d'appel des unités les plus coûteuses. Après le chargement, le fil `rustforgex-analysis` lit les en-têtes de toutes les classes de l'installation, puis le bytecode de celles qu'une analyse demande ; rien ne se passe dans le tick. Les cibles de mixin, d'access transformer et de coremod sont tenues pour inconnues. Sans instrumentation armée, le fil n'est pas créé. À `false`, aucune classe n'est lue. |
+| `analysis.cpu_budget_pct` | entier | `5` | `1` .. `50` | oui | Part d'un cœur accordée au fil d'analyse, en pourcent : après chaque lot de travail, il s'efface le temps nécessaire pour ne pas dépasser cette part. |
+| `analysis.max_call_depth` | entier | `12` | `1` .. `64` | oui | Profondeur d'exploration d'un graphe ; au-delà, il est marqué tronqué (R-340). |
+| `analysis.max_nodes_per_workload` | entier | `2000` | `100` .. `20000` | oui | Méthodes au plus par graphe ; au-delà, il est marqué tronqué (R-340). La mémoire de l'analyse est comptée dans `memory.max_native_mb`. |
+
 ### Cadence de la mesure de coût (PARTIE 12.4)
 
 | Clé | Type | Défaut | Plage | Rechargeable | Description |

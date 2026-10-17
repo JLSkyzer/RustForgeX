@@ -285,6 +285,7 @@ class TelemetryTest {
                 "external_runnable", 12L, "external_runnable_max", 31L,
                 "external_load_reports", 4L)));
         complete.put("db", openDb(4L, 3L));
+        complete.put("analysis", analysis(52_000L, 7L, 3L, 1_500_000L));
 
         MetricSet set = Telemetry.collect(complete,
                 new Telemetry.InstrumentationCounts(true, 1, 1, 1, 0, 1, 0),
@@ -352,6 +353,57 @@ class TelemetryTest {
         assertEquals(2, set.get("rfx.db.load_rejected_entries").value());
         assertEquals(12, set.get("rfx.db.persist_ms").value());
         assertEquals("ms", set.get("rfx.db.persist_ms").unit());
+    }
+
+    /** Sous-table {@code analysis} du statut natif. */
+    private static Map<String, Object> analysis(long hierarchy, long resolved, long unresolved,
+            long buildNs) {
+        Map<String, Object> analysis = new LinkedHashMap<>();
+        analysis.put("enabled", true);
+        analysis.put("hierarchy_classes", hierarchy);
+        analysis.put("classes_provided", 40L);
+        analysis.put("classes_absent", 5L);
+        analysis.put("graphs", 2L);
+        analysis.put("rounds", 6L);
+        analysis.put("nodes", 90L);
+        analysis.put("resolved_calls", resolved);
+        analysis.put("unresolved_calls", unresolved);
+        analysis.put("truncated", 1L);
+        analysis.put("reflection", 0L);
+        analysis.put("last_build_ns", buildNs);
+        analysis.put("queue", 4L);
+        analysis.put("budget_refusals", 0L);
+        return analysis;
+    }
+
+    @Test
+    @DisplayName("C-07 : rien des graphes avant la hiérarchie, puis la part non résolue")
+    void theCallGraphIsPublishedOnceTheHierarchyIsKnown() {
+        Map<String, Object> status = status();
+        status.put("analysis", analysis(0L, 0L, 0L, 0L));
+        MetricSet set = Telemetry.collect(status, null, null, null);
+        assertEquals(0, set.get("rfx.callgraph.hierarchy_classes").value());
+        assertNull(set.get("rfx.callgraph.graphs"), "hiérarchie pas encore déclarée");
+
+        status.put("analysis", analysis(52_000L, 0L, 0L, 0L));
+        set = Telemetry.collect(status, null, null, null);
+        assertEquals(2, set.get("rfx.callgraph.graphs").value());
+        assertNull(set.get("rfx.callgraph.unresolved_ratio"), "aucun site d'appel encore");
+        assertNull(set.get("rfx.callgraph.build_ms"), "aucune construction mesurée");
+
+        status.put("analysis", analysis(52_000L, 7L, 3L, 1_500_000L));
+        set = Telemetry.collect(status, null, null, null);
+        assertEquals(30.0, set.get("rfx.callgraph.unresolved_ratio").value(), 1e-9);
+        assertEquals(1.5, set.get("rfx.callgraph.build_ms").value(), 1e-9);
+        assertEquals(7, set.get("rfx.callgraph.resolved_calls").value());
+        assertEquals(5, set.get("rfx.callgraph.classes_absent").value());
+        assertEquals(4, set.get("rfx.callgraph.queue").value());
+
+        Map<String, Object> disabled = analysis(52_000L, 7L, 3L, 0L);
+        disabled.put("enabled", false);
+        status.put("analysis", disabled);
+        set = Telemetry.collect(status, null, null, null);
+        assertNull(set.get("rfx.callgraph.hierarchy_classes"), "analysis.enabled = false");
     }
 
     @Test

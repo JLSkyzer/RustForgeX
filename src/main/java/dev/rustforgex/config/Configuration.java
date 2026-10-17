@@ -99,6 +99,19 @@ public final class Configuration {
                     "Mémoire de la base des unités de travail, en mébioctets, comptée aussi "
                             + "dans memory.max_native_mb ; au-delà, les plus froides sont "
                             + "évincées", false),
+            OptionConfig.booleanOption("analysis", "enabled", true,
+                    "Graphe d'appel des unités les plus coûteuses (C-07), construit hors du "
+                            + "tick à partir du bytecode des archives. false = aucun graphe",
+                    false),
+            OptionConfig.integerOption("analysis", "cpu_budget_pct", 5, 1, 50,
+                    "Part d'un cœur accordée à l'analyse, en pourcent : le fil d'analyse "
+                            + "s'efface le reste du temps", false),
+            OptionConfig.integerOption("analysis", "max_call_depth", 12, 1, 64,
+                    "Profondeur d'exploration d'un graphe d'appel ; au-delà, il est "
+                            + "marqué tronqué", false),
+            OptionConfig.integerOption("analysis", "max_nodes_per_workload", 2_000, 100,
+                    20_000, "Méthodes au plus par graphe d'appel ; au-delà, il est marqué "
+                            + "tronqué", false),
             OptionConfig.booleanOption("diagnostics", "report_on_incident", true,
                     "Consigner chaque incident dans crash/rfx-crash-<ts>.json : accroche "
                             + "désactivée, panic native. Fichier local, chemins anonymisés",
@@ -414,6 +427,9 @@ public final class Configuration {
         table.put("profiler_cpu_budget_pct", getLong("profiler.cpu_budget_pct"));
         table.put("cache_enabled", getBoolean("cache.enabled"));
         table.put("cache_max_memory_mb", getLong("cache.max_memory_mb"));
+        table.put("analysis_enabled", getBoolean("analysis.enabled"));
+        table.put("analysis_max_call_depth", getLong("analysis.max_call_depth"));
+        table.put("analysis_max_nodes", getLong("analysis.max_nodes_per_workload"));
         return Cbor.encode(table);
     }
 

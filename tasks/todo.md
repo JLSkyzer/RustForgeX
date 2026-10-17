@@ -1024,7 +1024,18 @@ demandent une mesure ; les autres sont des tests de justesse.
         (`max_call_depth` 12, `max_nodes_per_workload` 2000 → `truncated`)
   - [x] Classes de test compilées par `javac` depuis des sources du dépôt (aucune
         classe tierce redistribuée)
-  - [ ] Brancher : faire parvenir les octets des classes depuis C-04, puis C-08
+  - [x] Brancher en jeu (ADR-051, demande de Killian du 2026-10-17) : fil
+        `rustforgex-analysis`, hiérarchie complète des couches de modules avant tout
+        pas, bytecode à la demande, cibles de mixin / access transformer / coremod
+        tenues pour inconnues, `rfx.callgraph.*`. Vérifié sur `runServer` : 62 690
+        classes déclarées en 67 à 94 s, fil mesuré entre 2,7 et 4,6 % d'un cœur
+        (budget 5 %) ; sans charge, aucune unité chaude, donc aucun graphe
+  - [ ] Mesurer le coût d'un graphe sur des classes réelles (estimé en jeu, non
+        mesuré : une dizaine de secondes de CPU par graphe), et en isoler la
+        cause avant d'optimiser (ADR-051, « Vérification en jeu »)
+  - [ ] Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
+        résiduels de l'ADR-051 (classes générées, coremods à noms calculés,
+        transformateurs tiers)
   - [ ] Acceptance (200 méthodes de référence, > 80 % résolues, zéro faux résolu)
 - [ ] C-08, C-10, C-12 — après C-07
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se

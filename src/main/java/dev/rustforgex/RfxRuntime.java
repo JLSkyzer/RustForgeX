@@ -28,6 +28,8 @@ import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.StackSampler;
 import dev.rustforgex.instrument.UnknownFrameIndex;
+import dev.rustforgex.analysis.CallGraphLink;
+import dev.rustforgex.analysis.ModuleLayerLibrary;
 import dev.rustforgex.db.WorkloadDbLink;
 import dev.rustforgex.sched.ExternalLoadReporter;
 import dev.rustforgex.sched.ExternalLoadSensor;
@@ -93,6 +95,15 @@ public final class RfxRuntime {
      * l'inventaire des mods est connu, par {@link #discoverMods}.
      */
     private final WorkloadDbLink dbLink;
+
+    /**
+     * Graphe d'appel (C-07, ADR-051), ou {@code null} si le runtime natif n'est pas
+     * actif, si {@code analysis.enabled} vaut {@code false}, si rien n'est sondé — sans
+     * sonde, aucune unité ne devient chaude — ou si le mod n'est pas dans une couche de
+     * modules. Démarré avec l'inventaire des mods, par {@link #discoverMods} : le jeu a
+     * fini de charger, la lecture des archives ne le retarde pas.
+     */
+    private final CallGraphLink callGraphLink;
 
     /**
      * Inventaire des mods, ou {@code null} tant que la découverte n'a pas eu lieu.
@@ -214,6 +225,21 @@ public final class RfxRuntime {
             double budget = configuration.getLong("profiler.cpu_budget_pct") / 100.0 / 4.0;
             tickCycle.enableSampling(instrumentation.registry().frameIndex(), budget);
         }
+
+        // La couche du mod est celle du jeu : ses ancêtres portent les bibliothèques et
+        // le JDK. Hors d'une couche (tests), la hiérarchie serait incomplète : rien.
+        ModuleLayer gameLayer = RfxRuntime.class.getModule().getLayer();
+        this.callGraphLink = live && configuration.getBoolean("analysis.enabled")
+                && instrumentation.armed() && gameLayer != null
+                ? new CallGraphLink(bridge, report.handle(),
+                        () -> ModuleLayerLibrary.of(gameLayer),
+                        (int) configuration.getLong("analysis.cpu_budget_pct"),
+                        code -> {
+                            if (ErrorCode.fromNativeCode(code) == ErrorCode.PANIC_CAUGHT) {
+                                recordIncident(Incident.nativePanic("analysisStep"));
+                            }
+                        })
+                : null;
 
         // C-06, étape 1 : observer le bus sans y toucher. Aucun auditeur tiers n'est
         // enveloppé, donc aucun risque pour R-330 ; le coût, lui, reste à mesurer.
@@ -341,6 +367,9 @@ public final class RfxRuntime {
         // L'environnement de la base comprend l'ensemble des mods : elle s'ouvre ici.
         if (dbLink != null) {
             dbLink.start(found.mods());
+        }
+        if (callGraphLink != null) {
+            callGraphLink.start();
         }
         return found;
     }
@@ -773,6 +802,20 @@ public final class RfxRuntime {
                 table.get("writes"), table.get("write_failures"));
     }
 
+    /** Résume le graphe d'appel dans le journal (C-07, ADR-051). */
+    private void logCallGraphSummary() {
+        Map<String, Object> status = nativeStatus();
+        Object analysis = status == null ? null : status.get("analysis");
+        if (!(analysis instanceof Map<?, ?> table) || !callGraphLink.hierarchyReady()) {
+            return;
+        }
+        LOGGER.info("Graphe d'appel : {} graphe(s), {} appel(s) résolu(s), {} non résolu(s), "
+                + "{} tronqué(s) ; {} classes lues, {} tenues pour inconnues.",
+                table.get("graphs"), table.get("resolved_calls"), table.get("unresolved_calls"),
+                table.get("truncated"), table.get("classes_provided"),
+                table.get("classes_absent"));
+    }
+
     private Map<String, Object> nativeStatus() {
         if (!active()) {
             return null;
@@ -822,6 +865,10 @@ public final class RfxRuntime {
         if (dbLink != null) {
             dbLink.stop();
             logDbSummary();
+        }
+        if (callGraphLink != null) {
+            callGraphLink.stop();
+            logCallGraphSummary();
         }
         if (eventObserver != null) {
             eventObserver.stop();

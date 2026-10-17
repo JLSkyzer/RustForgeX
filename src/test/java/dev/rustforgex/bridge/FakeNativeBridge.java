@@ -66,6 +66,27 @@ public class FakeNativeBridge implements NativeBridge {
     }
 
     @Override
+    public int analysisHierarchy(long handle, byte[] entriesCbor) {
+        return 0;
+    }
+
+    @Override
+    public int analysisClass(long handle, byte[] nameUtf8, byte[] bytes) {
+        return 0;
+    }
+
+    /** Rien à analyser. */
+    @Override
+    public int analysisStep(long handle) {
+        return 0;
+    }
+
+    @Override
+    public byte[] analysisRequests(long handle) {
+        return null;
+    }
+
+    @Override
     public long transferProbe(long handle, ByteBuffer buffer, int length) {
         return length;
     }
