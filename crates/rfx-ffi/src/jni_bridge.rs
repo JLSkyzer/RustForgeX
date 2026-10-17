@@ -106,6 +106,40 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_schedReportExternalL
     }
 }
 
+/// `RfxNative.dbOpen(long, byte[])` : ouvre la base des unites de travail (C-09).
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_dbOpen(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    open_cbor: JByteArray,
+) -> jint {
+    let Ok(bytes) = env.convert_byte_array(&open_cbor) else {
+        return to_jint(ErrorCode::InvalidArgument.ffi_code());
+    };
+    // SAFETY : `bytes` est un `Vec<u8>` vivant de longueur exacte pendant tout l'appel.
+    to_jint(unsafe { crate::rfx_db_open(handle as u64, bytes.as_ptr(), bytes.len()) })
+}
+
+/// `RfxNative.dbSync(long)` : avance d'une tranche la synchronisation de la base.
+///
+/// Renvoie `1` si le cycle est termine, `0` s'il faut rappeler, ou un code d'erreur de
+/// l'annexe A.2, inferieur ou egal a `-1000` : les domaines sont disjoints.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_dbSync(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    let mut done: u32 = 0;
+    // SAFETY : `done` est une variable locale, valide pendant tout l'appel.
+    let result = unsafe { crate::rfx_db_sync(handle as u64, &mut done) };
+    if result != OK {
+        return to_jint(result);
+    }
+    jint::from(done == 1)
+}
+
 /// `RfxNative.hwSetFfiCosts(long, int, int)` : publie les couts mesures par Java.
 #[no_mangle]
 pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_hwSetFfiCosts(

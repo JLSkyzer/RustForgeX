@@ -90,7 +90,7 @@ pub struct ProfilerStatus {
     pub records_ignored: u64,
     /// Echantillons de pile agreges (`rfx.profiler.samples`).
     pub samples_ingested: u64,
-    /// Unites de travail evincees (`rfx.db.evictions`, R-321).
+    /// Unites de travail evincees du profiler (`rfx.profiler.evictions`, R-321).
     pub evictions: u64,
     /// Collisions de `WorkId` signalees (`E-2101`, R-202).
     pub collisions: u64,
@@ -203,6 +203,9 @@ pub struct RuntimeStatus {
     /// Charge externe relevee pour l'ordonnanceur. Absent d'un blob ancien : zero.
     #[serde(default)]
     pub scheduler: SchedulerStatus,
+    /// Base des unites de travail (C-09). Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub db: crate::DbStatus,
 }
 
 #[cfg(test)]
@@ -232,6 +235,14 @@ mod tests {
                 external_runnable: 12,
                 external_runnable_max: 31,
                 external_load_reports: 4,
+            },
+            db: crate::DbStatus {
+                enabled: true,
+                open: true,
+                load: 4,
+                entries: 9,
+                writes: 2,
+                ..crate::DbStatus::default()
             },
         };
         let bytes = crate::to_cbor(&s).expect("encodage");

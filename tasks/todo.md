@@ -986,9 +986,28 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [ ] **Écarts à IF-12 à valider par Killian** (ADR-048, décision 7) : `hot()` en
         `Vec`, `evict` par plafonds, `persist` par le fil d'écriture, `LoadOutcome`,
         instantané complet plutôt qu'« append-only + index »
-  - [ ] Brancher dans `rfx-core` : relecture au démarrage, écriture périodique hors
-        tick, empreinte fournie par Java, options `max_workloads` / `max_db_size_mb`,
-        télémétrie `rfx.db.*`
+  - [x] Brancher dans `rfx-core` (ADR-049, demande de Killian du 2026-10-16) :
+    - [x] `rfx-cache` : la base vit sur `RFX-IO` (relecture au démarrage sans attente,
+          lots de nouveautés et de dynamiques, écriture si quelque chose a changé ;
+          disque refusé → la base continue en mémoire sans écrire)
+    - [x] `rfx-model` : `DbOpen` (chemin et environnement venus de Java), `DbStatus`,
+          options `cache.enabled` et `cache.max_memory_mb` (PARTIE 28)
+    - [x] `rfx-core` : empreinte d'environnement, descripteurs gardés à
+          l'enregistrement, collecte des dynamiques par tranches (le verrou rendu entre
+          deux tranches : le tick n'attend jamais plus d'une tranche), mémoire comptée
+          dans le budget natif (`Pool::Cache`)
+    - [x] `rfx-ffi` : `rfx_db_open`, `rfx_db_sync` ; pas d'entrée de fermeture :
+          `rfx_shutdown` ferme la base hors du verrou global, attente bornée à 10 s
+    - [x] Java : ouverture au chargement complet (l'empreinte a besoin de
+          l'inventaire des mods ; l'étape 9 du Bootstrap le dit), fil `rustforgex-db`
+          hors tick toutes les 5 min, télémétrie `rfx.db.*`, `CONFIGURATION.md`
+    - [x] Lancé en jeu (2026-10-17, `runGameTestServer` ×2) : base écrite à l'arrêt
+          (390 478 octets), « 413 unités relues au lancement » au second, aucun
+          avertissement. Le serveur de test ne vit qu'un tick : les mesures en jeu
+          restent à voir sur une vraie partie ; un test de bout en bout de 40 ticks
+          les prouve en attendant (160 appels relus du fichier)
+    - [ ] Voir les mesures d'une vraie partie arriver dans `workload.db` (client ou
+          serveur joué plus de cinq minutes)
   - [x] Acceptance (ADR-048, 2026-10-16, cas extrême : noms longs, historique plein,
         machine chargée à 43-58 % par d'autres programmes) : **46,6 Mio** pour 20 000
         unités (allocateur instrumenté, < 64 Mio) ; chargement **117,7 ms** (< 200 ms,

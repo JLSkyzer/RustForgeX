@@ -11,11 +11,12 @@ use std::time::{Duration, Instant};
 use rfx_memory::probe_buffer::DEFAULT_BUFFER_BYTES;
 use rfx_memory::{MemoryBudget, Pool, ProbeBufferPool};
 use rfx_model::{
-    ComponentStatus, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
-    RuntimeStatus, SchedulerStatus, Side, TickStatus,
+    ComponentStatus, DbOpen, HardwareClass, Maturity, ProbeCoverage, ProbeStatus, RuntimeConfig,
+    RuntimeStatus, SchedulerStatus, Side, TickStatus, WorkDescriptor,
 };
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 
+use crate::db::DbLink;
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
 use crate::tick::{TickPhase, TickWindow};
@@ -38,8 +39,9 @@ const MAX_PROBED_THREADS: usize = 64;
 
 /// Etat global du runtime natif.
 ///
-/// Les champs `store`, `scheduler`, `decision`, `telemetry` et `caches` decrits en
-/// PARTIE 5.27 apparaitront au jalon qui implemente les composants correspondants.
+/// La base des unites de travail (`store` en PARTIE 5.27) est le champ `db`. Les champs
+/// `scheduler`, `decision`, `telemetry` et `caches` apparaitront au jalon qui implemente
+/// les composants correspondants.
 /// Ils ne sont pas declares ici tant qu'ils n'existent pas : un champ vide serait une
 /// fiction au sens du contrat agent 3.1.
 #[derive(Debug)]
@@ -75,6 +77,8 @@ pub struct Runtime {
     pending_levels: Option<Vec<u8>>,
     /// Charge externe relevee cote Java (R-421, ADR-046).
     scheduler: SchedulerStatus,
+    /// Base des unites de travail (C-09, ADR-049).
+    db: DbLink,
 }
 
 impl Runtime {
@@ -91,6 +95,7 @@ impl Runtime {
             baseline_pause_ticks: config.profiler_baseline_pause_ticks,
             baseline_cycles: config.profiler_baseline_cycles,
         };
+        let db = DbLink::new(&config);
         Self {
             config,
             hardware: HardwareClass::default(),
@@ -109,6 +114,7 @@ impl Runtime {
             profiler_over_budget: 0,
             pending_levels: None,
             scheduler: SchedulerStatus::default(),
+            db,
         }
     }
 
@@ -163,9 +169,70 @@ impl Runtime {
     /// Enregistre une unite de travail et rend son identifiant de sonde (C-05).
     ///
     /// Renvoie `None` si le plafond d'unites suivies est atteint sans qu'aucune unite
-    /// froide ne soit evincable : la methode n'est alors pas sondee.
-    pub fn register_workload(&mut self, work_id: rfx_model::WorkId) -> Option<u32> {
-        self.profiler.register(work_id)
+    /// froide ne soit evincable : la methode n'est alors pas sondee. Une unite sondee
+    /// est aussi notee pour la base (C-09) : son descripteur partira au prochain lot.
+    pub fn register_workload(
+        &mut self,
+        descriptor: &WorkDescriptor,
+        work_id: rfx_model::WorkId,
+    ) -> Option<u32> {
+        let probe_id = self.profiler.register(work_id);
+        if probe_id.is_some() {
+            self.db.note(descriptor);
+        }
+        probe_id
+    }
+
+    /// Ouvre la base des unites de travail (C-09). Le fichier est relu en arriere-plan :
+    /// l'appel rend la main aussitot.
+    ///
+    /// # Erreurs
+    ///
+    /// [`ErrorCode::InvalidArgument`] si le blob porte un schema inconnu, si le
+    /// repertoire est vide ou si la base est deja ouverte.
+    pub fn open_db(&mut self, open: &DbOpen) -> Result<(), ErrorCode> {
+        if open.schema != rfx_model::MODEL_SCHEMA_VERSION {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let environment = crate::db::environment(open, &self.config, &self.hardware);
+        let max_bytes = self.cache_cap_bytes();
+        self.db
+            .open(open, environment, max_bytes)
+            .map_err(|_| ErrorCode::InvalidArgument)
+    }
+
+    /// Avance d'une tranche la collecte des dynamiques pour la base. Renvoie `true` quand
+    /// le cycle est termine et son lot confie ; `false` s'il faut rappeler, apres avoir
+    /// rendu le verrou.
+    pub fn db_sync_step(&mut self) -> bool {
+        let max_bytes = self.cache_cap_bytes();
+        self.db
+            .sync_step(self.profiler.store(), self.profiler.ticks(), max_bytes)
+    }
+
+    /// Ferme la base : dernier lot complet, puis attente de son ecriture, au plus
+    /// `timeout`. A appeler hors du verrou du registre.
+    pub fn close_db(&mut self, timeout: Duration) -> bool {
+        let max_bytes = self.cache_cap_bytes();
+        self.db.close(
+            self.profiler.store(),
+            self.profiler.ticks(),
+            max_bytes,
+            timeout,
+        )
+    }
+
+    /// Plafond d'octets de la base : `cache.max_memory_mb`, borne par ce que le budget
+    /// natif laisse libre (R-533). La memoire de la base y est comptee (`Pool::Cache`).
+    fn cache_cap_bytes(&mut self) -> usize {
+        const MIB: u64 = 1024 * 1024;
+        let used = self.db.estimated_bytes();
+        self.budget.release_all(Pool::Cache);
+        let headroom = self.budget.limit().saturating_sub(self.budget.in_use());
+        let cap = (u64::from(self.config.cache_max_memory_mb) * MIB).min(headroom);
+        // Comptage seulement : la base elle-meme se ramene sous `cap` au lot suivant.
+        let _ = self.budget.reserve(Pool::Cache, used.min(cap));
+        usize::try_from(cap).unwrap_or(usize::MAX)
     }
 
     /// Signale une collision de `WorkId` (R-202, `E-2101`).
@@ -426,6 +493,12 @@ impl Runtime {
                     maturity: Maturity::Stable,
                     active: self.coverage.cores,
                 },
+                ComponentStatus {
+                    id: "C-09".to_owned(),
+                    name: "Workload Database".to_owned(),
+                    maturity: Maturity::Stable,
+                    active: self.db.is_open(),
+                },
             ],
             probes: ProbeStatus {
                 records_consumed: self.probe_records_consumed,
@@ -435,6 +508,7 @@ impl Runtime {
             },
             profiler: self.profiler.status(),
             scheduler: self.scheduler,
+            db: self.db.status(),
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {
@@ -525,6 +599,11 @@ pub fn with<R>(handle: u64, f: impl FnOnce(&mut Runtime) -> R) -> Result<R, Erro
 
 /// Detruit l'instance. Le handle devient definitivement invalide.
 ///
+/// L'instance est retiree du registre, puis fermee **apres** que le verrou est rendu :
+/// la fermeture attend l'ecriture finale de la base (au plus
+/// [`CLOSE_TIMEOUT`](crate::db::CLOSE_TIMEOUT)), et rien ne doit attendre le disque
+/// en tenant le verrou.
+///
 /// # Erreurs
 ///
 /// Renvoie [`ErrorCode::InvalidArgument`] si le handle n'est pas celui de
@@ -534,8 +613,12 @@ pub fn shutdown(handle: u64) -> Result<(), ErrorCode> {
     if handle != (HANDLE_PATTERN | reg.generation) || reg.generation == 0 {
         return Err(ErrorCode::InvalidArgument);
     }
-    reg.runtime = None;
+    let runtime = reg.runtime.take();
     reg.generation = 0;
+    drop(reg);
+    if let Some(mut runtime) = runtime {
+        runtime.close_db(crate::db::CLOSE_TIMEOUT);
+    }
     Ok(())
 }
 
@@ -679,7 +762,7 @@ mod tests {
         );
 
         // Une unite apparait : la table suivante doit pouvoir etre prise.
-        rt.register_workload(rfx_model::WorkId(1));
+        rt.register_workload(&WorkDescriptor::default(), rfx_model::WorkId(1));
         rt.tick_begin(1, Side::Server, Instant::now());
         rt.tick_end(Instant::now());
 
@@ -704,12 +787,109 @@ mod tests {
     /// Le statut porte des valeurs qui n'existent qu'a l'execution : ce test le
     /// remplit avec une mesure de ligne de base et une unite de travail, sinon il ne
     /// verifierait que la carcasse.
+    /// R-533 : la base ne depasse ni `cache.max_memory_mb`, ni ce que le budget natif
+    /// laisse libre.
+    #[test]
+    fn the_database_cap_respects_the_native_budget() {
+        const MIB: usize = 1024 * 1024;
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        assert_eq!(rt.cache_cap_bytes(), 128 * MIB, "cache.max_memory_mb");
+
+        let mut tight = Runtime::new(RuntimeConfig {
+            max_native_mb: 16,
+            ..RuntimeConfig::default()
+        });
+        assert!(tight.acquire_probe_buffer(1).is_some());
+        let cap = tight.cache_cap_bytes();
+        assert!(cap < 16 * MIB, "borne par le budget natif : {cap}");
+        assert_eq!(
+            cap as u64,
+            tight.budget.limit() - tight.budget.in_use(),
+            "ce que les tampons de sonde laissent"
+        );
+    }
+
+    /// C-09 (ADR-049) : les mesures du profileur atteignent le fichier. Le serveur de
+    /// test du jeu s'arrete apres un tick, trop tot pour le montrer : ce test fait
+    /// tourner quarante ticks avec de vrais enregistrements de sonde.
+    #[test]
+    fn profiler_measurements_reach_the_workload_database() {
+        use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .expect("horloge")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("rfx-core-db-{}-{unique}", std::process::id()));
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+        let descriptor = WorkDescriptor {
+            owner_id: "minecraft".to_owned(),
+            class_internal_name: "net/minecraft/world/entity/Mob".to_owned(),
+            method_name: "tick".to_owned(),
+            method_descriptor: "()V".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+        let probe_id = rt.register_workload(&descriptor, work_id).expect("sondee");
+        let open = DbOpen {
+            schema: rfx_model::MODEL_SCHEMA_VERSION,
+            dir: dir.to_string_lossy().into_owned(),
+            minecraft: "1.20.1".to_owned(),
+            ..DbOpen::default()
+        };
+        rt.open_db(&open).expect("ouverte");
+        assert!(rt.acquire_probe_buffer(7).is_some());
+
+        let records = [
+            ProbeRecord {
+                probe_id,
+                value: 3,
+                kind: RecordKind::Enter.to_byte(),
+                ..ProbeRecord::default()
+            },
+            ProbeRecord {
+                probe_id,
+                value: 40_000,
+                kind: RecordKind::Exit.to_byte(),
+                ..ProbeRecord::default()
+            },
+        ];
+        for tick in 1..=40 {
+            rt.tick_begin(tick, Side::Server, Instant::now());
+            let buffer = rt.probe_buffers.get_mut(7).expect("tampon");
+            for (index, record) in records.iter().enumerate() {
+                assert!(buffer.write_at(index * PROBE_RECORD_SIZE, &record.encode()));
+            }
+            rt.flush_probe_buffer(7, records.len() * PROBE_RECORD_SIZE);
+            rt.tick_end(Instant::now());
+        }
+        while !rt.db_sync_step() {}
+        assert!(rt.close_db(Duration::from_secs(30)), "ecrite a temps");
+
+        let bytes = std::fs::read(dir.join(crate::db::FILE_NAME)).expect("fichier");
+        let _ = std::fs::remove_dir_all(&dir);
+        let decoded = rfx_cache::file::decode(&bytes).expect("lisible");
+        let record = decoded
+            .records
+            .iter()
+            .find(|record| record.id == work_id)
+            .expect("unite presente");
+        assert_eq!(record.descriptor, descriptor);
+        assert_eq!(
+            record.dynamics.total_calls,
+            40 * 4,
+            "trois passages et une sortie"
+        );
+        assert_eq!(record.dynamics.last_seen_tick, 40);
+    }
+
     #[test]
     fn the_status_stays_readable_by_java() {
         let _guard = test_lock();
         let mut rt = Runtime::new(RuntimeConfig::default());
         rt.start_profiler();
-        rt.register_workload(rfx_model::WorkId(1));
+        rt.register_workload(&WorkDescriptor::default(), rfx_model::WorkId(1));
         rt.record_panic(Instant::now());
         for tick in 1..=400 {
             rt.tick_begin(tick, Side::Server, Instant::now());

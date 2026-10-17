@@ -76,15 +76,29 @@ pub struct Decoded {
 /// Encode un fichier complet. Seule la partie « environnement » de l'empreinte est
 /// ecrite dans l'en-tete.
 ///
+/// Les enregistrements sont pris par reference : le fil d'ecriture encode la base qu'il
+/// detient sans la copier.
+///
 /// # Errors
 ///
 /// Le message de l'encodeur CBOR, s'il echoue.
-pub fn encode(fingerprint: &Fingerprint, records: &[WorkloadRecord]) -> Result<Vec<u8>, String> {
+pub fn encode<'a>(
+    fingerprint: &Fingerprint,
+    records: impl IntoIterator<Item = &'a WorkloadRecord>,
+) -> Result<Vec<u8>, String> {
     let fp = rfx_model::to_cbor(&fingerprint.environment()).map_err(|e| e.to_string())?;
-    let chunks = records
-        .chunks(CHUNK_RECORDS)
-        .map(|chunk| rfx_model::to_cbor(&chunk).map_err(|e| e.to_string()))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut chunks = Vec::new();
+    let mut chunk: Vec<&WorkloadRecord> = Vec::with_capacity(CHUNK_RECORDS);
+    for record in records {
+        chunk.push(record);
+        if chunk.len() == CHUNK_RECORDS {
+            chunks.push(rfx_model::to_cbor(&chunk).map_err(|e| e.to_string())?);
+            chunk.clear();
+        }
+    }
+    if !chunk.is_empty() {
+        chunks.push(rfx_model::to_cbor(&chunk).map_err(|e| e.to_string())?);
+    }
     let chunk_count = u32::try_from(chunks.len()).map_err(|e| e.to_string())?;
     let mut payload =
         Vec::with_capacity(4 + 8 * chunks.len() + chunks.iter().map(Vec::len).sum::<usize>());

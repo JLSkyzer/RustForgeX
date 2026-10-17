@@ -394,9 +394,11 @@ dependencies = [
 name = "rfx-core"
 version = "0.1.0"
 dependencies = [
+ "rfx-cache",
  "rfx-memory",
  "rfx-model",
  "rfx-profiler",
+ "xxhash-rust",
 ]
 
 [[package]]

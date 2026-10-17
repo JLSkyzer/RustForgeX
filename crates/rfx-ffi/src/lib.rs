@@ -187,6 +187,60 @@ pub extern "C" fn rfx_sched_report_external_load(handle: u64, runnable_threads: 
     })
 }
 
+/// Ouvre la base des unites de travail (C-09, ADR-049).
+///
+/// `open` est un blob CBOR decrivant un `DbOpen` : le repertoire de la base et ce que
+/// Java connait de l'environnement. Le fichier est relu en arriere-plan, sur le fil
+/// `RFX-IO` : l'appel rend la main aussitot. Sans effet si `cache.enabled` vaut `false`.
+///
+/// # Safety
+///
+/// `open` doit pointer sur au moins `len` octets lisibles.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_db_open(handle: u64, open: *const u8, len: usize) -> i32 {
+    guard_with_handle(handle, || {
+        if open.is_null() || len == 0 || len > MAX_CONFIG_SIZE {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : precondition de la fonction, non nul et longueur verifies ci-dessus.
+        let bytes = unsafe { std::slice::from_raw_parts(open, len) };
+        let Ok(open) = rfx_model::from_cbor::<rfx_model::DbOpen>(bytes) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+        match runtime::with(handle, |rt| rt.open_db(&open)) {
+            Ok(Ok(())) => OK,
+            Ok(Err(e)) | Err(e) => e.ffi_code(),
+        }
+    })
+}
+
+/// Avance d'une tranche la synchronisation de la base (C-09, ADR-049).
+///
+/// Ecrit dans `out_done` `1` quand le cycle est termine et son lot confie au fil
+/// d'ecriture, `0` s'il faut rappeler. Le verrou du runtime est rendu entre deux
+/// appels : le tick n'attend jamais plus d'une tranche. A appeler hors du tick
+/// (R-361), sur un fil a part.
+///
+/// # Safety
+///
+/// `out_done` doit pointer sur un `u32` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_db_sync(handle: u64, out_done: *mut u32) -> i32 {
+    guard_with_handle(handle, || {
+        if out_done.is_null() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        match runtime::with(handle, |rt| rt.db_sync_step()) {
+            Ok(done) => {
+                // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+                unsafe { out_done.write(u32::from(done)) };
+                OK
+            }
+            Err(e) => e.ffi_code(),
+        }
+    })
+}
+
 /// Lit un tampon fourni par Java, pour mesurer le debit de transfert Java vers natif.
 ///
 /// La somme de controle renvoyee force la lecture effective de chaque octet : sans
@@ -536,7 +590,7 @@ pub unsafe extern "C" fn rfx_workload_register(
         };
         let work_id = rfx_model::WorkId::compute(&descriptor);
 
-        match runtime::with(handle, |rt| rt.register_workload(work_id)) {
+        match runtime::with(handle, |rt| rt.register_workload(&descriptor, work_id)) {
             Ok(probe_id) => {
                 // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
                 unsafe { out_probe_id.write(probe_id.unwrap_or(RFX_PROBE_ID_NONE)) };
@@ -669,6 +723,130 @@ mod tests {
             OK
         );
         rfx_model::from_cbor(&buffer[..written]).expect("statut decodable")
+    }
+
+    /// Blob d'ouverture de la base dans `dir`.
+    fn db_open(dir: &std::path::Path) -> rfx_model::DbOpen {
+        rfx_model::DbOpen {
+            schema: rfx_model::MODEL_SCHEMA_VERSION,
+            dir: dir.to_string_lossy().into_owned(),
+            minecraft: "1.20.1".to_owned(),
+            forge: "47.4.0".to_owned(),
+            java: "test".to_owned(),
+            mods: vec!["rustforgex@0.1.0@0".to_owned()],
+        }
+    }
+
+    fn open_db(handle: u64, dir: &std::path::Path) -> i32 {
+        let blob = rfx_model::to_cbor(&db_open(dir)).expect("encodage");
+        unsafe { rfx_db_open(handle, blob.as_ptr(), blob.len()) }
+    }
+
+    /// Synchronise jusqu'a la fin du cycle ; rend le nombre d'appels.
+    fn sync_until_done(handle: u64) -> u32 {
+        let mut calls = 0;
+        loop {
+            let mut done = 0_u32;
+            assert_eq!(unsafe { rfx_db_sync(handle, &mut done) }, OK);
+            calls += 1;
+            if done == 1 {
+                return calls;
+            }
+        }
+    }
+
+    /// Repertoire temporaire, supprime a la fin du test.
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .expect("horloge")
+                .as_nanos();
+            Self(
+                std::env::temp_dir()
+                    .join(format!("rfx-ffi-{name}-{}-{unique}", std::process::id())),
+            )
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// C-09 (ADR-049) : une unite enregistree avant l'ouverture part au premier lot ;
+    /// l'arret ecrit la base, et le lancement suivant la relit.
+    #[test]
+    fn the_workload_database_survives_a_restart() {
+        let _guard = test_lock();
+        let dir = TempDir::new("db");
+        let handle = init(&RuntimeConfig::default());
+        assert!(register(handle, "tick").is_some());
+        assert_eq!(open_db(handle, &dir.0), OK);
+        assert_eq!(
+            open_db(handle, &dir.0),
+            ErrorCode::InvalidArgument.ffi_code(),
+            "deja ouverte"
+        );
+        sync_until_done(handle);
+        let db = read_status(handle).db;
+        assert!(db.enabled && db.open);
+        assert_eq!((db.syncs, db.pending), (1, 0));
+        // Enregistree apres le dernier lot : seule la fermeture a l'arret peut la porter
+        // jusqu'au fichier.
+        assert!(register(handle, "late").is_some());
+        assert_eq!(rfx_shutdown(handle), OK);
+        assert!(dir.0.join("workload.db").exists());
+
+        let handle = init(&RuntimeConfig::default());
+        assert_eq!(open_db(handle, &dir.0), OK);
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        let db = loop {
+            let db = read_status(handle).db;
+            if db.load != 0 || Instant::now() > deadline {
+                break db;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert_eq!(db.load, 4, "relue");
+        assert_eq!(db.loaded_entries, 2, "la derniere ecrite a l'arret");
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// La collecte avance par tranches : le verrou est rendu entre deux appels.
+    #[test]
+    fn the_sync_walks_the_profiler_by_slices() {
+        let _guard = test_lock();
+        let dir = TempDir::new("slices");
+        let handle = init(&RuntimeConfig::default());
+        for n in 0..1_200 {
+            assert!(register(handle, &format!("m{n}")).is_some());
+        }
+        assert_eq!(open_db(handle, &dir.0), OK);
+        assert_eq!(sync_until_done(handle), 3, "1 200 entrees, tranches de 512");
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// `cache.enabled = false` : rien n'est ouvert, rien n'est ecrit.
+    #[test]
+    fn a_disabled_database_does_nothing() {
+        let _guard = test_lock();
+        let dir = TempDir::new("disabled");
+        let handle = init(&RuntimeConfig {
+            cache_enabled: false,
+            ..RuntimeConfig::default()
+        });
+        assert!(register(handle, "tick").is_some());
+        assert_eq!(open_db(handle, &dir.0), OK);
+        assert_eq!(sync_until_done(handle), 1);
+        let db = read_status(handle).db;
+        assert!(!db.enabled && !db.open);
+        assert_eq!(db.pending, 0, "rien n'est garde en attente");
+        assert_eq!(rfx_shutdown(handle), OK);
+        assert!(!dir.0.exists());
     }
 
     /// Enregistre une unite de travail et rend son identifiant de sonde.
@@ -876,6 +1054,13 @@ mod tests {
         assert_eq!(rfx_noop(fake), expected);
         assert_eq!(rfx_hw_probe(fake), expected);
         assert_eq!(rfx_hw_set_ffi_costs(fake, 1, 1), expected);
+        let mut done = 0_u32;
+        assert_eq!(unsafe { rfx_db_sync(fake, &mut done) }, expected);
+        let open = rfx_model::to_cbor(&db_open(&std::env::temp_dir())).expect("encodage");
+        assert_eq!(
+            unsafe { rfx_db_open(fake, open.as_ptr(), open.len()) },
+            expected
+        );
         assert_eq!(rfx_shutdown(fake), expected);
         let mut size = 0_usize;
         assert_eq!(

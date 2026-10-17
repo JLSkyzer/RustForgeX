@@ -91,6 +91,14 @@ public final class Configuration {
             OptionConfig.integerOption("profiler", "baseline_cycles", 30, 3, 64,
                     "Cycles agrégés avant qu'une mesure de coût soit rendue. Une mesure "
                             + "coûte cycles × (période + pause) ticks", false),
+            OptionConfig.booleanOption("cache", "enabled", true,
+                    "Base des unités de travail (cache/workload.db) : relue au lancement, "
+                            + "écrite hors tick toutes les cinq minutes et à l'arrêt. "
+                            + "false = ni lue ni écrite", false),
+            OptionConfig.integerOption("cache", "max_memory_mb", 128, 8, 4096,
+                    "Mémoire de la base des unités de travail, en mébioctets, comptée aussi "
+                            + "dans memory.max_native_mb ; au-delà, les plus froides sont "
+                            + "évincées", false),
             OptionConfig.booleanOption("diagnostics", "report_on_incident", true,
                     "Consigner chaque incident dans crash/rfx-crash-<ts>.json : accroche "
                             + "désactivée, panic native. Fichier local, chemins anonymisés",
@@ -404,6 +412,8 @@ public final class Configuration {
         table.put("profiler_baseline_pause_ticks", getLong("profiler.baseline_pause_ticks"));
         table.put("profiler_max_workloads", getLong("profiler.max_workloads"));
         table.put("profiler_cpu_budget_pct", getLong("profiler.cpu_budget_pct"));
+        table.put("cache_enabled", getBoolean("cache.enabled"));
+        table.put("cache_max_memory_mb", getLong("cache.max_memory_mb"));
         return Cbor.encode(table);
     }
 

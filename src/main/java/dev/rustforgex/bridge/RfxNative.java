@@ -93,6 +93,26 @@ public final class RfxNative {
     public static native int schedReportExternalLoad(long handle, int runnableThreads);
 
     /**
+     * Ouvre la base des unités de travail (C-09, ADR-049). Le fichier est relu en
+     * arrière-plan par le natif : l'appel rend la main aussitôt.
+     *
+     * @param handle handle du runtime
+     * @param openCbor blob CBOR {@code DbOpen} : répertoire et environnement
+     * @return {@code 0} ou un code d'erreur négatif
+     */
+    public static native int dbOpen(long handle, byte[] openCbor);
+
+    /**
+     * Avance d'une tranche la synchronisation de la base (C-09, ADR-049). Jamais depuis
+     * le tick : appelé par le fil {@code rustforgex-db}.
+     *
+     * @param handle handle du runtime
+     * @return {@code 1} si le cycle est terminé, {@code 0} s'il faut rappeler, ou un code
+     *     d'erreur négatif, inférieur ou égal à {@code -1000}
+     */
+    public static native int dbSync(long handle);
+
+    /**
      * Fait lire au natif un tampon direct, pour mesurer le débit Java vers natif.
      *
      * @param handle handle du runtime

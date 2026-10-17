@@ -36,9 +36,9 @@ public final class Cbor {
     /**
      * Encode une valeur.
      *
-     * <p>Types acceptés : {@link Map} à clés {@link String}, {@link String},
-     * {@link Boolean}, et tout entier non signé tenant sur 64 bits ({@link Integer},
-     * {@link Long}).
+     * <p>Types acceptés : {@link Map} à clés {@link String}, {@link java.util.List},
+     * {@link String}, {@link Boolean}, et tout entier non signé tenant sur 64 bits
+     * ({@link Integer}, {@link Long}).
      *
      * @param value valeur à encoder
      * @return la représentation CBOR
@@ -65,6 +65,11 @@ public final class Cbor {
                         "seuls les entiers non signés traversent la frontière, reçu " + n);
             }
             header(out, 0, n);
+        } else if (value instanceof java.util.List<?> list) {
+            header(out, 4, list.size());
+            for (Object element : list) {
+                write(out, element);
+            }
         } else if (value instanceof Map<?, ?> table) {
             header(out, 5, table.size());
             for (Map.Entry<?, ?> e : table.entrySet()) {

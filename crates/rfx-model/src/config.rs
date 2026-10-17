@@ -108,6 +108,14 @@ pub struct RuntimeConfig {
     /// plutot que d'attendre une heure par point de mesure.
     #[serde(default = "default_baseline_cycles")]
     pub profiler_baseline_cycles: u32,
+    /// `cache.enabled` : `false` signifie que la base des unites de travail (C-09) n'est
+    /// ni relue ni ecrite.
+    #[serde(default = "default_cache_enabled")]
+    pub cache_enabled: bool,
+    /// `cache.max_memory_mb` : memoire estimee de la base au plus, en mebioctets
+    /// (R-362, PARTIE 28). Comptee aussi dans `max_native_mb`.
+    #[serde(default = "default_cache_max_memory_mb")]
+    pub cache_max_memory_mb: u32,
 }
 
 /// Plafond d'unites de travail par defaut (PARTIE 5.5).
@@ -135,6 +143,16 @@ fn default_baseline_cycles() -> u32 {
     30
 }
 
+/// Base des unites de travail active par defaut (PARTIE 28).
+fn default_cache_enabled() -> bool {
+    true
+}
+
+/// Memoire de la base par defaut, en mebioctets (PARTIE 28).
+fn default_cache_max_memory_mb() -> u32 {
+    128
+}
+
 impl Default for RuntimeConfig {
     /// Valeurs par defaut de la PARTIE 28.2. Tout defaut est sur (R-590).
     fn default() -> Self {
@@ -150,6 +168,8 @@ impl Default for RuntimeConfig {
             profiler_baseline_period_ticks: default_baseline_period_ticks(),
             profiler_baseline_pause_ticks: default_baseline_pause_ticks(),
             profiler_baseline_cycles: default_baseline_cycles(),
+            cache_enabled: default_cache_enabled(),
+            cache_max_memory_mb: default_cache_max_memory_mb(),
         }
     }
 }

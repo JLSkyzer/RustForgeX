@@ -147,6 +147,28 @@ JVM : un fil bloqué dans un appel natif — une attente réseau, par exemple �
 `RUNNABLE` sans rien consommer, et sur le modpack d'essai ces fils étaient la grande
 majorité (ADR-046). Les fils internes de la JVM et les workers natifs n'y figurent pas.
 
+### `rfx.db` — base des unités de travail (C-09, C-48)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.db.open_failures` | counter | — | Ouvertures échouées faute de pouvoir créer le fil d'écriture ; la base reste fermée, le jeu tourne normalement |
+| `rfx.db.load` | gauge | code | Issue de la relecture du lancement : 0 en cours, 1 aucun fichier, 2 autre environnement (ignoré, R-360), 3 fichier illisible mis de côté en `.bak` (E-3003, FM-17), 4 relue, 5 lecture refusée par le système |
+| `rfx.db.loaded_entries` | gauge | unités | Unités de travail relues du fichier — *conditionnelle* : relecture terminée |
+| `rfx.db.load_rejected_entries` | counter | — | Entrées écartées à la relecture, leur code ayant changé (R-360) — *conditionnelle* : relecture terminée |
+| `rfx.db.entries` | gauge | unités | Unités de travail dans la base |
+| `rfx.db.memory_bytes` | gauge | octets | Mémoire estimée de la base, plafonnée par `cache.max_memory_mb` et comptée dans `memory.max_native_mb` ; l'estimation suit l'allocateur à 1 % près (ADR-048) |
+| `rfx.db.evictions` | counter | — | Unités évincées de la base, les plus froides d'abord (R-362) |
+| `rfx.db.pending` | gauge | unités | Unités découvertes, pas encore confiées au fil d'écriture |
+| `rfx.db.syncs` | counter | — | Lots confiés au fil d'écriture, un toutes les cinq minutes |
+| `rfx.db.handed_back` | counter | — | Lots rendus parce que la file était pleine ; repris au cycle suivant |
+| `rfx.db.writes` | counter | — | Fichiers `workload.db` écrits, de façon atomique (R-224) |
+| `rfx.db.write_failures` | counter | — | Échecs d'écriture ; le premier désactive l'écriture (R-692, FM-18) |
+| `rfx.db.write_disabled` | gauge | booléen | 1 si l'écriture est désactivée ; la base continue en mémoire |
+| `rfx.db.persist_ms` | gauge | ms | Durée de la dernière écriture, encodage compris, sur le fil `RFX-IO` — *conditionnelle* : au moins une écriture |
+
+Rien de cette section n'est publié tant que la base n'est pas ouverte (R-660) : Java
+l'ouvre quand l'inventaire des mods est connu, au chargement complet (ADR-049).
+
 ### `rfx.hook` — gardes des accroches (C-01, FM-02)
 
 Une série par accroche : `setup`, `loadComplete`, `registerCommands`, `warmUpCommands`,

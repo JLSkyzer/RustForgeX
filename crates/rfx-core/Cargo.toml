@@ -12,6 +12,10 @@ publish.workspace = true
 rfx-model = { workspace = true }
 rfx-memory = { workspace = true }
 rfx-profiler = { workspace = true }
+# Base des unites de travail (C-09, C-48, ADR-049).
+rfx-cache = { workspace = true }
+# Hachage des chaines de l'environnement pour l'empreinte (DM-05), deja dans le SBOM.
+xxhash-rust = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

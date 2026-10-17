@@ -18,6 +18,7 @@ pub mod dynamics;
 pub mod fingerprint;
 pub mod hardware;
 pub mod maturity;
+pub mod persistence;
 pub mod status;
 pub mod top;
 pub mod workid;
@@ -27,6 +28,7 @@ pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};
 pub use fingerprint::Fingerprint;
 pub use hardware::{CoreTopology, HardwareClass, SimdCaps};
 pub use maturity::Maturity;
+pub use persistence::{DbOpen, DbStatus};
 pub use status::{
     ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, SchedulerStatus,
     TickStatus,

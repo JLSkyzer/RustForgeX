@@ -284,6 +284,7 @@ class TelemetryTest {
         complete.put("scheduler", new LinkedHashMap<String, Object>(Map.of(
                 "external_runnable", 12L, "external_runnable_max", 31L,
                 "external_load_reports", 4L)));
+        complete.put("db", openDb(4L, 3L));
 
         MetricSet set = Telemetry.collect(complete,
                 new Telemetry.InstrumentationCounts(true, 1, 1, 1, 0, 1, 0),
@@ -304,6 +305,65 @@ class TelemetryTest {
         }
         assertTrue(set.size() >= 33, "relevé trop maigre pour vérifier le catalogue : "
                 + set.size() + " séries");
+    }
+
+    /** Sous-table {@code db} d'une base ouverte. */
+    private static Map<String, Object> openDb(long load, long writes) {
+        Map<String, Object> db = new LinkedHashMap<>();
+        db.put("enabled", true);
+        db.put("open", true);
+        db.put("open_failures", 0L);
+        db.put("load", load);
+        db.put("loaded_entries", 1_800L);
+        db.put("rejected_entries", 2L);
+        db.put("entries", 2_000L);
+        db.put("estimated_bytes", 3_000_000L);
+        db.put("evictions", 0L);
+        db.put("syncs", 3L);
+        db.put("handed_back", 0L);
+        db.put("pending", 0L);
+        db.put("writes", writes);
+        db.put("write_failures", 0L);
+        db.put("persist_ms", 12L);
+        db.put("disabled", false);
+        return db;
+    }
+
+    @Test
+    @DisplayName("C-09 : rien n'est publié de la base avant son ouverture (R-660)")
+    void theDatabaseIsSilentUntilOpened() {
+        Map<String, Object> status = status();
+        Map<String, Object> closed = openDb(0L, 0L);
+        closed.put("open", false);
+        status.put("db", closed);
+        MetricSet set = Telemetry.collect(status, null, null, null);
+        assertEquals(0, set.get("rfx.db.open_failures").value());
+        assertNull(set.get("rfx.db.entries"), "pas encore ouverte");
+
+        status.put("db", openDb(0L, 0L));
+        set = Telemetry.collect(status, null, null, null);
+        assertEquals(2_000, set.get("rfx.db.entries").value());
+        assertNull(set.get("rfx.db.loaded_entries"), "relecture en cours");
+        assertNull(set.get("rfx.db.persist_ms"), "rien d'écrit encore");
+
+        status.put("db", openDb(4L, 3L));
+        set = Telemetry.collect(status, null, null, null);
+        assertEquals(1_800, set.get("rfx.db.loaded_entries").value());
+        assertEquals(2, set.get("rfx.db.load_rejected_entries").value());
+        assertEquals(12, set.get("rfx.db.persist_ms").value());
+        assertEquals("ms", set.get("rfx.db.persist_ms").unit());
+    }
+
+    @Test
+    @DisplayName("C-09 : une base désactivée ne publie rien")
+    void aDisabledDatabasePublishesNothing() {
+        Map<String, Object> status = status();
+        Map<String, Object> disabled = openDb(0L, 0L);
+        disabled.put("enabled", false);
+        disabled.put("open", false);
+        status.put("db", disabled);
+        MetricSet set = Telemetry.collect(status, null, null, null);
+        assertNull(set.get("rfx.db.open_failures"));
     }
 
     @Test

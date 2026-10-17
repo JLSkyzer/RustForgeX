@@ -63,6 +63,22 @@ public interface NativeBridge {
 
     /**
      * @param handle handle du runtime
+     * @param openCbor blob CBOR {@code DbOpen}
+     * @return {@code 0} ou un code d'erreur négatif
+     * @see RfxNative#dbOpen(long, byte[])
+     */
+    int dbOpen(long handle, byte[] openCbor);
+
+    /**
+     * @param handle handle du runtime
+     * @return {@code 1} si le cycle est terminé, {@code 0} s'il faut rappeler, ou un code
+     *     d'erreur négatif
+     * @see RfxNative#dbSync(long)
+     */
+    int dbSync(long handle);
+
+    /**
+     * @param handle handle du runtime
      * @param buffer tampon direct à faire lire au natif
      * @param length nombre d'octets à lire
      * @return un témoin de lecture positif, ou un code d'erreur négatif
@@ -216,6 +232,16 @@ public interface NativeBridge {
             @Override
             public int schedReportExternalLoad(long handle, int runnableThreads) {
                 return RfxNative.schedReportExternalLoad(handle, runnableThreads);
+            }
+
+            @Override
+            public int dbOpen(long handle, byte[] openCbor) {
+                return RfxNative.dbOpen(handle, openCbor);
+            }
+
+            @Override
+            public int dbSync(long handle) {
+                return RfxNative.dbSync(handle);
             }
 
             @Override

@@ -90,6 +90,7 @@ public final class Telemetry {
         appendProbes(set, mapOf(nativeStatus, "probes"));
         appendProfiler(set, mapOf(nativeStatus, "profiler"));
         appendScheduler(set, mapOf(nativeStatus, "scheduler"));
+        appendDb(set, mapOf(nativeStatus, "db"));
         appendInstrumentation(set, instrumentation);
         appendDiscovery(set, discovery);
         appendEvents(set, events);
@@ -221,6 +222,55 @@ public final class Telemetry {
         set.addIfMeasured(reports > 0, () -> Metric.gauge("rfx.sched.external_runnable_max",
                 longOf(scheduler, "external_runnable_max"), "fils",
                 "Plus haut relevé de fils exécutables tiers depuis le démarrage."));
+    }
+
+    /**
+     * Base des unités de travail (C-09, ADR-049).
+     *
+     * <p>Rien n'est publié tant que la base n'est pas ouverte, hormis les échecs
+     * d'ouverture (R-660). Les entrées relues n'ont de sens qu'une fois la relecture
+     * terminée, la durée d'écriture qu'après la première écriture.
+     */
+    private static void appendDb(MetricSet set, Map<String, Object> db) {
+        if (db == null || !Boolean.TRUE.equals(db.get("enabled"))) {
+            return;
+        }
+        set.add(Metric.counter("rfx.db.open_failures", longOf(db, "open_failures"),
+                "Ouvertures échouées faute de fil d'écriture ; la base reste fermée."));
+        if (!Boolean.TRUE.equals(db.get("open"))) {
+            return;
+        }
+        long load = longOf(db, "load");
+        long writes = longOf(db, "writes");
+        set.add(Metric.gauge("rfx.db.load", load, "code",
+                "Relecture : 0 en cours, 1 aucun fichier, 2 autre environnement, 3 fichier "
+                        + "mis de côté, 4 relue, 5 lecture refusée."));
+        set.addIfMeasured(load == 4, () -> Metric.gauge("rfx.db.loaded_entries",
+                longOf(db, "loaded_entries"), "unités", "Unités de travail relues du fichier."));
+        set.addIfMeasured(load == 4, () -> Metric.counter("rfx.db.load_rejected_entries",
+                longOf(db, "rejected_entries"),
+                "Entrées écartées à la relecture : leur code a changé (R-360)."));
+        set.add(Metric.gauge("rfx.db.entries", longOf(db, "entries"), "unités",
+                "Unités de travail dans la base."));
+        set.add(Metric.gauge("rfx.db.memory_bytes", longOf(db, "estimated_bytes"), "octets",
+                "Mémoire estimée de la base (cache.max_memory_mb)."));
+        set.add(Metric.counter("rfx.db.evictions", longOf(db, "evictions"),
+                "Unités de travail évincées de la base, les plus froides d'abord (R-362)."));
+        set.add(Metric.gauge("rfx.db.pending", longOf(db, "pending"), "unités",
+                "Unités découvertes, pas encore confiées au fil d'écriture."));
+        set.add(Metric.counter("rfx.db.syncs", longOf(db, "syncs"),
+                "Lots confiés au fil d'écriture."));
+        set.add(Metric.counter("rfx.db.handed_back", longOf(db, "handed_back"),
+                "Lots rendus, file pleine ; repris au cycle suivant."));
+        set.add(Metric.counter("rfx.db.writes", writes, "Fichiers workload.db écrits."));
+        set.add(Metric.counter("rfx.db.write_failures", longOf(db, "write_failures"),
+                "Échecs d'écriture ; le premier désactive l'écriture (R-692)."));
+        set.add(Metric.gauge("rfx.db.write_disabled",
+                Boolean.TRUE.equals(db.get("disabled")) ? 1 : 0, "booléen",
+                "1 si l'écriture est désactivée après un échec ; la base continue en mémoire."));
+        set.addIfMeasured(writes > 0, () -> Metric.gauge("rfx.db.persist_ms",
+                longOf(db, "persist_ms"), "ms",
+                "Durée de la dernière écriture, encodage compris, sur le fil RFX-IO."));
     }
 
     private static void appendProfiler(MetricSet set, Map<String, Object> profiler) {

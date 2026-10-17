@@ -1,23 +1,23 @@
 //! Persistance de la base (C-09, C-48) : T-181, T-182, T-184, T-500, T-501, T-502.
 //!
 //! Le disque est remplace par un systeme de fichiers en memoire qui note le fil de
-//! chaque operation, peut ralentir les ecritures et simuler un disque plein. La rotation
-//! et l'ecriture atomique, elles, sont verifiees sur le vrai disque, dans un repertoire
-//! temporaire supprime a la fin.
+//! chaque operation, peut ralentir lectures et ecritures et simuler un disque plein. La
+//! rotation et l'ecriture atomique, elles, sont verifiees sur le vrai disque, dans un
+//! repertoire temporaire supprime a la fin.
 
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use rfx_cache::file::{self, DecodeError};
+use rfx_cache::service::THREAD_NAME;
 use rfx_cache::store::backup_path;
-use rfx_cache::writer::THREAD_NAME;
 use rfx_cache::{
-    load, FileInfo, FileSystem, LoadOutcome, PersistenceWriter, Refused, RotationPolicy,
-    StdFileSystem, WorkloadDb, WorkloadRecord,
+    load, DbConfig, DbService, DynamicsUpdate, FileInfo, FileSystem, HistoryKind, LoadOutcome,
+    LoadState, Refused, RotationPolicy, StdFileSystem, SyncBatch, WorkloadDb, WorkloadRecord,
 };
 use rfx_model::{Fingerprint, Heat, WorkDescriptor, WorkId};
 
@@ -28,7 +28,9 @@ const GUARD: Duration = Duration::from_secs(30);
 struct MemoryFs {
     files: Mutex<HashMap<PathBuf, Vec<u8>>>,
     threads: Mutex<Vec<String>>,
+    read_delay: Duration,
     write_delay: Duration,
+    write_attempts: AtomicUsize,
     full: AtomicBool,
     locked: AtomicBool,
 }
@@ -50,11 +52,16 @@ impl MemoryFs {
     fn bytes(&self, path: &Path) -> Vec<u8> {
         self.files.lock().unwrap()[path].clone()
     }
+
+    fn decoded(&self) -> Vec<WorkloadRecord> {
+        file::decode(&self.bytes(&path())).unwrap().records
+    }
 }
 
 impl FileSystem for MemoryFs {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         self.note();
+        std::thread::sleep(self.read_delay);
         self.files
             .lock()
             .unwrap()
@@ -65,6 +72,7 @@ impl FileSystem for MemoryFs {
 
     fn write_atomic(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         self.note();
+        self.write_attempts.fetch_add(1, Ordering::Relaxed);
         std::thread::sleep(self.write_delay);
         if self.full.load(Ordering::Acquire) {
             return Err(io::Error::new(
@@ -163,6 +171,26 @@ fn stored(fs: &MemoryFs, records: &[WorkloadRecord]) {
     fs.put(&path(), file::encode(&environment(), records).unwrap());
 }
 
+fn config() -> DbConfig {
+    DbConfig {
+        path: path(),
+        environment: environment(),
+        max_entries: 100_000,
+        max_bytes: usize::MAX,
+    }
+}
+
+fn start(fs: &Arc<MemoryFs>) -> DbService {
+    DbService::start(fs.clone(), config()).unwrap()
+}
+
+fn news(records: Vec<WorkloadRecord>) -> SyncBatch {
+    SyncBatch {
+        new_records: records,
+        ..SyncBatch::default()
+    }
+}
+
 #[test]
 fn a_missing_file_is_a_first_run() {
     let fs = MemoryFs::default();
@@ -244,98 +272,236 @@ fn t182_a_corrupted_or_unknown_file_is_set_aside() {
     ));
 }
 
-/// T-184, R-361 : confier une ecriture rend la main aussitot, meme quand le disque est
-/// lent ; l'ecriture a lieu plus tard, et relit a l'identique (T-180 bout a bout).
+/// Le demarrage ne fait pas attendre la relecture : elle a lieu sur `RFX-IO`, et un
+/// lot confie pendant ce temps attend son tour, sans etre perdu.
 #[test]
-fn t184_persisting_never_waits_for_the_disk() {
+fn the_service_loads_in_the_background_and_keeps_early_batches() {
+    let fs = Arc::new(MemoryFs {
+        read_delay: Duration::from_millis(300),
+        ..MemoryFs::default()
+    });
+    stored(&fs, &records(10));
+    let service = start(&fs);
+    assert_eq!(
+        service.stats().load,
+        LoadState::Pending,
+        "rendu sans attendre"
+    );
+    service.sync(news(vec![record(50)])).unwrap();
+
+    assert!(service.flush(GUARD));
+    let stats = service.stats();
+    assert_eq!(stats.load, LoadState::Loaded);
+    assert_eq!(stats.loaded_entries, 10);
+    assert_eq!(stats.entries, 11, "les dix relues et la nouvelle");
+    assert_eq!(fs.decoded().len(), 11);
+}
+
+/// Une unite de travail deja connue garde les dynamiques relues tant que le profileur
+/// n'en rapporte pas de nouvelles ; un changement de classe de cout entre a l'historique.
+#[test]
+fn known_workloads_keep_their_dynamics_until_updated() {
+    let fs = Arc::new(MemoryFs::default());
+    let written = records(3);
+    stored(&fs, &written);
+    let service = start(&fs);
+
+    // Redecouverte au lancement : descripteur neuf, sans mesure.
+    let fresh: Vec<WorkloadRecord> = written
+        .iter()
+        .map(|r| WorkloadRecord::new(r.descriptor.clone(), r.fingerprint))
+        .collect();
+    service.sync(news(fresh)).unwrap();
+    assert!(service.flush(GUARD));
+    assert_eq!(fs.decoded(), written, "les mesures relues restent");
+
+    let mut hot = written[1].dynamics;
+    hot.heat = Heat::Hot;
+    hot.last_seen_tick = 777;
+    service
+        .sync(SyncBatch {
+            updates: vec![DynamicsUpdate {
+                id: written[1].id,
+                dynamics: hot,
+            }],
+            ..SyncBatch::default()
+        })
+        .unwrap();
+    assert!(service.flush(GUARD));
+    let reread = WorkloadDb::from_records(fs.decoded());
+    let updated = reread.get(written[1].id).unwrap();
+    assert_eq!(updated.dynamics, hot);
+    let event = updated.history.iter().last().unwrap();
+    assert_eq!(event.tick, 777);
+    assert_eq!(
+        event.kind,
+        HistoryKind::HeatChanged {
+            from: Heat::Warm,
+            to: Heat::Hot
+        }
+    );
+    assert_eq!(reread.get(written[0].id), Some(&written[0]));
+}
+
+/// R-360 : une unite de travail dont le code a change remplace l'entree relue.
+#[test]
+fn a_rediscovered_workload_with_new_code_replaces_the_loaded_entry() {
+    let fs = Arc::new(MemoryFs::default());
+    let written = records(2);
+    stored(&fs, &written);
+    let service = start(&fs);
+    let changed = WorkloadRecord::new(
+        written[0].descriptor.clone(),
+        Fingerprint {
+            bytecode_hash: 4_242,
+            ..environment()
+        },
+    );
+    service.sync(news(vec![changed.clone()])).unwrap();
+    assert!(service.flush(GUARD));
+    let reread = WorkloadDb::from_records(fs.decoded());
+    assert_eq!(
+        reread.get(changed.id),
+        Some(&changed),
+        "mesures repartent de zero"
+    );
+}
+
+/// T-184, R-361 : confier un lot rend la main aussitot, meme quand le disque est lent ;
+/// l'ecriture a lieu plus tard, et relit a l'identique (T-180 bout a bout).
+#[test]
+fn t184_syncing_never_waits_for_the_disk() {
     let fs = Arc::new(MemoryFs {
         write_delay: Duration::from_millis(300),
         ..MemoryFs::default()
     });
-    let writer = PersistenceWriter::start(fs.clone()).unwrap();
-    let db = WorkloadDb::from_records(records(2_000));
+    let service = start(&fs);
+    let written = records(2_000);
 
-    writer
-        .persist(path(), environment(), db.snapshot())
-        .unwrap();
+    service.sync(news(written.clone())).unwrap();
     assert!(
         !fs.contains(&path()),
         "l'appel est revenu avant l'ecriture : il ne l'a pas attendue"
     );
 
-    assert!(writer.flush(GUARD));
-    let decoded = file::decode(&fs.bytes(&path())).unwrap();
-    assert_eq!(decoded.records.len(), 2_000);
-    let reread = WorkloadDb::from_records(decoded.records);
-    for record in db.iter() {
+    assert!(service.flush(GUARD));
+    let reread = WorkloadDb::from_records(fs.decoded());
+    assert_eq!(reread.len(), 2_000);
+    for record in &written {
         assert_eq!(reread.get(record.id), Some(record));
     }
-    assert_eq!(writer.stats().writes, 1);
+    assert_eq!(service.stats().writes, 1);
 }
 
-/// Une file pleine refuse au lieu de faire attendre l'appelant.
+/// Un lot vide n'ecrit rien : le fichier ne change que si la base a change.
 #[test]
-fn a_full_queue_refuses_instead_of_blocking() {
+fn nothing_is_written_when_nothing_changed() {
+    let fs = Arc::new(MemoryFs::default());
+    let service = start(&fs);
+    service.sync(SyncBatch::default()).unwrap();
+    assert!(service.flush(GUARD));
+    assert_eq!(service.stats().writes, 0);
+    assert_eq!(fs.write_attempts.load(Ordering::Relaxed), 0);
+}
+
+/// Une file pleine refuse au lieu de faire attendre, et rend le lot intact.
+#[test]
+fn a_full_queue_hands_the_batch_back() {
     let fs = Arc::new(MemoryFs {
         write_delay: Duration::from_millis(200),
         ..MemoryFs::default()
     });
-    let writer = PersistenceWriter::start(fs).unwrap();
-    let refused = (0..20)
-        .filter(|_| writer.persist(path(), environment(), records(1)) == Err(Refused::QueueFull))
-        .count();
-    assert!(refused > 0, "vingt demandes contre une file de quatre");
-    assert!(writer.stats().refused >= refused as u64);
-    assert!(writer.flush(GUARD));
+    let service = start(&fs);
+    let mut handed_back = 0;
+    for n in 0..20 {
+        let batch = news(vec![record(n)]);
+        if let Err(rejected) = service.sync(batch.clone()) {
+            assert_eq!(rejected.reason, Refused::QueueFull);
+            assert_eq!(rejected.batch, batch, "rendu intact");
+            handed_back += 1;
+        }
+    }
+    assert!(handed_back > 0, "vingt lots contre une file de quatre");
+    assert_eq!(service.stats().refused, handed_back);
+    assert!(service.flush(GUARD));
 }
 
-/// T-500, R-690 : toutes les operations sur le disque ont lieu sur le fil `RFX-IO`,
-/// aucune sur le fil qui confie l'ecriture.
+/// R-362 : la base reste sous son plafond d'entrees ; les plus froides partent.
+#[test]
+fn the_base_stays_under_its_entry_cap() {
+    let fs = Arc::new(MemoryFs::default());
+    let service = DbService::start(
+        fs.clone(),
+        DbConfig {
+            max_entries: 5,
+            ..config()
+        },
+    )
+    .unwrap();
+    service.sync(news(records(12))).unwrap();
+    assert!(service.flush(GUARD));
+    let stats = service.stats();
+    assert_eq!((stats.entries, stats.evictions), (5, 7));
+    assert_eq!(fs.decoded().len(), 5);
+
+    // Un plafond d'octets venu du budget memoire s'applique au lot suivant.
+    service
+        .sync(SyncBatch {
+            max_bytes: Some(1),
+            ..SyncBatch::default()
+        })
+        .unwrap();
+    assert!(service.flush(GUARD));
+    assert_eq!(service.stats().entries, 0);
+}
+
+/// T-500, R-690 : toutes les operations sur le disque — relecture comprise — ont lieu
+/// sur le fil `RFX-IO`, aucune sur le fil qui confie les lots.
 #[test]
 fn t500_no_disk_operation_runs_on_the_calling_thread() {
     let fs = Arc::new(MemoryFs::default());
-    let writer = PersistenceWriter::start(fs.clone()).unwrap();
-    for _ in 0..3 {
-        writer.persist(path(), environment(), records(50)).unwrap();
-        assert!(writer.flush(GUARD));
+    stored(&fs, &records(5));
+    let service = start(&fs);
+    for n in 0..3 {
+        service.sync(news(vec![record(100 + n)])).unwrap();
+        assert!(service.flush(GUARD));
     }
-    writer
-        .rotate(PathBuf::from("cache"), RotationPolicy::default())
+    service
+        .rotate(PathBuf::from("diag"), RotationPolicy::default())
         .unwrap();
-    assert!(writer.flush(GUARD));
+    assert!(service.flush(GUARD));
 
     let threads = fs.threads.lock().unwrap().clone();
-    assert!(threads.len() >= 4, "operations notees : {threads:?}");
+    assert!(threads.len() >= 5, "operations notees : {threads:?}");
     assert!(
         threads.iter().all(|name| name == THREAD_NAME),
         "operations hors du fil d'ecriture : {threads:?}"
     );
 }
 
-/// T-502, R-692, FM-18 : un disque plein desactive la persistance ; les demandes
-/// suivantes sont refusees, et la base en memoire reste utilisable.
+/// T-502, R-692, FM-18 : un disque plein desactive l'ecriture ; la base continue en
+/// memoire, et le disque n'est plus sollicite.
 #[test]
-fn t502_a_full_disk_disables_persistence_and_nothing_else() {
+fn t502_a_full_disk_disables_writing_and_nothing_else() {
     let fs = Arc::new(MemoryFs::default());
     fs.full.store(true, Ordering::Release);
-    let writer = PersistenceWriter::start(fs.clone()).unwrap();
-    let mut db = WorkloadDb::from_records(records(10));
+    let service = start(&fs);
 
-    writer
-        .persist(path(), environment(), db.snapshot())
-        .unwrap();
-    assert!(writer.flush(GUARD));
-    let stats = writer.stats();
+    service.sync(news(records(10))).unwrap();
+    assert!(service.flush(GUARD));
+    let stats = service.stats();
     assert!(stats.disabled);
     assert_eq!(stats.write_failures, 1);
-    assert!(writer.last_error().unwrap().contains("plein"));
+    assert!(service.last_error().unwrap().contains("plein"));
 
+    service.sync(news(vec![record(99)])).unwrap();
+    assert!(service.flush(GUARD));
+    assert_eq!(service.stats().entries, 11, "la base continue en memoire");
     assert_eq!(
-        writer.persist(path(), environment(), db.snapshot()),
-        Err(Refused::Disabled)
+        fs.write_attempts.load(Ordering::Relaxed),
+        1,
+        "plus aucune ecriture tentee"
     );
-    db.upsert(record(99));
-    assert_eq!(db.len(), 11, "la base continue en memoire");
     assert!(!fs.contains(&path()));
 }
 
@@ -346,20 +512,20 @@ fn a_rotation_failure_does_not_disable_persistence() {
     let fs = Arc::new(MemoryFs::default());
     fs.put(&PathBuf::from("diag").join("old.log"), vec![0; 10]);
     fs.locked.store(true, Ordering::Release);
-    let writer = PersistenceWriter::start(fs.clone()).unwrap();
+    let service = start(&fs);
     let full = RotationPolicy {
         max_total_bytes: 0,
         ..RotationPolicy::default()
     };
-    writer.rotate(PathBuf::from("diag"), full).unwrap();
-    assert!(writer.flush(GUARD));
-    let stats = writer.stats();
+    service.rotate(PathBuf::from("diag"), full).unwrap();
+    assert!(service.flush(GUARD));
+    let stats = service.stats();
     assert_eq!(stats.rotation_failures, 1);
     assert!(!stats.disabled);
 
-    writer.persist(path(), environment(), records(3)).unwrap();
-    assert!(writer.flush(GUARD));
-    assert_eq!(writer.stats().writes, 1);
+    service.sync(news(records(3))).unwrap();
+    assert!(service.flush(GUARD));
+    assert_eq!(service.stats().writes, 1);
     assert!(fs.contains(&path()));
 }
 
@@ -404,29 +570,36 @@ fn t501_rotation_by_age_then_by_size() {
     let middle = file_aged(&dir.0, "c.log", 1_000, 2 * day);
     let newest = file_aged(&dir.0, "d.log", 1_000, day);
 
-    let writer = PersistenceWriter::start(Arc::new(StdFileSystem)).unwrap();
+    let service = DbService::start(
+        Arc::new(StdFileSystem),
+        DbConfig {
+            path: dir.0.join("cache").join("workload.db"),
+            ..config()
+        },
+    )
+    .unwrap();
 
     // L'age seul : la taille est largement respectee, seul le trop vieux part.
     let by_age = RotationPolicy {
         max_age: 7 * day,
         max_total_bytes: u64::MAX,
     };
-    writer.rotate(dir.0.clone(), by_age).unwrap();
-    assert!(writer.flush(GUARD));
+    service.rotate(dir.0.clone(), by_age).unwrap();
+    assert!(service.flush(GUARD));
     assert!(!too_old.exists(), "trop vieux");
     assert!(oldest.exists() && middle.exists() && newest.exists());
-    assert_eq!(writer.stats().rotated, 1);
+    assert_eq!(service.stats().rotated, 1);
 
     // Puis la taille : les plus anciens partent jusqu'a repasser sous le plafond.
     let by_size = RotationPolicy {
         max_total_bytes: 2_500,
         ..by_age
     };
-    writer.rotate(dir.0.clone(), by_size).unwrap();
-    assert!(writer.flush(GUARD));
+    service.rotate(dir.0.clone(), by_size).unwrap();
+    assert!(service.flush(GUARD));
     assert!(!oldest.exists(), "le plus ancien, pour la taille");
     assert!(middle.exists() && newest.exists());
-    assert_eq!(writer.stats().rotated, 2);
+    assert_eq!(service.stats().rotated, 2);
 }
 
 /// R-224 : l'ecriture sur le vrai disque remplace le fichier en entier et ne laisse

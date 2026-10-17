@@ -4,7 +4,7 @@
 //! T-182. Decision : ADR-048. Maturite : `STABLE`.
 //!
 //! La lecture se fait au demarrage, hors tick. L'ecriture, elle, passe par
-//! [`crate::writer::PersistenceWriter`], sur son propre fil.
+//! [`crate::service::DbService`], sur son propre fil.
 
 use std::io;
 use std::path::{Path, PathBuf};

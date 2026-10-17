@@ -55,6 +55,17 @@ public class FakeNativeBridge implements NativeBridge {
     }
 
     @Override
+    public int dbOpen(long handle, byte[] openCbor) {
+        return 0;
+    }
+
+    /** Un cycle d'une seule tranche, terminé aussitôt. */
+    @Override
+    public int dbSync(long handle) {
+        return 1;
+    }
+
+    @Override
     public long transferProbe(long handle, ByteBuffer buffer, int length) {
         return length;
     }

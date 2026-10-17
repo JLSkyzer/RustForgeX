@@ -236,10 +236,12 @@ public final class Bootstrap {
         journal.add("CONFIGURE : coût FFI " + costs.jniCallNs() + " ns/appel, "
                 + costs.ffiBatchNsPerKb() + " ns/Kio, mesuré en " + costs.durationMs() + " ms");
 
-        // 9. Vérifier l'intégrité des caches. Aucun cache n'existe à ce jalon : C-09,
-        // C-32 et C-48 arrivent à M2. L'étape est donc sans objet, et le signaler vaut
-        // mieux que de laisser croire à une vérification qui n'a pas lieu.
-        journal.add("CONFIGURE : aucun cache à vérifier à ce stade");
+        // 9. Vérifier l'intégrité des caches. La base des unités de travail (C-09) a
+        // besoin de l'inventaire des mods pour son empreinte : elle est ouverte plus tard,
+        // au chargement complet, et vérifiée en arrière-plan par le natif (en-tête, somme
+        // de contrôle, environnement — ADR-049). Le démarrage ne l'attend pas.
+        journal.add("CONFIGURE : base des unités de travail vérifiée au chargement complet, "
+                + "en arrière-plan");
 
         // 10. Prêt.
         return report(State.READY, null,

@@ -283,7 +283,7 @@ impl WorkloadStore {
         self.entries.len()
     }
 
-    /// Unites evincees depuis le demarrage (`rfx.db.evictions`).
+    /// Unites evincees depuis le demarrage (`rfx.profiler.evictions`).
     #[must_use]
     pub fn evictions(&self) -> u64 {
         self.evictions

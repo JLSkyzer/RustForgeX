@@ -55,6 +55,19 @@ java -Drustforgex.general.enabled=false -jar ...
 > Le coût réellement mesuré s'affiche dans `/rfx status`, ligne « Coût mesuré » : il
 > vient de la mise en pause périodique de la PARTIE 12.4, et non d'une estimation.
 
+### Base des unités de travail (C-09, ADR-049)
+
+| Clé | Type | Défaut | Plage | Redémarrage | Effet |
+|---|---|---|---|---|---|
+| `cache.enabled` | booléen | `true` | `true` / `false` | oui | Base des unités de travail, `<gameDir>/rustforgex/cache/workload.db` : relue au lancement en arrière-plan, écrite hors du tick toutes les cinq minutes et à l'arrêt. À `false`, elle n'est ni lue ni écrite, et aucun fil n'est créé. |
+| `cache.max_memory_mb` | entier | `128` | `8` .. `4096` | oui | Mémoire estimée de la base, en mébioctets. Elle est comptée aussi dans `memory.max_native_mb`, et bornée par ce qu'il en reste. Au-delà, les unités les plus froides sont évincées (R-362). Mesuré : 46,6 Mio pour 20 000 unités dans le pire cas (ADR-048). |
+
+La base est jetée en entier, puis reconstruite en jouant, dès que l'environnement
+change : version de Minecraft, de Forge, de RUSTFORGE-X ou de Java, ajout, retrait ou
+mise à jour d'un mod, classe de matériel, ou **n'importe quelle option** de ce fichier.
+C'est voulu : une mesure faite dans un autre contexte ne doit pas guider le runtime
+(R-360). Un fichier illisible est renommé en `workload.db.bak`, jamais lu en partie.
+
 ### Cadence de la mesure de coût (PARTIE 12.4)
 
 | Clé | Type | Défaut | Plage | Rechargeable | Description |
@@ -124,6 +137,12 @@ La configuration normative du cahier des charges décrit aussi les sections
 `analysis`, `decision`, `scheduler`, `snapshot`, `commit`, `validation`,
 `shadow`, `cache`, `mirror`, `ir`, `network`, `learning`, `diagnostics`, `ui` et
 `overrides`.
+
+La section `cache` n'expose que `enabled` et `max_memory_mb` : `max_disk_mb` n'a pas
+de rôle propre tant que `workload.db` est le seul fichier du cache — sa taille suit la
+mémoire de la base (25 Mio sur disque pour 46,6 Mio en mémoire, mesuré, ADR-048) —, et
+`result_cache_ttl_ticks` comme `purge_on_version_change` concernent des caches qui
+n'existent pas encore.
 
 La section `diagnostics` n'expose que `report_on_incident` : `keep_days` et
 `max_disk_mb` supposent une éviction des fichiers anciens qui n'existe pas encore, et

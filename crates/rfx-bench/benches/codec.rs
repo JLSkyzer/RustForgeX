@@ -35,6 +35,19 @@ fn status() -> RuntimeStatus {
         probes: ProbeStatus::default(),
         profiler: ProfilerStatus::default(),
         scheduler: SchedulerStatus::default(),
+        // Base ouverte et remplie : le blob mesure est celui d'une partie en cours.
+        db: rfx_model::DbStatus {
+            enabled: true,
+            open: true,
+            load: 4,
+            loaded_entries: 18_000,
+            entries: 20_000,
+            estimated_bytes: 48_000_000,
+            syncs: 12,
+            writes: 12,
+            persist_ms: 140,
+            ..rfx_model::DbStatus::default()
+        },
     }
 }
 

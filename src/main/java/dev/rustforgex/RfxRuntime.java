@@ -28,6 +28,7 @@ import dev.rustforgex.instrument.RfxProbes;
 import dev.rustforgex.instrument.ProbeSink;
 import dev.rustforgex.instrument.StackSampler;
 import dev.rustforgex.instrument.UnknownFrameIndex;
+import dev.rustforgex.db.WorkloadDbLink;
 import dev.rustforgex.sched.ExternalLoadReporter;
 import dev.rustforgex.sched.ExternalLoadSensor;
 import net.minecraft.network.chat.Component;
@@ -85,6 +86,13 @@ public final class RfxRuntime {
      * le runtime natif n'est pas actif.
      */
     private final ExternalLoadReporter loadReporter;
+
+    /**
+     * Base des unités de travail (C-09, ADR-049), ou {@code null} si le runtime natif
+     * n'est pas actif ou si {@code cache.enabled} vaut {@code false}. Démarrée quand
+     * l'inventaire des mods est connu, par {@link #discoverMods}.
+     */
+    private final WorkloadDbLink dbLink;
 
     /**
      * Inventaire des mods, ou {@code null} tant que la découverte n'a pas eu lieu.
@@ -163,6 +171,15 @@ public final class RfxRuntime {
         if (loadReporter != null) {
             loadReporter.start();
         }
+
+        this.dbLink = live && configuration.getBoolean("cache.enabled")
+                ? new WorkloadDbLink(bridge, report.handle(), root.resolve("cache"), versions,
+                        code -> {
+                            if (ErrorCode.fromNativeCode(code) == ErrorCode.PANIC_CAUGHT) {
+                                recordIncident(Incident.nativePanic("dbSync"));
+                            }
+                        })
+                : null;
 
         // C-05 avant C-04 : le profiler plafonne la profondeur des sondes, et une
         // sonde enregistrée alors qu'il est encore à l'arrêt serait armée à OFF.
@@ -321,6 +338,10 @@ public final class RfxRuntime {
     public synchronized ModDiscovery discoverMods(ModSource source) {
         ModDiscovery found = ModDiscovery.from(source);
         this.modDiscovery = found;
+        // L'environnement de la base comprend l'ensemble des mods : elle s'ouvre ici.
+        if (dbLink != null) {
+            dbLink.start(found.mods());
+        }
         return found;
     }
 
@@ -728,6 +749,30 @@ public final class RfxRuntime {
     }
 
     /** Lit et décode le statut natif, ou renvoie {@code null} si indisponible. */
+    /**
+     * Résume la base des unités de travail dans le journal, avant l'écriture finale que
+     * fait l'arrêt du natif (C-09, ADR-049).
+     */
+    private void logDbSummary() {
+        Map<String, Object> status = nativeStatus();
+        Object db = status == null ? null : status.get("db");
+        if (!(db instanceof Map<?, ?> table) || !Boolean.TRUE.equals(table.get("open"))) {
+            return;
+        }
+        long load = table.get("load") instanceof Long n ? n : 0L;
+        String outcome = switch ((int) load) {
+            case 1 -> "aucun fichier au lancement";
+            case 2 -> "fichier d'un autre environnement, ignoré";
+            case 3 -> "fichier illisible mis de côté en .bak";
+            case 4 -> table.get("loaded_entries") + " unités relues au lancement";
+            case 5 -> "lecture refusée par le système";
+            default -> "relecture inachevée";
+        };
+        LOGGER.info("Base des unités de travail : {} unités ({}), {} écritures, {} échec(s) ; "
+                + "écriture finale à l'arrêt.", table.get("entries"), outcome,
+                table.get("writes"), table.get("write_failures"));
+    }
+
     private Map<String, Object> nativeStatus() {
         if (!active()) {
             return null;
@@ -771,6 +816,12 @@ public final class RfxRuntime {
         // Avant la fermeture du natif : le fil de relevé ne doit plus l'appeler.
         if (loadReporter != null) {
             loadReporter.stop();
+        }
+        // Même raison. Le dernier lot, lui, part avec l'arrêt du natif, qui attend son
+        // écriture hors de son verrou.
+        if (dbLink != null) {
+            dbLink.stop();
+            logDbSummary();
         }
         if (eventObserver != null) {
             eventObserver.stop();
