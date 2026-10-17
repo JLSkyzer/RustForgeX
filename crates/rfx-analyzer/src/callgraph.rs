@@ -43,6 +43,9 @@ pub const DEFAULT_MAX_CALL_DEPTH: u32 = 12;
 /// Noeuds par graphe par defaut (`analysis.max_nodes_per_workload`, R-340).
 pub const DEFAULT_MAX_NODES: usize = 2_000;
 
+/// Bytecode demande au plus par site d'appel et par tour (ADR-051).
+pub const MAX_REQUESTS_PER_SITE: usize = 8;
+
 /// Cibles au plus d'un appel polymorphe borne ; au-dela, il est non resolu (R-341).
 pub const MAX_POLYMORPHIC_TARGETS: usize = 4;
 
@@ -178,7 +181,7 @@ impl CallGraph {
         let mut queue = VecDeque::from([graph.add_node(root.clone(), 0)]);
         while let Some(id) = queue.pop_front() {
             let node = graph.nodes[id].clone();
-            let found = classes.get(&node.method.owner).and_then(|class| {
+            let found = classes.class(&node.method.owner).and_then(|class| {
                 class
                     .method(&node.method.name, &node.method.descriptor)
                     .map(|method| (class, method))
@@ -452,7 +455,7 @@ fn resolve(
 fn declared_up(classes: &ClassIndex, member: &MemberRef) -> MethodRef {
     let mut current = Some(member.owner.as_str());
     while let Some(name) = current {
-        let Some(class) = classes.get(name) else {
+        let Some(class) = classes.class(name) else {
             break;
         };
         if class.method(&member.name, &member.descriptor).is_some() {
@@ -470,7 +473,8 @@ fn resolve_virtual(
     if REFLECTIVE.contains(&(member.owner.as_str(), member.name.as_str())) {
         return Err(Unresolved::Reflection);
     }
-    let Some(owner) = classes.get(&member.owner) else {
+    let Some(owner) = classes.class(&member.owner) else {
+        // Absente, ou demandee : dans les deux cas, rien n'est affirme a ce tour.
         return Err(Unresolved::UnknownClass);
     };
 
@@ -478,7 +482,7 @@ fn resolve_virtual(
     let declared = declared_up(classes, member);
     let fixed = owner.is_final()
         || classes
-            .get(&declared.owner)
+            .class(&declared.owner)
             .and_then(|class| class.method(&declared.name, &declared.descriptor))
             .is_some_and(|method| method.is_private() || method.is_final());
     if fixed {
@@ -490,7 +494,7 @@ fn resolve_virtual(
         return match classes.select(receiver, &member.name, &member.descriptor) {
             Selection::Found(target) => Ok(vec![(target, Resolution::Exact)]),
             Selection::Missing => Err(Unresolved::NoImplementation),
-            Selection::Unknown => Err(Unresolved::UnknownClass),
+            Selection::Unknown | Selection::Pending => Err(Unresolved::UnknownClass),
             Selection::Ambiguous => Err(Unresolved::Ambiguous),
         };
     }
@@ -503,18 +507,44 @@ fn resolve_virtual(
         .concrete_subtypes(&member.owner)
         .ok_or(Unresolved::UnknownClass)?;
     let mut targets: Vec<MethodRef> = Vec::new();
+    let mut pending = false;
+    let mut asked = 0;
     for receiver in receivers {
-        match classes.select(&receiver.name, &member.name, &member.descriptor) {
+        if classes.get(&receiver).is_none() {
+            if !classes.is_fetchable(&receiver) {
+                // Sous-classe concrete dont le bytecode ne sera jamais fourni (cible de
+                // mixin) : sa cible est inconnue, l'appel aussi.
+                return Err(Unresolved::UnknownClass);
+            }
+            // Pas plus de quelques demandes par site et par tour : une classe aux
+            // milliers de sous-classes se revele megamorphe bien avant.
+            if asked < MAX_REQUESTS_PER_SITE {
+                classes.request(&receiver);
+                asked += 1;
+            }
+            pending = true;
+            continue;
+        }
+        match classes.select(&receiver, &member.name, &member.descriptor) {
             Selection::Found(target) => {
                 if !targets.contains(&target) {
                     targets.push(target);
                 }
+                // Des receveurs encore inconnus ne peuvent qu'ajouter des cibles :
+                // au-dela du seuil, la conclusion est deja sure.
+                if targets.len() > MAX_POLYMORPHIC_TARGETS {
+                    return Err(Unresolved::Megamorphic);
+                }
             }
             // Ce receveur leverait AbstractMethodError : il n'apporte pas de cible.
             Selection::Missing => {}
+            Selection::Pending => pending = true,
             Selection::Unknown => return Err(Unresolved::UnknownClass),
             Selection::Ambiguous => return Err(Unresolved::Ambiguous),
         }
+    }
+    if pending {
+        return Err(Unresolved::UnknownClass);
     }
     targets.sort();
     match targets.len() {

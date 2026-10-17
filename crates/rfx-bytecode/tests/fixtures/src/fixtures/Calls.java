@@ -88,6 +88,10 @@ public class Calls {
         worker.run();
     }
 
+    public static int inherited(Top top) {
+        return top.level();
+    }
+
     /** Methode par defaut, mais une interface du JDK pourrait en fournir une autre. */
     public static String label(Named named) {
         return named.label();

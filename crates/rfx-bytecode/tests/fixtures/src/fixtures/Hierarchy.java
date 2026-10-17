@@ -207,6 +207,24 @@ abstract class Worker extends Thread {
 final class Busy extends Worker {
 }
 
+/**
+ * La methode executee est dans une classe intermediaire : la seule sous-classe concrete
+ * n'en declare pas, et il faut remonter d'un cran pour la trouver.
+ */
+abstract class Top {
+    abstract int level();
+}
+
+abstract class Middle extends Top {
+    @Override
+    int level() {
+        return 2;
+    }
+}
+
+final class Leaf extends Middle {
+}
+
 /** Appel a la super-classe : invokespecial vers la methode heritee. */
 class Base {
     int value() {

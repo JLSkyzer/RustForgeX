@@ -29,4 +29,5 @@ recompilation :
   du JDK (`Item implements Named, Comparable`) ;
 - les mêmes cas par une **classe** plutôt qu'une interface (ADR-051) : trois et cinq
   sous-classes (`Vehicle`, `Tool`), méthode par défaut héritée (`Speaker`), interface
-  du JDK voisine (`Labelled`), méthode héritée de `Thread` (`Worker`).
+  du JDK voisine (`Labelled`), méthode héritée de `Thread` (`Worker`) ;
+- une méthode exécutée dans une classe intermédiaire (`Top`, `Middle`, `Leaf`).
