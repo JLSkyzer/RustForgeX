@@ -30,7 +30,9 @@
 //! complete, et un appel par une interface n'est jamais declare resolu — sauf vers une
 //! methode privee de l'interface, qui ne peut pas etre redefinie (ADR-051).
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 use std::time::Instant;
 
 use rfx_bytecode::{CallSite, CallTarget, InvokeKind, MemberRef};
@@ -172,11 +174,46 @@ const REFLECTIVE: [(&str, &str); 6] = [
 
 const LAMBDA_FACTORY: &str = "java/lang/invoke/LambdaMetafactory";
 
+/// L'index, et les sous-types concrets deja enumeres pendant une construction.
+///
+/// Enumerer les sous-types d'une classe parcourt tout son sous-arbre ; une meme classe
+/// revient sur des milliers de sites. Mesure sur les classes du jeu (ADR-052) : sans
+/// memoire, cette enumeration faisait plus de 90 % du temps de construction d'un
+/// graphe. L'index ne change pas pendant [`CallGraph::build`] — seules les demandes,
+/// qui n'influent pas sur les sous-types — : la reponse memorisee est donc exacte, et
+/// la memoire meurt avec la construction.
+struct Resolver<'a> {
+    classes: &'a ClassIndex,
+    subtypes: RefCell<HashMap<String, Option<Rc<[String]>>>>,
+}
+
+impl<'a> Resolver<'a> {
+    fn new(classes: &'a ClassIndex) -> Self {
+        Self {
+            classes,
+            subtypes: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// [`ClassIndex::concrete_subtypes`], une seule fois par classe et par construction.
+    fn concrete_subtypes(&self, name: &str) -> Option<Rc<[String]>> {
+        if let Some(known) = self.subtypes.borrow().get(name) {
+            return known.clone();
+        }
+        let found: Option<Rc<[String]>> = self.classes.concrete_subtypes(name).map(Rc::from);
+        self.subtypes
+            .borrow_mut()
+            .insert(name.to_owned(), found.clone());
+        found
+    }
+}
+
 impl CallGraph {
     /// Construit le graphe depuis `root`, dans les bornes donnees.
     #[must_use]
     pub fn build(classes: &ClassIndex, root: &MethodRef, limits: Limits) -> Self {
         let started = Instant::now();
+        let resolver = Resolver::new(classes);
         let mut graph = Self::default();
         let mut queue = VecDeque::from([graph.add_node(root.clone(), 0)]);
         while let Some(id) = queue.pop_front() {
@@ -202,7 +239,7 @@ impl CallGraph {
                 continue;
             }
             for site in sites {
-                graph.add_site(classes, id, &site, node.depth + 1, limits, &mut queue);
+                graph.add_site(&resolver, id, &site, node.depth + 1, limits, &mut queue);
             }
         }
         graph.mark_recursion();
@@ -244,7 +281,7 @@ impl CallGraph {
 
     fn add_site(
         &mut self,
-        classes: &ClassIndex,
+        resolver: &Resolver<'_>,
         from: usize,
         site: &CallSite,
         depth: u32,
@@ -255,7 +292,7 @@ impl CallGraph {
             CallTarget::Member(member) => Some(reference_of(member)),
             CallTarget::Dynamic { .. } => None,
         };
-        match resolve(classes, site) {
+        match resolve(resolver, site) {
             Err(reason) => self.push_unresolved(from, reference, Some(site.offset), reason),
             Ok(targets) => {
                 self.resolved_calls = self.resolved_calls.saturating_add(1);
@@ -415,9 +452,10 @@ fn reference_of(member: &MemberRef) -> MethodRef {
 
 /// Resout un site d'appel en ses cibles.
 fn resolve(
-    classes: &ClassIndex,
+    resolver: &Resolver<'_>,
     site: &CallSite,
 ) -> Result<Vec<(MethodRef, Resolution)>, Unresolved> {
+    let classes = resolver.classes;
     match (&site.target, site.kind) {
         (CallTarget::Member(member), InvokeKind::Static) => {
             Ok(vec![(declared_up(classes, member), Resolution::Static)])
@@ -425,7 +463,7 @@ fn resolve(
         (CallTarget::Member(member), InvokeKind::Special) => {
             Ok(vec![(declared_up(classes, member), Resolution::Special)])
         }
-        (CallTarget::Member(member), _) => resolve_virtual(classes, member),
+        (CallTarget::Member(member), _) => resolve_virtual(resolver, member),
         (
             CallTarget::Dynamic {
                 bootstrap,
@@ -449,7 +487,7 @@ fn resolve(
                     Resolution::Lambda,
                 )]),
                 // invokeVirtual, invokeInterface : la cible depend du receveur.
-                5 | 9 => resolve_virtual(classes, &implementation.member),
+                5 | 9 => resolve_virtual(resolver, &implementation.member),
                 _ => Err(Unresolved::Dynamic),
             }
         }
@@ -473,9 +511,10 @@ fn declared_up(classes: &ClassIndex, member: &MemberRef) -> MethodRef {
 }
 
 fn resolve_virtual(
-    classes: &ClassIndex,
+    resolver: &Resolver<'_>,
     member: &MemberRef,
 ) -> Result<Vec<(MethodRef, Resolution)>, Unresolved> {
+    let classes = resolver.classes;
     if REFLECTIVE.contains(&(member.owner.as_str(), member.name.as_str())) {
         return Err(Unresolved::Reflection);
     }
@@ -509,15 +548,15 @@ fn resolve_virtual(
         return Err(Unresolved::OpenInterface);
     }
 
-    let receivers = classes
+    let receivers = resolver
         .concrete_subtypes(&member.owner)
         .ok_or(Unresolved::UnknownClass)?;
     let mut targets: Vec<MethodRef> = Vec::new();
     let mut pending = false;
     let mut asked = 0;
-    for receiver in receivers {
-        if classes.get(&receiver).is_none() {
-            if !classes.is_fetchable(&receiver) {
+    for receiver in receivers.iter() {
+        if classes.get(receiver).is_none() {
+            if !classes.is_fetchable(receiver) {
                 // Sous-classe concrete dont le bytecode ne sera jamais fourni (cible de
                 // mixin) : sa cible est inconnue, l'appel aussi.
                 return Err(Unresolved::UnknownClass);
@@ -525,13 +564,13 @@ fn resolve_virtual(
             // Pas plus de quelques demandes par site et par tour : une classe aux
             // milliers de sous-classes se revele megamorphe bien avant.
             if asked < MAX_REQUESTS_PER_SITE {
-                classes.request(&receiver);
+                classes.request(receiver);
                 asked += 1;
             }
             pending = true;
             continue;
         }
-        match classes.select(&receiver, &member.name, &member.descriptor) {
+        match classes.select(receiver, &member.name, &member.descriptor) {
             Selection::Found(target) => {
                 if !targets.contains(&target) {
                     targets.push(target);

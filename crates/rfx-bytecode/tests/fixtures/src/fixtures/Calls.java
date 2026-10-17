@@ -72,6 +72,12 @@ public class Calls {
         return vehicle.wheels();
     }
 
+    /** Deux hierarchies de classes dans le meme graphe : chacune a ses sous-classes. */
+    public static int twoHierarchies(Vehicle vehicle, Tool tool) {
+        tool(tool);
+        return vehicle(vehicle);
+    }
+
     public static void tool(Tool tool) {
         tool.use();
     }

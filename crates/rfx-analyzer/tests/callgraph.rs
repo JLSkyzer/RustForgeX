@@ -388,6 +388,38 @@ fn observed_edges_complete_the_graph() {
     assert!(graph.find(&unbounded).unwrap().recursive, "cycle observe");
 }
 
+/// Deux hierarchies de classes dans le meme graphe : les sous-types memorises pendant
+/// la construction (ADR-052) restent ceux de chaque classe.
+#[test]
+fn each_call_enumerates_the_subtypes_of_its_own_class() {
+    let root = method(
+        "Calls",
+        "twoHierarchies",
+        "(Lfixtures/Vehicle;Lfixtures/Tool;)I",
+    );
+    let graph = build(&root);
+    let tool = method("Calls", "tool", "(Lfixtures/Tool;)V");
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    assert_eq!(
+        unresolved_from(&graph, &tool),
+        vec![Unresolved::Megamorphic],
+        "cinq outils"
+    );
+    let targets: Vec<String> = resolved_from(&graph, &vehicle)
+        .into_iter()
+        .map(|(target, _)| target)
+        .collect();
+    assert_eq!(
+        targets,
+        vec![
+            "fixtures/Bike.wheels()I",
+            "fixtures/Car.wheels()I",
+            "fixtures/Truck.wheels()I"
+        ],
+        "les vehicules, pas les outils enumeres juste avant"
+    );
+}
+
 /// Metriques de la fiche : noeuds, part non resolue, duree.
 #[test]
 fn metrics_describe_the_graph() {
