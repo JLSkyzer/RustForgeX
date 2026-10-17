@@ -114,19 +114,7 @@ pub fn call_sites(
     while offset < code.len() {
         let opcode = code[offset];
         let bad = ParseError::BadInstruction { offset, opcode };
-        let len = match opcode {
-            0xaa => switch_length(code, offset, true).ok_or(bad.clone())?,
-            0xab => switch_length(code, offset, false).ok_or(bad.clone())?,
-            0xc4 => match code.get(offset + 1) {
-                Some(0x84) => 6, // wide iinc
-                Some(0x15..=0x19 | 0x36..=0x3a | 0xa9) => 4,
-                _ => return Err(bad),
-            },
-            _ => match LENGTHS[usize::from(opcode)] {
-                0 => return Err(bad),
-                fixed => usize::from(fixed),
-            },
-        };
+        let len = instruction_length(code, offset).ok_or(bad.clone())?;
         let operands = code.get(offset + 1..offset + len).ok_or(bad)?;
         let kind = match opcode {
             0xb6 => Some(InvokeKind::Virtual),
@@ -139,7 +127,7 @@ pub fn call_sites(
         if let Some(kind) = kind {
             let index = u16::from_be_bytes([operands[0], operands[1]]);
             let target = if kind == InvokeKind::Dynamic {
-                dynamic_target(pool, bootstraps, index)?
+                dynamic_target_of(pool, bootstraps, index)?
             } else {
                 CallTarget::Member(pool.member(index)?)
             };
@@ -152,6 +140,25 @@ pub fn call_sites(
         offset += len;
     }
     Ok(sites)
+}
+
+/// Longueur de l'instruction a `offset`, operandes compris, ou `None` si elle est
+/// inconnue ou incoherente. Le debordement du code n'est pas verifie ici.
+pub(crate) fn instruction_length(code: &[u8], offset: usize) -> Option<usize> {
+    let opcode = *code.get(offset)?;
+    match opcode {
+        0xaa => switch_length(code, offset, true),
+        0xab => switch_length(code, offset, false),
+        0xc4 => match code.get(offset + 1) {
+            Some(0x84) => Some(6), // wide iinc
+            Some(0x15..=0x19 | 0x36..=0x3a | 0xa9) => Some(4),
+            _ => None,
+        },
+        _ => match LENGTHS[usize::from(opcode)] {
+            0 => None,
+            fixed => Some(usize::from(fixed)),
+        },
+    }
 }
 
 /// Longueur d'un `tableswitch` ou d'un `lookupswitch` a `offset`, remplissage compris
@@ -179,7 +186,8 @@ fn switch_length(code: &[u8], offset: usize, table: bool) -> Option<usize> {
     Some(1 + padding + entries)
 }
 
-fn dynamic_target(
+/// Cible d'un `invokedynamic` dont la constante est a `index`.
+pub(crate) fn dynamic_target_of(
     pool: &ConstantPool,
     bootstraps: &[BootstrapMethod],
     index: u16,

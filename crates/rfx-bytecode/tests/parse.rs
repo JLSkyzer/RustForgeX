@@ -44,7 +44,7 @@ fn calls(class: &ClassFile, name: &str, descriptor: &str) -> Vec<String> {
 #[test]
 fn every_fixture_parses_with_its_hierarchy() {
     let all = fixtures();
-    assert_eq!(all.len(), 44, "classes : {:?}", all.keys());
+    assert_eq!(all.len(), 45, "classes : {:?}", all.keys());
     for (name, bytes) in &all {
         let class = ClassFile::parse(bytes).unwrap_or_else(|e| panic!("{name} : {e}"));
         assert_eq!(class.name, format!("fixtures/{name}"));

@@ -3,6 +3,7 @@
 use crate::code::{self, CallSite};
 use crate::constant::ConstantPool;
 use crate::cursor::Cursor;
+use crate::insn::{self, Handler, Instruction};
 use crate::ParseError;
 
 /// Drapeaux d'acces (JVMS tableaux 4.1-B et 4.6-A).
@@ -38,6 +39,12 @@ pub struct MethodInfo {
     pub descriptor: String,
     /// Code, absent pour une methode abstraite ou native.
     pub code: Option<Vec<u8>>,
+    /// Hauteur maximale de la pile, en emplacements ; 0 sans code.
+    pub max_stack: u16,
+    /// Nombre de variables locales, en emplacements ; 0 sans code.
+    pub max_locals: u16,
+    /// Gestionnaires d'exceptions du code, dans l'ordre de la table.
+    pub handlers: Vec<Handler>,
 }
 
 impl MethodInfo {
@@ -210,6 +217,19 @@ impl ClassFile {
             None => Ok(Vec::new()),
         }
     }
+
+    /// Instructions d'une methode de cette classe, dans l'ordre du code (C-11).
+    ///
+    /// # Errors
+    ///
+    /// [`ParseError`] si le code ou une constante qu'il designe est incoherent, ou si
+    /// le code contient `jsr` ou `ret`.
+    pub fn instructions(&self, method: &MethodInfo) -> Result<Vec<Instruction>, ParseError> {
+        match &method.code {
+            Some(code) => insn::decode(code, &self.pool, &self.bootstrap_methods),
+            None => Ok(Vec::new()),
+        }
+    }
 }
 
 fn skip_attributes(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
@@ -226,7 +246,7 @@ fn parse_method(cursor: &mut Cursor<'_>, pool: &ConstantPool) -> Result<MethodIn
     let access = cursor.u16()?;
     let name = pool.utf8(cursor.u16()?)?.to_owned();
     let descriptor = pool.utf8(cursor.u16()?)?.to_owned();
-    let mut code = None;
+    let mut code: Option<Code> = None;
     let attribute_count = cursor.u16()?;
     for _ in 0..attribute_count {
         let attribute_name = pool.utf8(cursor.u16()?)?;
@@ -238,28 +258,65 @@ fn parse_method(cursor: &mut Cursor<'_>, pool: &ConstantPool) -> Result<MethodIn
             if code.is_some() {
                 return Err(ParseError::Malformed("deux attributs Code"));
             }
-            code = Some(parse_code(body)?);
+            code = Some(parse_code(body, pool)?);
         }
     }
+    let code = code.unwrap_or_default();
     Ok(MethodInfo {
         access,
         name,
         descriptor,
-        code,
+        code: code.bytes,
+        max_stack: code.max_stack,
+        max_locals: code.max_locals,
+        handlers: code.handlers,
     })
 }
 
-/// Attribut `Code` (JVMS §4.7.3) : seul le code est garde.
-fn parse_code(body: &[u8]) -> Result<Vec<u8>, ParseError> {
+/// Contenu lu d'un attribut `Code`.
+#[derive(Default)]
+struct Code {
+    bytes: Option<Vec<u8>>,
+    max_stack: u16,
+    max_locals: u16,
+    handlers: Vec<Handler>,
+}
+
+/// Attribut `Code` (JVMS §4.7.3) : code, bornes et table des exceptions ; ses propres
+/// attributs (`LineNumberTable`, `StackMapTable`…) sont sautes.
+fn parse_code(body: &[u8], pool: &ConstantPool) -> Result<Code, ParseError> {
     let mut cursor = Cursor::new(body);
-    cursor.u16()?; // max_stack
-    cursor.u16()?; // max_locals
+    let max_stack = cursor.u16()?;
+    let max_locals = cursor.u16()?;
     let len = cursor.u32()? as usize;
     // JVMS §4.7.3 : 0 < code_length < 65536.
     if len == 0 || len >= 65_536 {
         return Err(ParseError::Malformed("longueur de code hors de 1 a 65535"));
     }
-    Ok(cursor.take(len)?.to_vec())
+    let bytes = cursor.take(len)?.to_vec();
+    let count = usize::from(cursor.u16()?);
+    let mut handlers = Vec::with_capacity(cursor.capacity_for(count, 8));
+    for _ in 0..count {
+        let start = u32::from(cursor.u16()?);
+        let end = u32::from(cursor.u16()?);
+        let handler = u32::from(cursor.u16()?);
+        let catch_type = match cursor.u16()? {
+            0 => None,
+            index => Some(pool.class_name(index)?.to_owned()),
+        };
+        handlers.push(Handler {
+            start,
+            end,
+            handler,
+            catch_type,
+        });
+    }
+    Ok(Code {
+        bytes: Some(bytes),
+        max_stack,
+        max_locals,
+        handlers,
+    })
 }
 
 fn parse_bootstrap_methods(body: &[u8]) -> Result<Vec<BootstrapMethod>, ParseError> {

@@ -1,4 +1,4 @@
-# Classes de test de C-07 (ADR-050)
+# Classes de test de C-07 et C-11 (ADR-050, ADR-055)
 
 `src/fixtures/*.java` sont écrites pour ce projet ; `classes/` en est la compilation,
 versionnée pour que les tests Rust n'aient pas besoin d'un JDK. Aucune classe tierce
@@ -31,3 +31,9 @@ recompilation :
   sous-classes (`Vehicle`, `Tool`), méthode par défaut héritée (`Speaker`), interface
   du JDK voisine (`Labelled`), méthode héritée de `Thread` (`Worker`) ;
 - une méthode exécutée dans une classe intermédiaire (`Top`, `Middle`, `Leaf`).
+
+`Flow` sert au décodeur d'instructions de C-11 (ADR-055) : `dup_x1`, `dup_x2`, `dup2`,
+`dup2_x1`, `dup2_x2`, `pop2` sur des valeurs longues, `try`/`catch`/`finally`,
+`synchronized`, `multianewarray`, `ldc` de chaque nature, conversions, et plus de 256
+emplacements locaux (`iload_w`, `dstore_w`, `iinc_w`). Vérifier avec
+`javap -c -p -cp classes fixtures.Flow`.

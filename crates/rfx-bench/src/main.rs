@@ -26,6 +26,7 @@
 mod callgraph_acceptance;
 mod callgraph_cost;
 mod digest_diff;
+mod insn_corpus;
 mod macro_bench;
 mod ranking;
 mod telemetry_cost;
@@ -140,10 +141,11 @@ fn main() {
         "ranking" => ranking_level(),
         "callgraph" => callgraph_level(),
         "callgraph-acceptance" => callgraph_acceptance_level(),
+        "insn" => insn_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
-                 | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance"
+                 | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance | insn"
             );
             std::process::exit(2);
         }
@@ -834,6 +836,85 @@ fn callgraph_level() {
         out.display(),
         if dirty { " (arbre modifie)" } else { "" }
     );
+}
+
+/// Decodeur d'instructions de C-11 sur un corpus reel (ADR-055).
+///
+/// `rfx-bench insn <corpus>` : decode chaque methode et rejoue sa pile contre le
+/// `max_stack` du compilateur. Ecrit `benchmarks/results/insn-*.json`. Code de sortie :
+/// `0` aucun ecart qui trahisse une erreur du decodeur, `1` sinon, `2` entree invalide.
+fn insn_level() {
+    let Some(path) = std::env::args().nth(2) else {
+        eprintln!("usage : rfx-bench insn <corpus>");
+        std::process::exit(2);
+    };
+    let corpus = match callgraph_cost::Corpus::load(Path::new(&path)) {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+    let report = insn_corpus::run(&corpus);
+
+    #[derive(Serialize)]
+    struct InsnFile<'a> {
+        schema: u32,
+        benchmark: &'static str,
+        commit: String,
+        dirty: bool,
+        collected_at: u64,
+        sound: bool,
+        report: &'a insn_corpus::Report,
+    }
+    let root = repository_root();
+    let (commit, dirty) = git_state(&root);
+    let collected_at = unix_time();
+    let file = InsnFile {
+        schema: RESULT_SCHEMA,
+        benchmark: "insn",
+        commit: commit.clone(),
+        dirty,
+        collected_at,
+        sound: report.sound(),
+        report: &report,
+    };
+    let out_dir = root.join("benchmarks").join("results");
+    let out = out_dir.join(format!("insn-{collected_at}-{}.json", short(&commit)));
+    let written = std::fs::create_dir_all(&out_dir)
+        .map_err(|e| e.to_string())
+        .and_then(|()| serde_json::to_string_pretty(&file).map_err(|e| e.to_string()))
+        .and_then(|json| std::fs::write(&out, json + "\n").map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("écriture impossible dans {} : {e}", out.display());
+        std::process::exit(1);
+    }
+    println!(
+        "{} classes ({} illisibles), {} methodes avec code",
+        report.classes, report.unreadable_classes, report.methods
+    );
+    println!(
+        "rejouees : {} — hauteur egale {}, inferieure {}, SUPERIEURE {}",
+        report.replayed, report.depth_equal, report.depth_below, report.depth_above
+    );
+    println!(
+        "jsr/ret : {} ; non decodables : {} ; rejeu impossible : {} ; locales hors bornes : {}",
+        report.subroutines, report.decode_errors, report.replay_errors, report.locals_out_of_range
+    );
+    for (category, samples) in &report.samples {
+        println!("[{category}]");
+        for sample in samples {
+            println!("  {sample}");
+        }
+    }
+    println!(
+        "{}{}",
+        out.display(),
+        if dirty { " (arbre modifie)" } else { "" }
+    );
+    if !report.sound() {
+        std::process::exit(1);
+    }
 }
 
 /// Acceptance de C-07, moitie native (ADR-053).

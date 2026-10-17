@@ -1064,7 +1064,21 @@ demandent une mesure ; les autres sont des tests de justesse.
         par le test d'intégration du runtime
   - [ ] Hors périmètre, à décider par Killian : persistance des descripteurs dans
         `workload.db` (change DM-17) ; acceptance (attend C-10 à C-13, profil `heavy`)
-- [ ] C-10, C-12 — après C-08
+- [~] C-11 Data Flow Analyzer — T-200..T-205 (R-380..R-382, FM-20), ADR-055. Avant
+      C-10, qui a besoin de ses ensembles d'accès (demande de Killian du 2026-10-17,
+      « ok go la suite »)
+  - [ ] `rfx-bytecode` : décodeur d'instructions complet (effet sur la pile, champs,
+        branchements, table des exceptions) ; `jsr`/`ret` => non analysable
+  - [ ] `rfx-analyzer` : interprétation abstraite intraprocédurale (sources des
+        références, point fixe, gestionnaires d'exceptions)
+  - [ ] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
+        dérivée de la hiérarchie ; objets locaux non échappés
+  - [ ] Interprocédural : résumés des appelées, arguments, récursion, UNKNOWN (R-380)
+  - [ ] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
+        `rfx.dataflow.*`
+  - [ ] Acceptance : corpus annoté de 150 méthodes, zéro sous-approximation
+        d'écriture, ≥ 60 % EXACT ; vérification dynamique (R-382, T-205) à part
+- [ ] C-10, C-12, C-13 — après C-11
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

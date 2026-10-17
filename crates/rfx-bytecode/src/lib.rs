@@ -5,8 +5,9 @@
 //!
 //! N'est lu que ce que l'analyse utilise : la hierarchie (super-classe, interfaces,
 //! drapeaux), les methodes et leur code, les sites d'appel `invoke*` et les methodes
-//! d'amorcage des `invokedynamic`. Les champs, les annotations et les autres attributs
-//! sont sautes, jamais interpretes.
+//! d'amorcage des `invokedynamic` ; pour l'analyse de flux (C-11, ADR-055), chaque
+//! instruction avec son effet sur la pile, et la table des exceptions. Les champs, les
+//! annotations et les autres attributs sont sautes, jamais interpretes.
 //!
 //! # Entrees non fiables
 //!
@@ -19,11 +20,13 @@ pub mod class;
 pub mod code;
 pub mod constant;
 mod cursor;
+pub mod insn;
 mod mutf8;
 
 pub use class::{access, BootstrapMethod, ClassFile, MethodInfo};
 pub use code::{call_sites, CallSite, CallTarget, InvokeKind};
 pub use constant::{Constant, ConstantPool, MemberRef, MethodHandleRef};
+pub use insn::{method_signature, stack_depths, Handler, Instruction, Op, Slot, StackOp};
 
 /// Pourquoi un fichier `.class` ne peut pas etre lu.
 #[derive(Debug, Clone, PartialEq, Eq)]
