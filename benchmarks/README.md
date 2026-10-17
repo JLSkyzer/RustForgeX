@@ -155,7 +155,10 @@ Analyse chaque méthode du corpus sous le budget donné (illimité par défaut, 
 mesurer ; `65536 64` reproduit le budget du jeu). Une méthode jugée incohérente est une
 erreur de l'interpréteur, puisque la JVM accepte ce code : le code de sortie vaut alors
 `1`. Le rapport donne aussi la distribution du travail par méthode (blocs, emplacements
-d'état, passages), qui fixe le budget. Les durées viennent d'un seul passage : ce sont
+d'état, passages), qui fixe le budget, puis ce que les effets intraproceduraux en
+tirent avec la hiérarchie complète du corpus : précision des écritures, domaines écrits,
+et ancres de la table des domaines absentes du corpus (il ne doit y en avoir aucune).
+Les durées viennent d'un seul passage : ce sont
 des observations, pas un benchmark au sens de R-581. Résultat :
 `results/dataflow-<horodatage>-<commit>.json`. Méthode : ADR-055.
 

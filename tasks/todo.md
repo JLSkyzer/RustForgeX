@@ -1073,8 +1073,9 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] `rfx-analyzer` : interprétation abstraite intraprocédurale (sources des
         références, point fixe, gestionnaires d'exceptions) — 599 749 méthodes du
         corpus analysées, aucune incohérente ; 10 mutants sur 10 tués
-  - [ ] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
-        dérivée de la hiérarchie ; objets locaux non échappés
+  - [x] Effets : champs, statiques, tableaux, verrous, exceptions ; table domaine
+        dérivée de la hiérarchie ; objets locaux non échappés — 26 ancres toutes
+        présentes dans le corpus ; 12 mutants sur 12 tués
   - [ ] Interprocédural : résumés des appelées, arguments, récursion, UNKNOWN (R-380)
   - [ ] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*`

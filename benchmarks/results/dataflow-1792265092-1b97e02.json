@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "benchmark": "dataflow",
+  "commit": "1b97e0250c980971e4d2dfb770fff3983ac8869d",
+  "dirty": true,
+  "collected_at": 1792265092,
+  "max_cells": 65536,
+  "max_visits_per_block": 64,
+  "report": {
+    "classes": 64932,
+    "unreadable_classes": 8,
+    "methods": 599749,
+    "analysed": 599749,
+    "bytecode": 0,
+    "incoherent": 0,
+    "budget": 0,
+    "widened_methods": 1023,
+    "blocks": {
+      "p50": 1.0,
+      "p99": 27.0,
+      "p999": 79.0,
+      "max": 418.0
+    },
+    "cells": {
+      "p50": 6.0,
+      "p99": 403.0,
+      "p999": 1890.0,
+      "max": 17440.0
+    },
+    "max_block_visits": {
+      "p50": 1.0,
+      "p99": 2.0,
+      "p999": 6.0,
+      "max": 14.0
+    },
+    "micros": {
+      "p50": 2.6,
+      "p99": 65.3,
+      "p999": 592.4,
+      "max": 7877.900000000001
+    },
+    "write_precision": {
+      "Exact": 71612,
+      "Unknown": 528137
+    },
+    "write_precision_without_calls": {
+      "Exact": 71612,
+      "Unknown": 16908
+    },
+    "write_domains": {
+      "BlockEntityState": 180,
+      "Capabilities": 1,
+      "ChunkData": 24,
+      "ChunkStatus": 21,
+      "EntityInventory": 11,
+      "EntityState": 889,
+      "FileSystem": 1240,
+      "JavaStatics": 6557,
+      "LevelGlobals": 24,
+      "ModStatics": 7824,
+      "Network": 14,
+      "Random": 12,
+      "Registries": 22,
+      "ThreadLocals": 11,
+      "Unknown": 528137,
+      "WorldBlocks": 12,
+      "WorldLighting": 9
+    },
+    "missing_anchors": [],
+    "total_ms": 5832.8998,
+    "samples": {}
+  }
+}
