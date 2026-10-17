@@ -1030,8 +1030,11 @@ demandent une mesure ; les autres sont des tests de justesse.
         tenues pour inconnues, `rfx.callgraph.*`. Vérifié sur `runServer` : 62 690
         classes déclarées en 67 à 94 s, fil mesuré entre 2,7 et 4,6 % d'un cœur
         (budget 5 %) ; sans charge, aucune unité chaude, donc aucun graphe
-  - [ ] Mesurer le coût d'un graphe sur des classes réelles (estimé en jeu, non
-        mesuré : une dizaine de secondes de CPU par graphe), et en isoler la
+  - [x] Coût d'un graphe mesuré (ADR-052, `rfx-bench callgraph`) : sous-types
+        mémorisés, médiane 119,1 → 23,2 s pour 32 graphes, graphes identiques
+  - [ ] Reste (ADR-052, « Ce qui reste ») : 1,5 à 2,6 s par gros graphe ; mesurer
+        la reconstruction à chaque tour et la purge de l'index par racine
+  - [x] (ancien libellé) Mesurer le coût d'un graphe sur des classes réelles, et en isoler la
         cause avant d'optimiser (ADR-051, « Vérification en jeu »)
   - [ ] Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
         résiduels de l'ADR-051 (classes générées, coremods à noms calculés,
