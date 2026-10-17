@@ -6,16 +6,20 @@
 //! - [`hierarchy::ClassIndex`] : les classes chargees, et la methode qu'un appel
 //!   virtuel executerait pour un receveur donne ;
 //! - [`callgraph::CallGraph`] : le graphe d'appel partiel d'une methode, borne, avec
-//!   ses aretes resolues, non resolues et observees, et ses cycles.
+//!   ses aretes resolues, non resolues et observees, et ses cycles ;
+//! - [`classify`] : les drapeaux et la confiance d'une unite de travail, fonctions pures
+//!   des faits que les analyses ont produits (C-08, ADR-054).
 //!
 //! # Sens des dependances
 //!
-//! `rfx-analyzer` ne depend que de `rfx-bytecode`. Il ne connait ni le runtime ni la
-//! frontiere FFI : c'est `rfx-core` qui lui donnera les classes et lira ses resultats
-//! (INV-13).
+//! `rfx-analyzer` ne depend que de `rfx-bytecode` et de `rfx-model`, pour les types de
+//! faits. Il ne connait ni le runtime ni la frontiere FFI : c'est `rfx-core` qui lui
+//! donne les classes et lit ses resultats (INV-13).
 
 pub mod callgraph;
+pub mod classify;
 pub mod hierarchy;
 
 pub use callgraph::{CallGraph, Edge, EdgeKind, Limits, Node, Resolution, Unresolved};
+pub use classify::{classify, confidence, Facts};
 pub use hierarchy::{ClassIndex, MethodRef, Selection};

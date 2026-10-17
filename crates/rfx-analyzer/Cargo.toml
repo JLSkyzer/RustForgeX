@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 rfx-bytecode = { workspace = true }
+rfx-model = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

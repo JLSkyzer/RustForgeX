@@ -14,6 +14,7 @@
 #![doc(html_root_url = "https://example.invalid/rustforgex")]
 
 pub mod analysis;
+pub mod classification;
 pub mod config;
 pub mod dynamics;
 pub mod fingerprint;
@@ -25,6 +26,10 @@ pub mod top;
 pub mod workid;
 
 pub use analysis::{AnalysisStatus, HierarchyEntry};
+pub use classification::{
+    AccessSet, ClassificationFlags, Confidence, DependencySet, DeterminismFacts, Domain, Domains,
+    NonDetSource, Precision, SideEffectSet, ThreadFacts, Tri,
+};
 pub use config::{RuntimeConfig, RuntimeMode};
 pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};
 pub use fingerprint::Fingerprint;

@@ -370,6 +370,7 @@ name = "rfx-analyzer"
 version = "0.1.0"
 dependencies = [
  "rfx-bytecode",
+ "rfx-model",
 ]
 
 [[package]]
