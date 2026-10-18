@@ -144,20 +144,35 @@ fn lambda(args: usize) -> Summary {
 /// Effets de l'unite de travail dont `graph` est le graphe d'appel ; sa racine est le
 /// premier noeud.
 #[must_use]
-#[allow(clippy::too_many_lines)] // trois etapes lineaires : faits, plans, point fixe
 pub fn workload_effects(
     graph: &CallGraph,
     index: &ClassIndex,
     table: &DomainTable,
     limits: &DataflowLimits,
 ) -> WorkloadEffects {
-    let nodes = graph.nodes();
-    let mut causes = UnknownCauses {
-        truncated: graph.truncated(),
-        ..UnknownCauses::default()
-    };
+    workload_effects_from(graph, index, table, &analyze_graph(graph, index, limits))
+}
 
-    // 1. Faits de chaque methode du graphe.
+/// Faits des methodes d'un graphe d'appel, par noeud : calcules une fois, partages par
+/// C-11 (effets) et C-12 (fils).
+#[derive(Debug, Clone)]
+pub struct GraphFacts {
+    /// Faits du code de chaque noeud ; `None` sans code ou non analysable.
+    pub facts: Vec<Option<MethodFacts>>,
+    /// Parametres logiques de chaque noeud, receveur compris s'il peut y en avoir un.
+    pub params: Vec<usize>,
+    /// Noeuds sans code dans l'index, hors methodes connues sans effet.
+    pub external_methods: u32,
+    /// Noeuds dont le code n'est pas analysable.
+    pub unanalysable_methods: u32,
+}
+
+/// Analyse le code de chaque methode du graphe.
+#[must_use]
+pub fn analyze_graph(graph: &CallGraph, index: &ClassIndex, limits: &DataflowLimits) -> GraphFacts {
+    let nodes = graph.nodes();
+    let mut external_methods = 0;
+    let mut unanalysable_methods = 0;
     let mut facts: Vec<Option<MethodFacts>> = Vec::with_capacity(nodes.len());
     let mut params = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -173,20 +188,47 @@ pub fn workload_effects(
                 match analyze(class, method, limits) {
                     Ok(facts) => Some(facts),
                     Err(_) => {
-                        causes.unanalysable_methods += 1;
+                        unanalysable_methods += 1;
                         None
                     }
                 }
             }
             _ => {
                 if !known_inert(&node.method) {
-                    causes.external_methods += 1;
+                    external_methods += 1;
                 }
                 None
             }
         };
         facts.push(analysed);
     }
+    GraphFacts {
+        facts,
+        params,
+        external_methods,
+        unanalysable_methods,
+    }
+}
+
+/// Effets de l'unite de travail dont `graph` est le graphe d'appel, ses methodes deja
+/// analysees ([`analyze_graph`]).
+#[must_use]
+#[allow(clippy::too_many_lines)] // trois etapes lineaires : plans, point fixe, racine
+pub fn workload_effects_from(
+    graph: &CallGraph,
+    index: &ClassIndex,
+    table: &DomainTable,
+    analysed: &GraphFacts,
+) -> WorkloadEffects {
+    let nodes = graph.nodes();
+    let (facts, params) = (&analysed.facts, &analysed.params);
+    let causes_start = UnknownCauses {
+        truncated: graph.truncated(),
+        external_methods: analysed.external_methods,
+        unanalysable_methods: analysed.unanalysable_methods,
+        ..UnknownCauses::default()
+    };
+    let mut causes = causes_start;
 
     // 2. Plan de chaque site d'appel.
     let mut by_site: HashMap<(usize, u32), Vec<&Edge>> = HashMap::new();
@@ -241,8 +283,8 @@ pub fn workload_effects(
     // 3. Point fixe, des methodes les plus profondes vers la racine.
     let mut summaries: Vec<Summary> = nodes
         .iter()
-        .zip(&facts)
-        .zip(&params)
+        .zip(facts)
+        .zip(params)
         .map(|((node, facts), &count)| match facts {
             Some(_) => Summary::bottom(count),
             None if known_inert(&node.method) => Summary::bottom(count),

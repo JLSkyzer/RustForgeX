@@ -224,6 +224,16 @@ Les dépendances sont calculées au niveau des domaines, toutes les unités déc
 supposées du même tick ; l'ordre des flux d'événements (C-06) et les régions manquent
 (ADR-056).
 
+### `rfx.thread` — contraintes de fil (C-12)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.thread.main_required_ratio` | gauge | ratio | Part des descripteurs qui exigent le fil autoritatif : écriture de l'état du jeu, ou classe non sûre entre fils touchée — *conditionnelle* : au moins un descripteur |
+| `rfx.thread.unknown_ratio` | gauge | ratio | Part des descripteurs dont l'exigence de fil est inconnue, traitée comme une exigence (P-02) ; tant que C-13 manque, aucune unité n'est libre — *conditionnelle* : au moins un descripteur |
+
+L'analyse est statique : les rôles de fil sur lesquels une unité s'exécute ne sont pas
+observés (ADR-057).
+
 `rfx.dataflow.mismatch` (PARTIE 5.11) n'est pas publiée : elle compterait les écarts
 trouvés par la vérification dynamique (R-382), qui n'existe pas encore. Publiée à zéro,
 elle laisserait croire à une vérification qui n'a pas lieu (ADR-055).

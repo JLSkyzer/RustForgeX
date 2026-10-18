@@ -99,15 +99,23 @@ pub fn classify(facts: &Facts) -> F {
     let main_thread = facts
         .thread
         .is_none_or(|t| t.main_thread_required != Tri::No);
-    let thread_safe = facts.thread.is_some_and(|t| {
-        t.main_thread_required == Tri::No
-            && !t.touches_non_threadsafe_api
-            && !t.uses_thread_locals
-            && !t.uses_locks
-            && !t.uses_synchronized
-    });
     let stateful = writes_known.is_none_or(|w| w.domains.intersects(STATE_DOMAINS));
     let pure = !unknown && read_only && deterministic;
+    // R-391 : THREAD_SAFE exige PURE, aucune preuve d'isolation n'existant encore.
+    let thread_safe = pure
+        && facts.thread.is_some_and(|t| {
+            t.main_thread_required == Tri::No
+                && !t.touches_non_threadsafe_api
+                && !t.uses_thread_locals
+                && !t.uses_locks
+                && !t.uses_synchronized
+        });
+    // R-390 : une unite qui ecrit, vue sur plusieurs roles de fil, est UNSAFE ; des
+    // roles inconnus ne l'excluent pas (ADR-057).
+    let multi_thread_writer = write
+        && facts
+            .thread
+            .is_none_or(|t| t.observed_roles.is_none_or(|roles| roles.count() > 1));
     let parallelizable = pure && thread_safe && !main_thread && !order_sensitive;
 
     F::EMPTY
@@ -125,7 +133,9 @@ pub fn classify(facts: &Facts) -> F {
         .set(F::CACHEABLE, pure)
         .set(
             F::UNSAFE,
-            facts.reflection || facts.side_effects.is_some_and(|e| e.native_call),
+            facts.reflection
+                || facts.side_effects.is_some_and(|e| e.native_call)
+                || multi_thread_writer,
         )
         .set(F::HOT, facts.heat >= Heat::Hot)
         .set(F::CLIENT_ONLY, facts.side == Side::Client)

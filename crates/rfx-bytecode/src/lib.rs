@@ -6,8 +6,9 @@
 //! N'est lu que ce que l'analyse utilise : la hierarchie (super-classe, interfaces,
 //! drapeaux), les methodes et leur code, les sites d'appel `invoke*` et les methodes
 //! d'amorcage des `invokedynamic` ; pour l'analyse de flux (C-11, ADR-055), chaque
-//! instruction avec son effet sur la pile, et la table des exceptions. Les champs, les
-//! annotations et les autres attributs sont sautes, jamais interpretes.
+//! instruction avec son effet sur la pile, et la table des exceptions ; pour l'analyse des
+//! fils (C-12, ADR-057), les champs declares. Les annotations et les autres attributs
+//! sont sautes, jamais interpretes.
 //!
 //! # Entrees non fiables
 //!
@@ -23,7 +24,7 @@ mod cursor;
 pub mod insn;
 mod mutf8;
 
-pub use class::{access, BootstrapMethod, ClassFile, MethodInfo};
+pub use class::{access, BootstrapMethod, ClassFile, FieldInfo, MethodInfo};
 pub use code::{call_sites, CallSite, CallTarget, InvokeKind};
 pub use constant::{Constant, ConstantPool, MemberRef, MethodHandleRef};
 pub use insn::{

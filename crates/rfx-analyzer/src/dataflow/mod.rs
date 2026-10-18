@@ -39,7 +39,10 @@ pub use facts::{
     Access, Allocation, CallFact, MethodFacts, Monitor, Target, Throw, Unanalysable, Work,
 };
 pub use interp::DataflowLimits;
-pub use interproc::{workload_effects, UnknownCauses, WorkloadEffects, MAX_PASSES_PER_METHOD};
+pub use interproc::{
+    analyze_graph, workload_effects, workload_effects_from, GraphFacts, UnknownCauses,
+    WorkloadEffects, MAX_PASSES_PER_METHOD,
+};
 pub use summary::Summary;
 pub use value::{Frame, Source, Sources, Value, MAX_SOURCES};
 

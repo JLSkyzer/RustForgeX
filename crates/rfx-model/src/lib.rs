@@ -28,7 +28,7 @@ pub mod workid;
 pub use analysis::{AnalysisStatus, HierarchyEntry};
 pub use classification::{
     AccessSet, ClassificationFlags, Confidence, DependencySet, DeterminismFacts, Domain, Domains,
-    NonDetSource, Precision, SideEffectSet, ThreadFacts, Tri,
+    NonDetSource, Precision, SideEffectSet, ThreadFacts, ThreadRole, ThreadRoles, Tri,
 };
 pub use config::{RuntimeConfig, RuntimeMode};
 pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};

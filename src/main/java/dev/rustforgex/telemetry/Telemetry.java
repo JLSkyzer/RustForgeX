@@ -311,6 +311,22 @@ public final class Telemetry {
                 "Recalculs sur changement du bytecode de la méthode racine (R-350)."));
         appendDataflow(set, analysis);
         appendDependencies(set, analysis);
+        appendThreads(set, analysis);
+    }
+
+    /**
+     * Contraintes de fil des unités (C-12, ADR-057). L'exigence inconnue vaut exigence
+     * (P-02) ; sans observation des rôles de fil, seule l'analyse statique compte.
+     */
+    private static void appendThreads(MetricSet set, Map<String, Object> analysis) {
+        long descriptors = longOf(analysis, "descriptors");
+        set.addIfMeasured(descriptors > 0, () -> Metric.gauge("rfx.thread.main_required_ratio",
+                (double) longOf(analysis, "thread_main_required") / descriptors, "ratio",
+                "Part des descripteurs qui exigent le fil autoritatif."));
+        set.addIfMeasured(descriptors > 0, () -> Metric.gauge("rfx.thread.unknown_ratio",
+                (double) longOf(analysis, "thread_unknown") / descriptors, "ratio",
+                "Part des descripteurs dont l'exigence de fil est inconnue, traitée comme "
+                        + "une exigence."));
     }
 
     /**

@@ -4,13 +4,13 @@
 //!
 //! Chaque fait prend un petit nombre d'etats qui couvrent tous les cas que la fonction
 //! distingue : absent, incertain, connu et favorable, connu et defavorable. Toutes les
-//! combinaisons sont parcourues (225 000), et les drapeaux attendus sont recalcules ici a
+//! combinaisons sont parcourues (315 000), et les drapeaux attendus sont recalcules ici a
 //! partir des seules etiquettes, sans reutiliser les predicats du code teste.
 
 use rfx_analyzer::{classify, confidence, Facts};
 use rfx_model::{
     AccessSet, ClassificationFlags as F, DependencySet, DeterminismFacts, Domain, Domains, Heat,
-    Precision, Side, SideEffectSet, ThreadFacts, Tri,
+    Precision, Side, SideEffectSet, ThreadFacts, ThreadRole, ThreadRoles, Tri,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -54,6 +54,10 @@ enum Thread {
     MainUnknown,
     FreeSafe,
     FreeThreadLocals,
+    /// Vue sur le seul fil autoritatif.
+    MainYesSeenOnce,
+    /// Vue sur deux roles de fil.
+    MainYesSeenTwice,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -173,6 +177,20 @@ fn facts(c: Case) -> Facts {
                 uses_thread_locals: true,
                 ..ThreadFacts::default()
             }),
+            Thread::MainYesSeenOnce => Some(ThreadFacts {
+                main_thread_required: Tri::Yes,
+                observed_roles: Some(ThreadRoles::EMPTY.with(ThreadRole::Authoritative)),
+                ..ThreadFacts::default()
+            }),
+            Thread::MainYesSeenTwice => Some(ThreadFacts {
+                main_thread_required: Tri::Yes,
+                observed_roles: Some(
+                    ThreadRoles::EMPTY
+                        .with(ThreadRole::Authoritative)
+                        .with(ThreadRole::Netty),
+                ),
+                ..ThreadFacts::default()
+            }),
         },
         determinism: match c.det {
             Det::Absent => None,
@@ -209,8 +227,11 @@ fn expected(c: Case) -> F {
     let read_only = c.writes == Writes::None && c.effects == Effects::None;
     let deterministic = matches!(c.det, Det::YesUnordered | Det::YesOrderUnknown);
     let order_sensitive = !matches!(c.det, Det::YesUnordered | Det::Unknown | Det::No);
-    let thread_safe = c.thread == Thread::FreeSafe;
     let pure = complete && read_only && deterministic;
+    // R-391 : THREAD_SAFE exige PURE.
+    let thread_safe = c.thread == Thread::FreeSafe && pure;
+    // R-390 : ecrire en etant vu (ou pas vu) sur plusieurs roles de fil.
+    let multi_thread_writer = c.writes != Writes::None && c.thread != Thread::MainYesSeenOnce;
     F::EMPTY
         .set(F::UNKNOWN, !complete)
         .set(F::WRITE, c.writes != Writes::None)
@@ -233,7 +254,10 @@ fn expected(c: Case) -> F {
         .set(F::PURE, pure)
         .set(F::PARALLELIZABLE, pure && thread_safe && !order_sensitive)
         .set(F::CACHEABLE, pure)
-        .set(F::UNSAFE, c.reflection || c.effects == Effects::Native)
+        .set(
+            F::UNSAFE,
+            c.reflection || c.effects == Effects::Native || multi_thread_writer,
+        )
         .set(F::HOT, matches!(c.heat, Heat::Hot | Heat::Critical))
         .set(F::CLIENT_ONLY, c.side == Side::Client)
         .set(F::SERVER_ONLY, c.side == Side::Server)
@@ -270,6 +294,8 @@ fn all_cases() -> Vec<Case> {
                         Thread::MainUnknown,
                         Thread::FreeSafe,
                         Thread::FreeThreadLocals,
+                        Thread::MainYesSeenOnce,
+                        Thread::MainYesSeenTwice,
                     ] {
                         for det in [
                             Det::Absent,
@@ -304,11 +330,11 @@ fn all_cases() -> Vec<Case> {
     cases
 }
 
-/// T-170, T-011, R-215, R-218, P-02 sur les 225 000 combinaisons.
+/// T-170, T-011, R-215, R-218, P-02 sur les 315 000 combinaisons.
 #[test]
 fn t170_the_flag_function_matches_its_complete_truth_table() {
     let cases = all_cases();
-    assert_eq!(cases.len(), 225_000);
+    assert_eq!(cases.len(), 315_000);
     let (mut pure_seen, mut parallel_seen) = (0_u32, 0_u32);
     for case in cases {
         let f = facts(case);

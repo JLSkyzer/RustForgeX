@@ -11,8 +11,9 @@
 //! « independant », ce que R-216 interdit ; c'est pourquoi les parties de
 //! [`DependencySet`] que produit C-10 sont des `Option`.
 //!
-//! Deux champs du cahier sont reportes jusqu'a leur producteur : les regions fines
-//! d'un [`AccessSet`] (C-11) et les roles de fil observes de [`ThreadFacts`] (C-12).
+//! Les regions fines d'un [`AccessSet`] sont reportees jusqu'a leur producteur (C-11 ne
+//! les calcule pas encore). Les roles de fil observes de [`ThreadFacts`] existent, mais
+//! restent absents tant que les sondes ne capturent pas le role du fil (ADR-057).
 
 use serde::{Deserialize, Serialize};
 
@@ -208,6 +209,54 @@ pub struct ThreadFacts {
     pub touches_non_threadsafe_api: bool,
     /// Reentrant.
     pub reentrant: Tri,
+    /// Roles de fil sur lesquels l'unite a ete vue (DM-02) ; `None` tant qu'aucune
+    /// observation n'existe : l'execution sur plusieurs fils n'est alors pas exclue
+    /// (R-390, ADR-057).
+    pub observed_roles: Option<ThreadRoles>,
+}
+
+/// DM-02 : role d'un fil.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ThreadRole {
+    /// Fil autoritatif du serveur ou du client.
+    Authoritative = 0,
+    /// Fil de travail de RUSTFORGE-X.
+    RfxWorker = 1,
+    /// Fil d'un tiers (mod, bibliotheque, JDK).
+    ThirdParty = 2,
+    /// Fil reseau (Netty).
+    Netty = 3,
+    /// Fil de role inconnu.
+    Unknown = 4,
+}
+
+/// Ensemble de roles de fil.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ThreadRoles(pub u8);
+
+impl ThreadRoles {
+    /// Aucun role.
+    pub const EMPTY: Self = Self(0);
+
+    /// L'ensemble augmente de `role`.
+    #[must_use]
+    pub fn with(self, role: ThreadRole) -> Self {
+        Self(self.0 | 1 << role as u8)
+    }
+
+    /// `true` si `role` est dans l'ensemble.
+    #[must_use]
+    pub fn contains(self, role: ThreadRole) -> bool {
+        self.0 & (1 << role as u8) != 0
+    }
+
+    /// Nombre de roles distincts.
+    #[must_use]
+    pub fn count(self) -> u32 {
+        self.0.count_ones()
+    }
 }
 
 /// DM-10 : source de non-determinisme.

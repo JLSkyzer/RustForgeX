@@ -18,6 +18,10 @@ pub mod access {
     pub const STATIC: u16 = 0x0008;
     /// `ACC_FINAL`.
     pub const FINAL: u16 = 0x0010;
+    /// `ACC_SYNCHRONIZED`, sur une methode (sur une classe, le meme bit est `ACC_SUPER`).
+    pub const SYNCHRONIZED: u16 = 0x0020;
+    /// `ACC_VOLATILE`, sur un champ (sur une methode, le meme bit est `ACC_BRIDGE`).
+    pub const VOLATILE: u16 = 0x0040;
     /// `ACC_NATIVE`.
     pub const NATIVE: u16 = 0x0100;
     /// `ACC_INTERFACE`.
@@ -26,6 +30,32 @@ pub mod access {
     pub const ABSTRACT: u16 = 0x0400;
     /// `ACC_SYNTHETIC`.
     pub const SYNTHETIC: u16 = 0x1000;
+}
+
+/// Un champ.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldInfo {
+    /// Drapeaux d'acces.
+    pub access: u16,
+    /// Nom.
+    pub name: String,
+    /// Descripteur (`I`, `Ljava/util/List;`).
+    pub descriptor: String,
+}
+
+impl FieldInfo {
+    /// `true` si le champ est statique.
+    #[must_use]
+    pub fn is_static(&self) -> bool {
+        self.access & access::STATIC != 0
+    }
+
+    /// `true` si le champ peut changer apres la construction : ni `final`, ni
+    /// `volatile` (dont l'ecriture est visible des autres fils).
+    #[must_use]
+    pub fn is_plain_mutable(&self) -> bool {
+        self.access & (access::FINAL | access::VOLATILE) == 0
+    }
 }
 
 /// Une methode.
@@ -97,10 +127,15 @@ pub struct ClassFile {
     pub super_name: Option<String>,
     /// Interfaces directement implementees.
     pub interfaces: Vec<String>,
+    /// Champs declares.
+    pub fields: Vec<FieldInfo>,
     /// Methodes declarees.
     pub methods: Vec<MethodInfo>,
     /// Methodes d'amorcage des `invokedynamic`.
     pub bootstrap_methods: Vec<BootstrapMethod>,
+    /// La classe appartient a un nid (attribut `NestHost` ou `NestMembers`, JVMS
+    /// §4.7.28-29) : d'autres classes peuvent ecrire ses champs prives.
+    pub nested: bool,
     pool: ConstantPool,
 }
 
@@ -134,11 +169,19 @@ impl ClassFile {
             interfaces.push(pool.class_name(cursor.u16()?)?.to_owned());
         }
 
-        // Les champs ne servent pas a l'analyse des appels : ils sont sautes.
+        // Champs : drapeaux, nom et descripteur ; leurs attributs sont sautes.
         let field_count = usize::from(cursor.u16()?);
+        let mut fields = Vec::with_capacity(cursor.capacity_for(field_count, 8));
         for _ in 0..field_count {
-            cursor.take(6)?;
+            let access = cursor.u16()?;
+            let name = pool.utf8(cursor.u16()?)?.to_owned();
+            let descriptor = pool.utf8(cursor.u16()?)?.to_owned();
             skip_attributes(&mut cursor)?;
+            fields.push(FieldInfo {
+                access,
+                name,
+                descriptor,
+            });
         }
 
         let method_count = usize::from(cursor.u16()?);
@@ -148,6 +191,7 @@ impl ClassFile {
         }
 
         let mut bootstrap_methods = Vec::new();
+        let mut nested = false;
         let attribute_count = usize::from(cursor.u16()?);
         for _ in 0..attribute_count {
             let attribute_name = pool.utf8(cursor.u16()?)?;
@@ -156,6 +200,7 @@ impl ClassFile {
             if attribute_name == "BootstrapMethods" {
                 bootstrap_methods = parse_bootstrap_methods(body)?;
             }
+            nested |= attribute_name == "NestHost" || attribute_name == "NestMembers";
         }
         if cursor.remaining() != 0 {
             return Err(ParseError::Malformed("octets apres la fin de la classe"));
@@ -168,8 +213,10 @@ impl ClassFile {
             name,
             super_name,
             interfaces,
+            fields,
             methods,
             bootstrap_methods,
+            nested,
             pool,
         })
     }

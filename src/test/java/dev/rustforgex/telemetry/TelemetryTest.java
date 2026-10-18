@@ -386,6 +386,8 @@ class TelemetryTest {
         analysis.put("dep_conflicts", 2L);
         analysis.put("dep_conservative_edges", 3L);
         analysis.put("dep_ns", 40_000L);
+        analysis.put("thread_main_required", 1L);
+        analysis.put("thread_unknown", 1L);
         return analysis;
     }
 
@@ -422,6 +424,8 @@ class TelemetryTest {
         assertEquals(2, set.get("rfx.dep.conflicts").value());
         assertEquals(3, set.get("rfx.dep.conservative_edges").value());
         assertEquals(40_000, set.get("rfx.dep.analysis_ns").value());
+        assertEquals(0.5, set.get("rfx.thread.main_required_ratio").value(), 1e-9);
+        assertEquals(0.5, set.get("rfx.thread.unknown_ratio").value(), 1e-9);
 
         Map<String, Object> disabled = analysis(52_000L, 7L, 3L, 0L);
         disabled.put("enabled", false);

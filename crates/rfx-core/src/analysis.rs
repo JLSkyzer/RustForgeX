@@ -19,7 +19,8 @@
 //! Les lectures, ecritures et effets de bord (DM-06, DM-07) viennent de C-11, composes
 //! le long du graphe (ADR-055) ; C-10, C-12 et C-13 n'existant pas encore, leurs faits
 //! sont absents et tout descripteur reste `UNKNOWN` (ADR-054). Les dependances de donnees
-//! entre unites (C-10, ADR-056) sont recalculees a chaque descripteur range. Les unites a
+//! entre unites (C-10, ADR-056) sont recalculees a chaque descripteur range ; les
+//! contraintes de fil (C-12, ADR-057) sont deduites du meme graphe. Les unites a
 //! analyser
 //! sont prises parmi les plus chaudes, dans
 //! l'ordre de `chaleur x (1 - confiance) / cout estime` ; un descripteur est recalcule
@@ -34,16 +35,17 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use rfx_analyzer::dataflow::{workload_effects, DataflowLimits, DomainTable};
+use rfx_analyzer::dataflow::{analyze_graph, workload_effects_from, DataflowLimits, DomainTable};
 use rfx_analyzer::dependency::{dependencies, WholeTick, Workload};
 use rfx_analyzer::hierarchy::Skeleton;
+use rfx_analyzer::thread::{thread_facts, ThreadSafetyTable};
 use rfx_analyzer::{
     classify, confidence, CallGraph, ClassIndex, EdgeKind, Facts, Limits, MethodRef,
 };
 use rfx_bytecode::ClassFile;
 use rfx_model::{
     AccessSet, AnalysisStatus, ClassificationFlags, Confidence, DependencySet, Domain, Domains,
-    Heat, HierarchyEntry, Precision, RuntimeConfig, Side, SideEffectSet, WorkId,
+    Heat, HierarchyEntry, Precision, RuntimeConfig, Side, SideEffectSet, ThreadFacts, Tri, WorkId,
 };
 
 /// Tours de construction au plus par graphe ; au-dela, ce qui manque reste non resolu
@@ -136,6 +138,8 @@ pub struct Descriptor {
     pub locks: bool,
     /// Dependances dans le tick, au-dela des `data_deps` (C-10).
     pub dependency: DependencyCounts,
+    /// Contraintes de fil (DM-09, C-12).
+    pub thread: ThreadFacts,
     /// Drapeaux (DM-11).
     pub flags: ClassificationFlags,
     /// Confiance (DM-12).
@@ -184,6 +188,7 @@ pub struct Analysis {
     max_methods: usize,
     index: ClassIndex,
     domains: DomainTable,
+    safety: ThreadSafetyTable,
     methods: HashMap<WorkId, Root>,
     roots_by_owner: HashMap<String, Vec<WorkId>>,
     observed: HashMap<WorkId, (Heat, f32)>,
@@ -218,6 +223,7 @@ impl Analysis {
             max_methods: config.profiler_max_workloads as usize,
             index: ClassIndex::new(),
             domains: DomainTable::new(),
+            safety: ThreadSafetyTable::new(),
             methods: HashMap::new(),
             roots_by_owner: HashMap::new(),
             observed: HashMap::new(),
@@ -260,8 +266,10 @@ impl Analysis {
         if !self.enabled {
             return;
         }
-        // La hierarchie change : les domaines deja calcules peuvent ne plus valoir.
+        // La hierarchie change : les domaines et le confinement deja calcules peuvent ne
+        // plus valoir.
         self.domains = DomainTable::new();
+        self.safety = ThreadSafetyTable::new();
         for HierarchyEntry(name, super_name, access) in entries {
             self.index.declare(
                 &name,
@@ -280,6 +288,8 @@ impl Analysis {
     /// Si la classe porte la methode racine d'un descripteur et que le code de cette
     /// methode a change, le descripteur est a recalculer (R-350).
     pub fn provide(&mut self, name: &str, bytes: Option<&[u8]>) {
+        // Un bytecode nouveau peut changer les champs d'une classe deja jugee (C-12).
+        self.safety = ThreadSafetyTable::new();
         let class = bytes.and_then(|bytes| {
             ClassFile::parse(bytes)
                 .ok()
@@ -456,23 +466,36 @@ impl Analysis {
         s.last_build_ns = summary.build_ns;
 
         let started = Instant::now();
-        let effects = if exhausted {
+        let (effects, thread) = if exhausted {
             // Tours epuises : ce qui manque n'a pas ete vu, rien n'est affirme (FM-16).
-            unknown_effects()
+            (unknown_effects(), unknown_thread())
         } else {
-            let effects =
-                workload_effects(graph, &self.index, &self.domains, &DataflowLimits::DEFAULT);
+            let analysed = analyze_graph(graph, &self.index, &DataflowLimits::DEFAULT);
+            let effects = workload_effects_from(graph, &self.index, &self.domains, &analysed);
+            let thread = thread_facts(
+                graph,
+                &self.index,
+                &analysed,
+                &effects,
+                &self.domains,
+                &self.safety,
+                None,
+            );
             (
-                effects.reads,
-                effects.writes,
-                effects.side_effects,
-                effects.locks,
+                (
+                    effects.reads,
+                    effects.writes,
+                    effects.side_effects,
+                    effects.locks,
+                ),
+                thread,
             )
         };
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
         self.status.dataflow_ns = self.status.dataflow_ns.saturating_add(elapsed);
 
-        let descriptor = self.describe(job, graph, summary, exhausted, effects);
+        let mut descriptor = self.describe(job, graph, summary, exhausted, effects);
+        descriptor.thread = thread;
         self.record(job.work_id, descriptor);
         self.refresh_dependencies();
     }
@@ -521,6 +544,7 @@ impl Analysis {
             side_effects,
             locks,
             dependency: DependencyCounts::default(),
+            thread: unknown_thread(),
             flags: ClassificationFlags::EMPTY,
             confidence: Confidence::new(0.0, 0.0, 0.0),
             bytecode_hash: method_hash(&self.index, &job.root),
@@ -593,6 +617,15 @@ impl Analysis {
         s.dep_conflicts = found.conflicts;
         s.dep_conservative_edges = found.conservative_edges;
         s.dep_ns = s.dep_ns.saturating_add(elapsed);
+        let thread = |required: Tri| {
+            self.descriptors
+                .values()
+                .filter(|d| d.thread.main_thread_required == required)
+                .count() as u64
+        };
+        let (main_required, thread_unknown) = (thread(Tri::Yes), thread(Tri::Unknown));
+        self.status.thread_main_required = main_required;
+        self.status.thread_unknown = thread_unknown;
     }
 
     /// Range un descripteur, compte les recalculs et les changements significatifs.
@@ -671,6 +704,7 @@ impl Analysis {
         self.enabled = false;
         self.index = ClassIndex::new();
         self.domains = DomainTable::new();
+        self.safety = ThreadSafetyTable::new();
         self.methods.clear();
         self.roots_by_owner.clear();
         self.observed.clear();
@@ -740,7 +774,21 @@ fn facts_of(descriptor: &Descriptor, observed: Option<&(Heat, f32)>, side: Optio
         reads: Some(descriptor.reads),
         writes: Some(descriptor.writes),
         side_effects: Some(descriptor.side_effects),
+        thread: Some(descriptor.thread),
         ..Facts::default()
+    }
+}
+
+/// Contraintes de fil d'une unite dont l'analyse n'a pas abouti : tout est possible.
+fn unknown_thread() -> ThreadFacts {
+    ThreadFacts {
+        main_thread_required: Tri::Unknown,
+        touches_non_threadsafe_api: true,
+        uses_synchronized: true,
+        uses_locks: true,
+        uses_thread_locals: true,
+        reentrant: Tri::Unknown,
+        observed_roles: None,
     }
 }
 
@@ -980,6 +1028,17 @@ pub(crate) mod tests {
         assert_eq!(shared.deps.data_deps, None);
         assert_eq!(shared.dependency.whole_tick, Some(WholeTick::UnknownAccess));
         assert!(shared.flags.contains(ClassificationFlags::UNKNOWN));
+
+        // C-12 (ADR-057) : l'unite qui ecrit un objet partage d'une classe non sure exige
+        // le fil autoritatif, et ecrire sans observation des fils la rend UNSAFE (R-390).
+        // L'unite locale aussi exige le fil : son constructeur ecrit `this`, objet d'une
+        // classe non sure, et C-12 ne suit pas la localite d'un appel a l'autre (prudent).
+        // N'ecrivant rien de partage, elle n'est pas UNSAFE.
+        assert_eq!(shared.thread.main_thread_required, Tri::Yes);
+        assert!(shared.flags.contains(ClassificationFlags::UNSAFE));
+        assert_eq!(local.thread.main_thread_required, Tri::Yes);
+        assert!(!local.flags.contains(ClassificationFlags::UNSAFE));
+        assert_eq!(analysis.status().thread_main_required, 2);
         let status = analysis.status();
         assert_eq!((status.dep_edges, status.dep_conservative_edges), (1, 1));
         assert!(status.dep_ns > 0);

@@ -84,6 +84,12 @@ pub struct AnalysisStatus {
     /// Temps passe a calculer les dependances, en nanosecondes, horloge monotone du fil
     /// d'analyse (C-10, `rfx.dep.analysis_ns`).
     pub dep_ns: u64,
+    /// Descripteurs dont le fil autoritatif est requis en ce moment (C-12,
+    /// `rfx.thread.main_required_ratio`).
+    pub thread_main_required: u64,
+    /// Descripteurs dont l'exigence de fil est inconnue en ce moment (C-12,
+    /// `rfx.thread.unknown_ratio`).
+    pub thread_unknown: u64,
 }
 
 #[cfg(test)]

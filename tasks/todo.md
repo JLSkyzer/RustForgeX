@@ -1089,7 +1089,12 @@ demandent une mesure ; les autres sont des tests de justesse.
 - [x] C-10 Dependency Analyzer — T-191..T-193 (R-370, R-372, FM-19), ADR-056 : dépendances de données au niveau des domaines, toutes les unités décrites supposées
       du même tick ; `data_deps` remplies, `order_deps` absentes faute de C-06 ; 7 mutants sur 7 tués. T-190 attend des régions (C-11), T-194 la planification
       réelle (C-16, C-17)
-- [ ] C-12, C-13 — après C-10
+- [x] C-12 Thread Analyzer — T-210, T-211 (R-391), ADR-057 : analyse statique, confinement
+      dérivé des classes (champs lus par `rfx-bytecode`), R-390 au pire cas faute
+      d'observation des rôles de fil ; 13 mutants sur 13 tués. T-212 couvert par la
+      classification ; l'observation réelle demande que les sondes portent le rôle de fil
+      (DM-02, changement d'interface à décider avec Killian)
+- [ ] C-13 — après C-12
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

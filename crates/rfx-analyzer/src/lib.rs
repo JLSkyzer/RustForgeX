@@ -12,7 +12,9 @@
 //! - [`dataflow`] : ce que le code d'une methode lit, ecrit, appelle et laisse
 //!   echapper, avec l'origine de chaque reference (C-11, ADR-055) ;
 //! - [`dependency`] : de quelles autres unites chacune depend dans le tick, au niveau
-//!   des domaines (C-10, ADR-056).
+//!   des domaines (C-10, ADR-056) ;
+//! - [`thread`] : si une unite doit rester sur le fil autoritatif, et le confinement
+//!   derive des classes (C-12, ADR-057).
 //!
 //! # Sens des dependances
 //!
@@ -25,6 +27,7 @@ pub mod classify;
 pub mod dataflow;
 pub mod dependency;
 pub mod hierarchy;
+pub mod thread;
 
 pub use callgraph::{CallGraph, Edge, EdgeKind, Limits, Node, Resolution, Unresolved};
 pub use classify::{classify, confidence, Facts};
