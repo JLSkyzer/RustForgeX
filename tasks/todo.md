@@ -1081,8 +1081,9 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [ ] Réduire l'inconnu, par ordre de poids mesuré : appels par interface (12 746
         arêtes sur 200 graphes), bornes du graphe (98 tronqués), cibles sans code.
         Chaque signature connue est une affirmation à prouver (ADR à écrire)
-  - [ ] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
-        `rfx.dataflow.*`
+  - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
+        `rfx.dataflow.*` — reste à observer en jeu sous charge (aucune unité chaude
+        dans un serveur sans joueur)
   - [ ] Acceptance : corpus annoté de 150 méthodes, zéro sous-approximation
         d'écriture, ≥ 60 % EXACT ; vérification dynamique (R-382, T-205) à part
 - [ ] C-10, C-12, C-13 — après C-11

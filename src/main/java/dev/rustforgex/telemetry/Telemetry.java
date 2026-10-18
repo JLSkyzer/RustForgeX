@@ -309,6 +309,21 @@ public final class Telemetry {
                 "Changements significatifs d'un descripteur : drapeaux, ou confiance de 0,1."));
         set.add(Metric.counter("rfx.analysis.recomputes", longOf(analysis, "recomputes"),
                 "Recalculs sur changement du bytecode de la méthode racine (R-350)."));
+        appendDataflow(set, analysis);
+    }
+
+    /**
+     * Analyse de flux de données (C-11, ADR-055) : effets des unités, composés le long de
+     * leur graphe. {@code rfx.dataflow.mismatch} n'est pas publiée : la vérification
+     * dynamique qui la produirait (R-382) n'existe pas encore.
+     */
+    private static void appendDataflow(MetricSet set, Map<String, Object> analysis) {
+        long descriptors = longOf(analysis, "descriptors");
+        set.addIfMeasured(descriptors > 0, () -> Metric.gauge("rfx.dataflow.exact_ratio",
+                (double) longOf(analysis, "dataflow_exact") / descriptors, "ratio",
+                "Part des descripteurs dont les écritures sont EXACT."));
+        set.add(Metric.counter("rfx.dataflow.analysis_ns", longOf(analysis, "dataflow_ns"),
+                "Temps de composition des effets, horloge monotone du fil d'analyse."));
     }
 
     private static void appendDb(MetricSet set, Map<String, Object> db) {

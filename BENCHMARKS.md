@@ -204,6 +204,17 @@ un gain (ADR-051).
 | `rfx.analysis.descriptor_changes` | counter | — | Changements significatifs d'un descripteur (drapeaux, ou confiance combinée de 0,1), destinés à C-15 — *conditionnelle* : hiérarchie déclarée |
 | `rfx.analysis.recomputes` | counter | — | Recalculs sur changement du bytecode de la méthode racine (R-350) — *conditionnelle* : hiérarchie déclarée |
 
+### `rfx.dataflow` — analyse de flux de données (C-11)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.dataflow.exact_ratio` | gauge | ratio | Part des descripteurs dont les écritures sont `EXACT` : tout appel résolu et analysé, aucun domaine inconnu (R-381) — *conditionnelle* : au moins un descripteur |
+| `rfx.dataflow.analysis_ns` | counter | ns | Temps cumulé de composition des effets le long des graphes, horloge monotone du fil d'analyse — *conditionnelle* : hiérarchie déclarée |
+
+`rfx.dataflow.mismatch` (PARTIE 5.11) n'est pas publiée : elle compterait les écarts
+trouvés par la vérification dynamique (R-382), qui n'existe pas encore. Publiée à zéro,
+elle laisserait croire à une vérification qui n'a pas lieu (ADR-055).
+
 ### `rfx.hook` — gardes des accroches (C-01, FM-02)
 
 Une série par accroche : `setup`, `loadComplete`, `registerCommands`, `warmUpCommands`,

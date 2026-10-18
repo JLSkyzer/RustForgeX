@@ -68,6 +68,12 @@ pub struct AnalysisStatus {
     /// d'analyse (`rfx.analysis.cpu_ms`) : une borne haute du temps processeur.
     #[serde(default)]
     pub step_ns: u64,
+    /// Descripteurs dont les ecritures sont `EXACT` en ce moment (C-11,
+    /// `rfx.dataflow.exact_ratio`).
+    pub dataflow_exact: u64,
+    /// Temps passe a composer les effets des unites, en nanosecondes, horloge
+    /// monotone du fil d'analyse (C-11, `rfx.dataflow.analysis_ns`).
+    pub dataflow_ns: u64,
 }
 
 #[cfg(test)]

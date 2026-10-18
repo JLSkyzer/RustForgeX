@@ -16,8 +16,10 @@
 //!
 //! Un graphe termine donne un [`Descriptor`] : dependances (DM-08), drapeaux (DM-11) et
 //! confiance (DM-12), calcules par les fonctions pures de `rfx_analyzer::classify`.
-//! C-10 a C-13 n'existant pas encore, leurs faits sont absents et tout descripteur est
-//! `UNKNOWN` (ADR-054). Les unites a analyser sont prises parmi les plus chaudes, dans
+//! Les lectures, ecritures et effets de bord (DM-06, DM-07) viennent de C-11, composes
+//! le long du graphe (ADR-055) ; C-10, C-12 et C-13 n'existant pas encore, leurs faits
+//! sont absents et tout descripteur reste `UNKNOWN` (ADR-054). Les unites a analyser
+//! sont prises parmi les plus chaudes, dans
 //! l'ordre de `chaleur x (1 - confiance) / cout estime` ; un descripteur est recalcule
 //! si le bytecode de sa methode racine change (R-350).
 //!
@@ -30,14 +32,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+use rfx_analyzer::dataflow::{workload_effects, DataflowLimits, DomainTable};
 use rfx_analyzer::hierarchy::Skeleton;
 use rfx_analyzer::{
     classify, confidence, CallGraph, ClassIndex, EdgeKind, Facts, Limits, MethodRef,
 };
 use rfx_bytecode::ClassFile;
 use rfx_model::{
-    AnalysisStatus, ClassificationFlags, Confidence, DependencySet, Heat, HierarchyEntry,
-    RuntimeConfig, Side, WorkId,
+    AccessSet, AnalysisStatus, ClassificationFlags, Confidence, DependencySet, Domain, Domains,
+    Heat, HierarchyEntry, Precision, RuntimeConfig, Side, SideEffectSet, WorkId,
 };
 
 /// Tours de construction au plus par graphe ; au-dela, ce qui manque reste non resolu
@@ -120,6 +123,12 @@ pub struct Descriptor {
     pub summary: GraphSummary,
     /// Dependances (DM-08) ; celles de C-10 sont absentes.
     pub deps: DependencySet,
+    /// Lectures (DM-06, C-11).
+    pub reads: AccessSet,
+    /// Ecritures (DM-06, C-11).
+    pub writes: AccessSet,
+    /// Effets de bord (DM-07, C-11).
+    pub side_effects: SideEffectSet,
     /// Drapeaux (DM-11).
     pub flags: ClassificationFlags,
     /// Confiance (DM-12).
@@ -148,6 +157,7 @@ pub struct Analysis {
     limits: Limits,
     max_methods: usize,
     index: ClassIndex,
+    domains: DomainTable,
     methods: HashMap<WorkId, Root>,
     roots_by_owner: HashMap<String, Vec<WorkId>>,
     observed: HashMap<WorkId, (Heat, f32)>,
@@ -181,6 +191,7 @@ impl Analysis {
             },
             max_methods: config.profiler_max_workloads as usize,
             index: ClassIndex::new(),
+            domains: DomainTable::new(),
             methods: HashMap::new(),
             roots_by_owner: HashMap::new(),
             observed: HashMap::new(),
@@ -223,6 +234,8 @@ impl Analysis {
         if !self.enabled {
             return;
         }
+        // La hierarchie change : les domaines deja calcules peuvent ne plus valoir.
+        self.domains = DomainTable::new();
         for HierarchyEntry(name, super_name, access) in entries {
             self.index.declare(
                 &name,
@@ -416,11 +429,23 @@ impl Analysis {
         s.reflection = s.reflection.saturating_add(u64::from(summary.reflection));
         s.last_build_ns = summary.build_ns;
 
-        let descriptor = self.describe(job, graph, summary, exhausted);
+        let started = Instant::now();
+        let effects = if exhausted {
+            // Tours epuises : ce qui manque n'a pas ete vu, rien n'est affirme (FM-16).
+            unknown_effects()
+        } else {
+            let effects =
+                workload_effects(graph, &self.index, &self.domains, &DataflowLimits::DEFAULT);
+            (effects.reads, effects.writes, effects.side_effects)
+        };
+        let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.status.dataflow_ns = self.status.dataflow_ns.saturating_add(elapsed);
+
+        let descriptor = self.describe(job, graph, summary, exhausted, effects);
         self.record(job.work_id, descriptor);
     }
 
-    /// Le descripteur d'un graphe termine : faits de C-05 et C-07, le reste absent.
+    /// Le descripteur d'un graphe termine : faits de C-05, C-07 et C-11, le reste absent.
     /// La racine est toujours le noeud 0 du graphe.
     fn describe(
         &self,
@@ -428,6 +453,7 @@ impl Analysis {
         graph: &CallGraph,
         summary: GraphSummary,
         exhausted: bool,
+        (reads, writes, side_effects): (AccessSet, AccessSet, SideEffectSet),
     ) -> Descriptor {
         let mut calls: Vec<String> = graph
             .edges()
@@ -470,11 +496,17 @@ impl Analysis {
             observation_quality,
             deps: Some(deps.clone()),
             reflection: summary.reflection,
+            reads: Some(reads),
+            writes: Some(writes),
+            side_effects: Some(side_effects),
             ..Facts::default()
         };
         Descriptor {
             summary,
             deps,
+            reads,
+            writes,
+            side_effects,
             flags: classify(&facts),
             confidence: confidence(&facts),
             bytecode_hash: method_hash(&self.index, &job.root),
@@ -509,8 +541,14 @@ impl Analysis {
             .values()
             .filter(|d| d.flags.contains(ClassificationFlags::UNKNOWN))
             .count();
+        let exact = self
+            .descriptors
+            .values()
+            .filter(|d| d.writes.precision == Precision::Exact)
+            .count();
         self.status.descriptors = self.descriptors.len() as u64;
         self.status.descriptors_unknown = unknown as u64;
+        self.status.dataflow_exact = exact as u64;
     }
 
     /// Classes voulues par le dernier pas qui a rendu [`StepState::NeedsClasses`].
@@ -551,6 +589,7 @@ impl Analysis {
     pub fn disable(&mut self) {
         self.enabled = false;
         self.index = ClassIndex::new();
+        self.domains = DomainTable::new();
         self.methods.clear();
         self.roots_by_owner.clear();
         self.observed.clear();
@@ -564,8 +603,24 @@ impl Analysis {
         self.status.enabled = false;
         self.status.descriptors = 0;
         self.status.descriptors_unknown = 0;
+        self.status.dataflow_exact = 0;
         self.status.budget_refusals = self.status.budget_refusals.saturating_add(1);
     }
+}
+
+/// Effets d'une unite dont l'analyse n'a pas abouti : tout est possible (R-206, R-380).
+fn unknown_effects() -> (AccessSet, AccessSet, SideEffectSet) {
+    let unknown = AccessSet {
+        domains: Domains::EMPTY.with(Domain::Unknown),
+        precision: Precision::Unknown,
+    };
+    let side_effects = SideEffectSet {
+        mutates_world: true,
+        throws_observable: true,
+        unknown: true,
+        ..SideEffectSet::default()
+    };
+    (unknown, unknown, side_effects)
 }
 
 /// Hachage du code d'une methode, si sa classe est lue et la methode a du code.
@@ -701,6 +756,7 @@ pub(crate) mod tests {
         assert_eq!((status.descriptors, status.completed), (1, 1));
         assert_eq!(status.descriptors_unknown, 1);
         assert!(status.step_ns > 0);
+        assert!(status.dataflow_ns > 0, "C-11 : effets composes");
 
         // Deja analysee : rien a refaire.
         assert_eq!(analysis.step(&[hot(id)]), StepState::Idle);
@@ -765,6 +821,54 @@ pub(crate) mod tests {
         assert_eq!(analysis.step(&[hot(id)]), StepState::Idle);
     }
 
+    /// C-11 : les effets composes le long du graphe remplissent le descripteur. Un objet
+    /// construit et lu sur place ne touche aucun domaine : ecritures exactes et vides.
+    #[test]
+    fn the_descriptor_carries_the_dataflow_effects() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let local = WorkId(11);
+        let shared = WorkId(12);
+        analysis.note(
+            local,
+            MethodRef::new("fixtures/Interproc", "localObject", "()I"),
+            Side::Server,
+        );
+        analysis.note(
+            shared,
+            MethodRef::new("fixtures/Interproc", "setOnShared", "()V"),
+            Side::Server,
+        );
+        analysis.declare(hierarchy(&classes));
+        let hot_both = [hot(local), hot(shared)];
+        assert_eq!(
+            drive(&mut analysis, &hot_both, &classes),
+            StepState::Finished
+        );
+        assert_eq!(
+            drive(&mut analysis, &hot_both, &classes),
+            StepState::Finished
+        );
+
+        let local = analysis.descriptor(local).expect("descripteur");
+        assert_eq!(local.writes.precision, Precision::Exact);
+        assert_eq!(local.writes.domains, Domains::EMPTY);
+        assert!(!local.side_effects.unknown);
+        assert!(
+            !local.flags.contains(ClassificationFlags::WRITE),
+            "aucune ecriture"
+        );
+        assert!(
+            local.flags.contains(ClassificationFlags::UNKNOWN),
+            "C-12 et C-13 manquent encore"
+        );
+
+        let shared = analysis.descriptor(shared).expect("descripteur");
+        assert!(shared.writes.domains.contains(Domain::Unknown));
+        assert!(shared.flags.contains(ClassificationFlags::WRITE));
+        assert_eq!(analysis.status().dataflow_exact, 1);
+    }
+
     /// T-171 : budget epuise (tours a la borne, classes encore voulues) : resultat
     /// tronque, donc UNKNOWN — jamais optimiste (FM-16).
     #[test]
@@ -783,6 +887,12 @@ pub(crate) mod tests {
         let descriptor = analysis.descriptor(id).expect("descripteur");
         assert!(descriptor.deps.truncated, "budget epuise");
         assert!(descriptor.flags.contains(ClassificationFlags::UNKNOWN));
+        assert_eq!(
+            descriptor.writes.precision,
+            Precision::Unknown,
+            "C-11 : rien d'affirme"
+        );
+        assert!(descriptor.side_effects.unknown);
         assert!(!descriptor.flags.contains(ClassificationFlags::PURE));
         assert_eq!(analysis.status().descriptors_truncated, 1);
     }
