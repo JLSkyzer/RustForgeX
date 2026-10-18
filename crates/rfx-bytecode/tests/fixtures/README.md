@@ -1,4 +1,4 @@
-# Classes de test de C-07 et C-11 (ADR-050, ADR-055)
+# Classes de test de C-07, C-11 et C-12 (ADR-050, ADR-055, ADR-057)
 
 `src/fixtures/*.java` sont écrites pour ce projet ; `classes/` en est la compilation,
 versionnée pour que les tests Rust n'aient pas besoin d'un JDK. Aucune classe tierce
@@ -48,3 +48,10 @@ attrapée puis écrite, variable locale modifiée dans un bloc protégé, plusie
 publication, écriture par paramètre, échappement par un appelé, `return this`,
 récursion, paramètre rangé dans un objet rendu, lambda, concaténation, interface
 ouverte, et un cas où le point fixe doit repasser sur un appelant.
+
+`Threads` sert à C-12 (ADR-057) : `ThreadLocal`, méthode `synchronized`, `Object.wait`,
+et le confinement dérivé — classes de premier niveau du même fichier, hors de tout nid :
+champ public mutable (`Counter`, et `CounterChild` qui en hérite), champ final
+(`Frozen`), champ privé écrit hors constructeur (`Mutating`), écrit dans une méthode
+synchronisée (`Guarded`), écrit seulement par le constructeur (`CtorOnly`) ; et
+`Threads$InnerPrivate`, le même cas que `CtorOnly` mais dans un nid.
