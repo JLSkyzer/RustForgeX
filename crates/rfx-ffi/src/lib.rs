@@ -888,19 +888,17 @@ mod tests {
         handle
     }
 
+    /// Statut courant, lu comme le lit le pont JNI. Le statut peut grandir entre la
+    /// demande de taille et la copie — le fil d'ecriture de la base avance en parallele —
+    /// et seul le protocole avec reessai de `read_sized_blob` y resiste.
     fn read_status(handle: u64) -> RuntimeStatus {
-        let mut size = 0_usize;
-        assert_eq!(
-            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut size) },
-            OK
-        );
-        let mut buffer = vec![0_u8; size];
-        let mut written = 0_usize;
-        assert_eq!(
-            unsafe { rfx_status(handle, buffer.as_mut_ptr(), buffer.len(), &mut written) },
-            OK
-        );
-        rfx_model::from_cbor(&buffer[..written]).expect("statut decodable")
+        let blob = jni_bridge::read_sized_blob(|out, cap, len| {
+            // SAFETY : `read_sized_blob` passe un tampon nul de capacite nulle, ou un
+            // tampon local de `cap` octets inscriptibles ; `len` est une locale.
+            unsafe { rfx_status(handle, out, cap, len) }
+        })
+        .expect("statut lisible");
+        rfx_model::from_cbor(&blob).expect("statut decodable")
     }
 
     /// Blob d'ouverture de la base dans `dir`.
@@ -1543,6 +1541,64 @@ mod tests {
             ErrorCode::InvalidArgument.ffi_code()
         );
         assert_eq!(announced, required, "la taille requise doit etre publiee");
+        assert_eq!(rfx_shutdown(handle), OK);
+    }
+
+    /// CI Linux, 2026-10-17 : le statut grandissait entre la demande de taille et la
+    /// copie, pendant la relecture de la base en arriere-plan, et un lecteur sans
+    /// reessai echouait au hasard. La course est provoquee ici : une lecture qui garde
+    /// l'ancienne taille est refusee, le protocole du pont JNI lit quand meme.
+    #[test]
+    fn a_status_growing_between_the_two_calls_is_still_read() {
+        let _guard = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        let mut stale = 0_usize;
+        assert_eq!(
+            unsafe { rfx_status(handle, std::ptr::null_mut(), 0, &mut stale) },
+            OK
+        );
+        for n in 0..300 {
+            assert!(register(handle, &format!("g{n}")).is_some());
+        }
+        let mut buffer = vec![0_u8; stale];
+        let mut required = 0_usize;
+        assert_eq!(
+            unsafe { rfx_status(handle, buffer.as_mut_ptr(), buffer.len(), &mut required) },
+            ErrorCode::InvalidArgument.ffi_code(),
+            "un tampon de l'ancienne taille est refuse"
+        );
+        assert!(
+            required > stale,
+            "le statut a grandi : {stale} -> {required}"
+        );
+
+        assert_eq!(rfx_shutdown(handle), OK);
+
+        // Meme croissance, sur une instance neuve, entre la demande de taille et la
+        // copie du protocole du pont JNI : il doit recopier avec la taille annoncee.
+        let handle = init(&RuntimeConfig::default());
+        let mut grown = false;
+        let mut copies = 0;
+        let blob = jni_bridge::read_sized_blob(|out, cap, len| {
+            // SAFETY : `read_sized_blob` passe un tampon nul de capacite nulle, ou un
+            // tampon local de `cap` octets inscriptibles ; `len` est une locale.
+            let code = unsafe { rfx_status(handle, out, cap, len) };
+            if cap == 0 && !grown {
+                grown = true;
+                for n in 0..300 {
+                    assert!(register(handle, &format!("g{n}")).is_some());
+                }
+            } else if cap > 0 {
+                copies += 1;
+            }
+            code
+        })
+        .expect("lu malgre la croissance");
+        let _: RuntimeStatus = rfx_model::from_cbor(&blob).expect("statut decodable");
+        assert_eq!(
+            copies, 2,
+            "une copie refusee, puis une copie a la bonne taille"
+        );
         assert_eq!(rfx_shutdown(handle), OK);
     }
 

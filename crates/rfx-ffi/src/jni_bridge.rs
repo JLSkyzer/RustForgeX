@@ -316,7 +316,9 @@ const READ_ATTEMPTS: usize = 3;
 /// exportees : capacite nulle pour interroger la taille, sinon copie. Il ecrit la
 /// taille requise dans tous les cas, y compris quand il refuse — c'est ce qui permet a
 /// la tentative suivante de partir de la bonne valeur.
-fn read_sized_blob(mut read: impl FnMut(*mut u8, usize, &mut usize) -> i32) -> Option<Vec<u8>> {
+pub(crate) fn read_sized_blob(
+    mut read: impl FnMut(*mut u8, usize, &mut usize) -> i32,
+) -> Option<Vec<u8>> {
     let mut size: usize = 0;
     if read(std::ptr::null_mut(), 0, &mut size) != OK || size == 0 {
         return None;
