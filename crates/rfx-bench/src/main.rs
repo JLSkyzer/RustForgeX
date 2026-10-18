@@ -28,6 +28,7 @@ mod callgraph_cost;
 mod dataflow_corpus;
 mod digest_diff;
 mod insn_corpus;
+mod interface_closure;
 mod macro_bench;
 mod ranking;
 mod telemetry_cost;
@@ -144,11 +145,12 @@ fn main() {
         "callgraph-acceptance" => callgraph_acceptance_level(),
         "insn" => insn_level(),
         "dataflow" => dataflow_level(),
+        "interfaces" => interfaces_level(),
         other => {
             eprintln!(
                 "niveau inconnu « {other} » — attendu : micro | macro | digest | roundtrip \
                  | roundtrips | telemetry | ranking | callgraph | callgraph-acceptance | insn \
-                 | dataflow"
+                 | dataflow | interfaces"
             );
             std::process::exit(2);
         }
@@ -1055,6 +1057,41 @@ fn dataflow_level() {
     );
     if report.incoherent > 0 {
         std::process::exit(1);
+    }
+}
+
+/// Diagnostic de fermeture des interfaces (ADR-051, ADR-055).
+///
+/// `rfx-bench interfaces <corpus>` : sites « interface ouverte » des graphes des
+/// methodes de reference, par nombre d'implementations connues, et appelants de la
+/// definition de classes cachees. Sortie texte, sans fichier de resultat : outil de
+/// decision.
+fn interfaces_level() {
+    let Some(path) = std::env::args().nth(2) else {
+        eprintln!("usage : rfx-bench interfaces <corpus>");
+        std::process::exit(2);
+    };
+    let corpus = match callgraph_cost::Corpus::load(Path::new(&path)) {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
+    let roots =
+        callgraph_acceptance::reference_methods(&corpus, callgraph_acceptance::REFERENCE_METHODS);
+    let report = interface_closure::run(&corpus, &roots);
+    println!(
+        "sites interface ouverte, par implementations connues (classes + lambdas) : {:?}",
+        report.open_sites
+    );
+    println!(
+        "interfaces implementees par au moins une lambda : {}",
+        report.lambda_interfaces
+    );
+    println!("definitions de classes cachees ou generees, par paquet :");
+    for (package, (count, example)) in &report.definers {
+        println!("  {count:>4}  {package}  (ex. {example})");
     }
 }
 
