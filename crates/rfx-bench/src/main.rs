@@ -1034,6 +1034,12 @@ fn dataflow_level() {
     println!("  domaines ecrits : {:?}", workloads.write_domains);
     println!("  causes d'inconnu : {:?}", workloads.unknown_causes);
     println!("  aretes non resolues : {:?}", workloads.unresolved_edges);
+    let mut sites: Vec<(&String, &u64)> = workloads.unresolved_sites.iter().collect();
+    sites.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    println!("  sites non resolus (raison | receveur | code), les plus nombreux :");
+    for (key, count) in sites.iter().take(15) {
+        println!("    {count:>6}  {key}");
+    }
     q("  methodes analysees", &workloads.analysed_methods);
     q("  effets (ms)", &workloads.effects_ms);
     for (category, samples) in &report.samples {

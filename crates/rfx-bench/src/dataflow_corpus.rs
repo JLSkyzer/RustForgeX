@@ -9,15 +9,17 @@
 //! les effets intraproceduraux savent dire, avec la hierarchie complete du corpus : la
 //! repartition des precisions et des domaines, et les ancres absentes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
+use rfx_analyzer::dataflow::Source;
 use rfx_analyzer::dataflow::{
     analyze, intraprocedural_effects, workload_effects, DataflowLimits, DomainTable, Unanalysable,
     CLASS_ANCHORS, INTERFACE_ANCHORS,
 };
 use rfx_analyzer::hierarchy::{ClassIndex, Skeleton};
-use rfx_analyzer::{EdgeKind, MethodRef};
+use rfx_analyzer::{CallGraph, EdgeKind, MethodRef};
+use rfx_bytecode::InvokeKind;
 
 use crate::callgraph_acceptance::build_like_the_game;
 use rfx_bytecode::ClassFile;
@@ -216,6 +218,9 @@ pub struct WorkloadReport {
     pub unknown_causes: BTreeMap<String, u64>,
     /// Aretes non resolues des graphes, par raison (C-07).
     pub unresolved_edges: BTreeMap<String, u64>,
+    /// Sites non resolus des methodes analysees, par `raison | receveur | code` : ce
+    /// qui pese, pour choisir comment reduire l'inconnu.
+    pub unresolved_sites: BTreeMap<String, u64>,
     /// Methodes analysees par unite.
     pub analysed_methods: Quantiles,
     /// Duree de la composition des effets par unite, en millisecondes, analyse des
@@ -252,6 +257,7 @@ pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) 
                     .or_default() += 1;
             }
         }
+        diagnose_unresolved(&graph, &index, limits, &mut report.unresolved_sites);
         let begun = Instant::now();
         let effects = workload_effects(&graph, &index, &table, limits);
         millis.push(begun.elapsed().as_secs_f64() * 1e3);
@@ -280,6 +286,82 @@ pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) 
     report.analysed_methods = Quantiles::of(analysed);
     report.effects_ms = Quantiles::of(millis);
     report
+}
+
+/// Range chaque site non resolu d'une methode analysee selon sa raison, son receveur
+/// (alloue sur place avec une classe connue, parametre, autre) et le code qui le porte.
+fn diagnose_unresolved(
+    graph: &CallGraph,
+    index: &ClassIndex,
+    limits: &DataflowLimits,
+    sites: &mut BTreeMap<String, u64>,
+) {
+    for (id, node) in graph.nodes().iter().enumerate() {
+        let Some(class) = index.class(&node.method.owner) else {
+            continue;
+        };
+        let Some(method) = class.method(&node.method.name, &node.method.descriptor) else {
+            continue;
+        };
+        let Ok(facts) = analyze(class, method, limits) else {
+            continue;
+        };
+        let reasons: HashMap<u32, String> = graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.from == id)
+            .filter_map(|edge| match (edge.kind, edge.offset) {
+                (EdgeKind::VirtualUnresolved(reason), Some(offset)) => {
+                    Some((offset, format!("{reason:?}")))
+                }
+                _ => None,
+            })
+            .collect();
+        let allocated: HashMap<u32, bool> = facts
+            .allocations
+            .iter()
+            .map(|a| (a.offset, a.class.is_some()))
+            .collect();
+        for call in &facts.calls {
+            let Some(reason) = reasons.get(&call.offset) else {
+                continue;
+            };
+            let receiver = match (call.kind, call.args.first()) {
+                (InvokeKind::Static | InvokeKind::Dynamic, _) => "sans receveur",
+                (_, Some(Some(sources))) => {
+                    let all: Vec<Source> = sources.iter().collect();
+                    if !all.is_empty()
+                        && all.iter().all(|s| {
+                            matches!(s, Source::New(site) if allocated.get(site) == Some(&true))
+                        })
+                    {
+                        "alloue sur place, classe connue"
+                    } else if all.iter().any(|s| matches!(s, Source::Param(_))) {
+                        "parametre"
+                    } else {
+                        "autre"
+                    }
+                }
+                _ => "autre",
+            };
+            let owner = &node.method.owner;
+            let code = if ["java/", "javax/", "jdk/", "sun/"]
+                .iter()
+                .any(|p| owner.starts_with(p))
+            {
+                "JDK"
+            } else if owner.starts_with("net/minecraftforge/") {
+                "Forge"
+            } else if owner.starts_with("net/minecraft/") {
+                "Minecraft"
+            } else {
+                "autre"
+            };
+            *sites
+                .entry(format!("{reason} | {receiver} | {code}"))
+                .or_default() += 1;
+        }
+    }
 }
 
 fn precision_name(precision: Precision) -> String {
