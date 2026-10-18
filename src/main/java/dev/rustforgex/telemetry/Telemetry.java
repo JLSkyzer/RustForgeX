@@ -310,6 +310,23 @@ public final class Telemetry {
         set.add(Metric.counter("rfx.analysis.recomputes", longOf(analysis, "recomputes"),
                 "Recalculs sur changement du bytecode de la méthode racine (R-350)."));
         appendDataflow(set, analysis);
+        appendDependencies(set, analysis);
+    }
+
+    /**
+     * Dépendances entre unités (C-10, ADR-056), au niveau des domaines mémoire, toutes
+     * les unités décrites étant supposées du même tick.
+     */
+    private static void appendDependencies(MetricSet set, Map<String, Object> analysis) {
+        set.add(Metric.gauge("rfx.dep.edges", longOf(analysis, "dep_edges"), "dépendances",
+                "Dépendances des unités décrites, vues de chacune."));
+        set.add(Metric.gauge("rfx.dep.conflicts", longOf(analysis, "dep_conflicts"),
+                "conflits", "Conflits d'écriture (WAW), vus de chaque unité."));
+        set.add(Metric.gauge("rfx.dep.conservative_edges",
+                longOf(analysis, "dep_conservative_edges"), "dépendances",
+                "Dépendances ajoutées par sûreté : tout le tick, verrous d'identité inconnue."));
+        set.add(Metric.counter("rfx.dep.analysis_ns", longOf(analysis, "dep_ns"),
+                "Temps de calcul des dépendances, horloge monotone du fil d'analyse."));
     }
 
     /**

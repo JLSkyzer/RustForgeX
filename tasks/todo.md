@@ -1086,7 +1086,10 @@ demandent une mesure ; les autres sont des tests de justesse.
         dans un serveur sans joueur)
   - [ ] Acceptance : corpus annoté de 150 méthodes, zéro sous-approximation
         d'écriture, ≥ 60 % EXACT ; vérification dynamique (R-382, T-205) à part
-- [ ] C-10, C-12, C-13 — après C-11
+- [x] C-10 Dependency Analyzer — T-191..T-193 (R-370, R-372, FM-19), ADR-056 : dépendances de données au niveau des domaines, toutes les unités décrites supposées
+      du même tick ; `data_deps` remplies, `order_deps` absentes faute de C-06 ; 7 mutants sur 7 tués. T-190 attend des régions (C-11), T-194 la planification
+      réelle (C-16, C-17)
+- [ ] C-12, C-13 — après C-10
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

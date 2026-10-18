@@ -211,6 +211,19 @@ un gain (ADR-051).
 | `rfx.dataflow.exact_ratio` | gauge | ratio | Part des descripteurs dont les écritures sont `EXACT` : tout appel résolu et analysé, aucun domaine inconnu (R-381) — *conditionnelle* : au moins un descripteur |
 | `rfx.dataflow.analysis_ns` | counter | ns | Temps cumulé de composition des effets le long des graphes, horloge monotone du fil d'analyse — *conditionnelle* : hiérarchie déclarée |
 
+### `rfx.dep` — dépendances entre unités (C-10)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.dep.edges` | gauge | dépendances | Dépendances des unités décrites, vues de chacune : RAW, WAW, WAR, verrous, ou tout le tick pour une unité aux accès inconnus — *conditionnelle* : hiérarchie déclarée |
+| `rfx.dep.conflicts` | gauge | conflits | Conflits d'écriture (WAW), vus de chaque unité — *conditionnelle* : hiérarchie déclarée |
+| `rfx.dep.conservative_edges` | gauge | dépendances | Dépendances ajoutées par sûreté : tout le tick (accès `UNKNOWN`), verrous d'identité inconnue — *conditionnelle* : hiérarchie déclarée |
+| `rfx.dep.analysis_ns` | counter | ns | Temps cumulé de calcul des dépendances, horloge monotone du fil d'analyse — *conditionnelle* : hiérarchie déclarée |
+
+Les dépendances sont calculées au niveau des domaines, toutes les unités décrites étant
+supposées du même tick ; l'ordre des flux d'événements (C-06) et les régions manquent
+(ADR-056).
+
 `rfx.dataflow.mismatch` (PARTIE 5.11) n'est pas publiée : elle compterait les écarts
 trouvés par la vérification dynamique (R-382), qui n'existe pas encore. Publiée à zéro,
 elle laisserait croire à une vérification qui n'a pas lieu (ADR-055).

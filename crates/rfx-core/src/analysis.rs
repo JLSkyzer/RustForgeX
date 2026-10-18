@@ -18,7 +18,9 @@
 //! confiance (DM-12), calcules par les fonctions pures de `rfx_analyzer::classify`.
 //! Les lectures, ecritures et effets de bord (DM-06, DM-07) viennent de C-11, composes
 //! le long du graphe (ADR-055) ; C-10, C-12 et C-13 n'existant pas encore, leurs faits
-//! sont absents et tout descripteur reste `UNKNOWN` (ADR-054). Les unites a analyser
+//! sont absents et tout descripteur reste `UNKNOWN` (ADR-054). Les dependances de donnees
+//! entre unites (C-10, ADR-056) sont recalculees a chaque descripteur range. Les unites a
+//! analyser
 //! sont prises parmi les plus chaudes, dans
 //! l'ordre de `chaleur x (1 - confiance) / cout estime` ; un descripteur est recalcule
 //! si le bytecode de sa methode racine change (R-350).
@@ -33,6 +35,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use rfx_analyzer::dataflow::{workload_effects, DataflowLimits, DomainTable};
+use rfx_analyzer::dependency::{dependencies, WholeTick, Workload};
 use rfx_analyzer::hierarchy::Skeleton;
 use rfx_analyzer::{
     classify, confidence, CallGraph, ClassIndex, EdgeKind, Facts, Limits, MethodRef,
@@ -129,6 +132,10 @@ pub struct Descriptor {
     pub writes: AccessSet,
     /// Effets de bord (DM-07, C-11).
     pub side_effects: SideEffectSet,
+    /// Un verrou est pris sur un objet non local (C-11).
+    pub locks: bool,
+    /// Dependances dans le tick, au-dela des `data_deps` (C-10).
+    pub dependency: DependencyCounts,
     /// Drapeaux (DM-11).
     pub flags: ClassificationFlags,
     /// Confiance (DM-12).
@@ -138,6 +145,25 @@ pub struct Descriptor {
     /// Le bytecode de la racine a change depuis : a recalculer (R-350).
     pub stale: bool,
 }
+
+/// Dependances d'une unite dans le tick que DM-08 ne porte pas (C-10, ADR-056).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DependencyCounts {
+    /// Unites dont elle lit ce qu'elles ecrivent.
+    pub raw: u32,
+    /// Unites qui ecrivent ce qu'elle ecrit.
+    pub waw: u32,
+    /// Unites qui lisent ce qu'elle ecrit.
+    pub war: u32,
+    /// Unites qui prennent aussi des verrous d'identite inconnue.
+    pub resource: u32,
+    /// Motif d'une dependance a tout le tick (R-372) ; ses `data_deps` sont alors
+    /// absentes.
+    pub whole_tick: Option<WholeTick>,
+}
+
+/// Effets d'une unite (C-11) : lectures, ecritures, effets de bord, verrou.
+type Effects = (AccessSet, AccessSet, SideEffectSet, bool);
 
 /// Racine possible d'un graphe : une methode sondee.
 struct Root {
@@ -436,13 +462,19 @@ impl Analysis {
         } else {
             let effects =
                 workload_effects(graph, &self.index, &self.domains, &DataflowLimits::DEFAULT);
-            (effects.reads, effects.writes, effects.side_effects)
+            (
+                effects.reads,
+                effects.writes,
+                effects.side_effects,
+                effects.locks,
+            )
         };
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
         self.status.dataflow_ns = self.status.dataflow_ns.saturating_add(elapsed);
 
         let descriptor = self.describe(job, graph, summary, exhausted, effects);
         self.record(job.work_id, descriptor);
+        self.refresh_dependencies();
     }
 
     /// Le descripteur d'un graphe termine : faits de C-05, C-07 et C-11, le reste absent.
@@ -453,7 +485,7 @@ impl Analysis {
         graph: &CallGraph,
         summary: GraphSummary,
         exhausted: bool,
-        (reads, writes, side_effects): (AccessSet, AccessSet, SideEffectSet),
+        (reads, writes, side_effects, locks): Effects,
     ) -> Descriptor {
         let mut calls: Vec<String> = graph
             .edges()
@@ -481,37 +513,86 @@ impl Analysis {
             depth: u16::try_from(depth).unwrap_or(u16::MAX),
             truncated: summary.truncated || exhausted,
         };
-        let (heat, observation_quality) = self
-            .observed
-            .get(&job.work_id)
-            .copied()
-            .unwrap_or((Heat::Cold, 0.0));
-        let side = self
-            .methods
-            .get(&job.work_id)
-            .map_or(Side::Common, |root| root.side);
-        let facts = Facts {
-            heat,
-            side,
-            observation_quality,
-            deps: Some(deps.clone()),
-            reflection: summary.reflection,
-            reads: Some(reads),
-            writes: Some(writes),
-            side_effects: Some(side_effects),
-            ..Facts::default()
-        };
-        Descriptor {
+        let mut descriptor = Descriptor {
             summary,
             deps,
             reads,
             writes,
             side_effects,
-            flags: classify(&facts),
-            confidence: confidence(&facts),
+            locks,
+            dependency: DependencyCounts::default(),
+            flags: ClassificationFlags::EMPTY,
+            confidence: Confidence::new(0.0, 0.0, 0.0),
             bytecode_hash: method_hash(&self.index, &job.root),
             stale: false,
+        };
+        let facts = facts_of(
+            &descriptor,
+            self.observed.get(&job.work_id),
+            self.methods.get(&job.work_id).map(|root| root.side),
+        );
+        descriptor.flags = classify(&facts);
+        descriptor.confidence = confidence(&facts);
+        descriptor
+    }
+
+    /// Recalcule les dependances de toutes les unites decrites (C-10, ADR-056), puis
+    /// leurs drapeaux et leur confiance, qui en dependent.
+    fn refresh_dependencies(&mut self) {
+        let started = Instant::now();
+        let mut ids: Vec<WorkId> = self.descriptors.keys().copied().collect();
+        ids.sort_unstable();
+        let workloads: Vec<Workload> = ids
+            .iter()
+            .map(|id| {
+                let d = &self.descriptors[id];
+                Workload {
+                    id: *id,
+                    reads: d.reads,
+                    writes: d.writes,
+                    locks: d.locks,
+                }
+            })
+            .collect();
+        let found = dependencies(&workloads);
+        let (observed, methods) = (&self.observed, &self.methods);
+        let mut changes = 0_u64;
+        for (id, deps) in ids.iter().zip(found.per_workload) {
+            let Some(descriptor) = self.descriptors.get_mut(id) else {
+                continue;
+            };
+            descriptor.deps.data_deps = deps.producers;
+            descriptor.dependency = DependencyCounts {
+                raw: deps.raw,
+                waw: deps.waw,
+                war: deps.war,
+                resource: deps.resource,
+                whole_tick: deps.whole_tick,
+            };
+            let facts = facts_of(
+                descriptor,
+                observed.get(id),
+                methods.get(id).map(|root| root.side),
+            );
+            let flags = classify(&facts);
+            changes += u64::from(flags != descriptor.flags);
+            descriptor.flags = flags;
+            descriptor.confidence = confidence(&facts);
         }
+        self.descriptor_bytes = self.descriptors.values().map(descriptor_bytes).sum();
+        let unknown = self
+            .descriptors
+            .values()
+            .filter(|d| d.flags.contains(ClassificationFlags::UNKNOWN))
+            .count();
+        let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let s = &mut self.status;
+        s.descriptors_unknown = unknown as u64;
+        s.descriptor_changes = s.descriptor_changes.saturating_add(changes);
+        s.dep_edges = found.edges;
+        s.dep_conflicts = found.conflicts;
+        s.dep_conservative_edges = found.conservative_edges;
+        s.dep_ns = s.dep_ns.saturating_add(elapsed);
     }
 
     /// Range un descripteur, compte les recalculs et les changements significatifs.
@@ -609,7 +690,7 @@ impl Analysis {
 }
 
 /// Effets d'une unite dont l'analyse n'a pas abouti : tout est possible (R-206, R-380).
-fn unknown_effects() -> (AccessSet, AccessSet, SideEffectSet) {
+fn unknown_effects() -> Effects {
     let unknown = AccessSet {
         domains: Domains::EMPTY.with(Domain::Unknown),
         precision: Precision::Unknown,
@@ -620,7 +701,7 @@ fn unknown_effects() -> (AccessSet, AccessSet, SideEffectSet) {
         unknown: true,
         ..SideEffectSet::default()
     };
-    (unknown, unknown, side_effects)
+    (unknown, unknown, side_effects, true)
 }
 
 /// Hachage du code d'une methode, si sa classe est lue et la methode a du code.
@@ -635,13 +716,32 @@ fn method_hash(index: &ClassIndex, method: &MethodRef) -> Option<u64> {
 
 /// Memoire estimee d'un descripteur.
 fn descriptor_bytes(descriptor: &Descriptor) -> u64 {
+    let producers = descriptor.deps.data_deps.as_ref().map_or(0, Vec::len) as u64;
     BYTES_PER_DESCRIPTOR
+        + producers * 8
         + descriptor
             .deps
             .calls
             .iter()
             .map(|call| call.len() as u64 + 24)
             .sum::<u64>()
+}
+
+/// Faits d'un descripteur pour la classification (C-08), avec ce que le profileur
+/// observe de l'unite (C-05).
+fn facts_of(descriptor: &Descriptor, observed: Option<&(Heat, f32)>, side: Option<Side>) -> Facts {
+    let (heat, observation_quality) = observed.copied().unwrap_or((Heat::Cold, 0.0));
+    Facts {
+        heat,
+        side: side.unwrap_or(Side::Common),
+        observation_quality,
+        deps: Some(descriptor.deps.clone()),
+        reflection: descriptor.summary.reflection,
+        reads: Some(descriptor.reads),
+        writes: Some(descriptor.writes),
+        side_effects: Some(descriptor.side_effects),
+        ..Facts::default()
+    }
 }
 
 #[cfg(test)]
@@ -750,7 +850,12 @@ pub(crate) mod tests {
             .contains(ClassificationFlags::PARALLELIZABLE));
         assert!(descriptor.confidence.combined.abs() < f32::EPSILON);
         assert_eq!(descriptor.deps.calls.len(), 3, "les trois roues");
-        assert!(descriptor.deps.data_deps.is_none(), "C-10 absent : inconnu");
+        // C-10 (ADR-056) : seule unite decrite, aux acces connus, sans producteur.
+        assert_eq!(descriptor.deps.data_deps, Some(vec![]));
+        assert!(
+            descriptor.deps.order_deps.is_none(),
+            "C-06 absent : inconnu"
+        );
         assert!(!descriptor.deps.truncated);
         assert!(descriptor.bytecode_hash.is_some());
         assert_eq!((status.descriptors, status.completed), (1, 1));
@@ -867,6 +972,17 @@ pub(crate) mod tests {
         assert!(shared.writes.domains.contains(Domain::Unknown));
         assert!(shared.flags.contains(ClassificationFlags::WRITE));
         assert_eq!(analysis.status().dataflow_exact, 1);
+
+        // C-10 : l'unite locale ne lit rien de partage, elle n'a pas de producteur ;
+        // l'autre ecrit l'inconnu, elle depend de tout le tick (ADR-056).
+        assert_eq!(local.deps.data_deps, Some(vec![]));
+        assert_eq!(local.dependency.whole_tick, None);
+        assert_eq!(shared.deps.data_deps, None);
+        assert_eq!(shared.dependency.whole_tick, Some(WholeTick::UnknownAccess));
+        assert!(shared.flags.contains(ClassificationFlags::UNKNOWN));
+        let status = analysis.status();
+        assert_eq!((status.dep_edges, status.dep_conservative_edges), (1, 1));
+        assert!(status.dep_ns > 0);
     }
 
     /// T-171 : budget epuise (tours a la borne, classes encore voulues) : resultat

@@ -10,7 +10,9 @@
 //! - [`classify`] : les drapeaux et la confiance d'une unite de travail, fonctions pures
 //!   des faits que les analyses ont produits (C-08, ADR-054) ;
 //! - [`dataflow`] : ce que le code d'une methode lit, ecrit, appelle et laisse
-//!   echapper, avec l'origine de chaque reference (C-11, ADR-055).
+//!   echapper, avec l'origine de chaque reference (C-11, ADR-055) ;
+//! - [`dependency`] : de quelles autres unites chacune depend dans le tick, au niveau
+//!   des domaines (C-10, ADR-056).
 //!
 //! # Sens des dependances
 //!
@@ -21,6 +23,7 @@
 pub mod callgraph;
 pub mod classify;
 pub mod dataflow;
+pub mod dependency;
 pub mod hierarchy;
 
 pub use callgraph::{CallGraph, Edge, EdgeKind, Limits, Node, Resolution, Unresolved};

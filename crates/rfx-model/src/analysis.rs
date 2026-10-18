@@ -74,6 +74,16 @@ pub struct AnalysisStatus {
     /// Temps passe a composer les effets des unites, en nanosecondes, horloge
     /// monotone du fil d'analyse (C-11, `rfx.dataflow.analysis_ns`).
     pub dataflow_ns: u64,
+    /// Dependances des unites decrites, vues de chacune (C-10, `rfx.dep.edges`).
+    pub dep_edges: u64,
+    /// Conflits d'ecriture (WAW), vus de chaque unite (C-10, `rfx.dep.conflicts`).
+    pub dep_conflicts: u64,
+    /// Dependances ajoutees par surete : tout le tick, verrous d'identite inconnue
+    /// (C-10, `rfx.dep.conservative_edges`).
+    pub dep_conservative_edges: u64,
+    /// Temps passe a calculer les dependances, en nanosecondes, horloge monotone du fil
+    /// d'analyse (C-10, `rfx.dep.analysis_ns`).
+    pub dep_ns: u64,
 }
 
 #[cfg(test)]

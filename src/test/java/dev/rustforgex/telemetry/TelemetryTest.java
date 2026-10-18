@@ -382,6 +382,10 @@ class TelemetryTest {
         analysis.put("step_ns", 2_500_000L);
         analysis.put("dataflow_exact", 1L);
         analysis.put("dataflow_ns", 900_000L);
+        analysis.put("dep_edges", 5L);
+        analysis.put("dep_conflicts", 2L);
+        analysis.put("dep_conservative_edges", 3L);
+        analysis.put("dep_ns", 40_000L);
         return analysis;
     }
 
@@ -414,6 +418,10 @@ class TelemetryTest {
         assertEquals(1, set.get("rfx.analysis.recomputes").value());
         assertEquals(0.5, set.get("rfx.dataflow.exact_ratio").value(), 1e-9);
         assertEquals(900_000, set.get("rfx.dataflow.analysis_ns").value());
+        assertEquals(5, set.get("rfx.dep.edges").value());
+        assertEquals(2, set.get("rfx.dep.conflicts").value());
+        assertEquals(3, set.get("rfx.dep.conservative_edges").value());
+        assertEquals(40_000, set.get("rfx.dep.analysis_ns").value());
 
         Map<String, Object> disabled = analysis(52_000L, 7L, 3L, 0L);
         disabled.put("enabled", false);
