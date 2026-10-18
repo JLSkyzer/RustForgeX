@@ -90,6 +90,11 @@ pub struct AnalysisStatus {
     /// Descripteurs dont l'exigence de fil est inconnue en ce moment (C-12,
     /// `rfx.thread.unknown_ratio`).
     pub thread_unknown: u64,
+    /// Descripteurs deterministes en ce moment (C-13, `rfx.det.deterministic_ratio`).
+    pub det_deterministic: u64,
+    /// Descripteurs portant chaque source de non-determinisme en ce moment, indexes par
+    /// le discriminant de `NonDetSource` (C-13, `rfx.det.nondet_sources`).
+    pub det_sources: [u64; 9],
 }
 
 #[cfg(test)]
@@ -111,6 +116,7 @@ mod tests {
             enabled: true,
             graphs: 3,
             nodes: 120,
+            det_sources: [0, 1, 2, 3, 4, 5, 6, 7, 300],
             ..AnalysisStatus::default()
         };
         crate::assert_java_readable(&crate::to_cbor(&status).unwrap()).unwrap();

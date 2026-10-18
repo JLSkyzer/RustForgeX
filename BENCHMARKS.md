@@ -234,6 +234,24 @@ supposées du même tick ; l'ordre des flux d'événements (C-06) et les région
 L'analyse est statique : les rôles de fil sur lesquels une unité s'exécute ne sont pas
 observés (ADR-057).
 
+### `rfx.det` — déterminisme (C-13)
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.det.deterministic_ratio` | gauge | ratio | Part des descripteurs sans source de non-déterminisme sur un graphe complet — *conditionnelle* : au moins un descripteur |
+| `rfx.det.nondet_sources{source=shared_random}` | gauge | descripteurs | Descripteurs où l'analyse trouve : générateur pseudo-aléatoire (`Random`, `RandomSource`, `Math.random`, domaine `Random`) |
+| `rfx.det.nondet_sources{source=system_time}` | gauge | descripteurs | Descripteurs où l'analyse trouve : horloge (`System.nanoTime`, `currentTimeMillis`, `java/time`, domaine `Time`) |
+| `rfx.det.nondet_sources{source=identity_hash}` | gauge | descripteurs | Descripteurs où l'analyse trouve : hachage d'identité (`System.identityHashCode`, `hashCode` ou `toString` d'`Object`) |
+| `rfx.det.nondet_sources{source=hash_map_iteration}` | gauge | descripteurs | Descripteurs où l'analyse trouve : parcours d'une table de hachage du JDK |
+| `rfx.det.nondet_sources{source=thread_scheduling}` | gauge | descripteurs | Descripteurs où l'analyse trouve : prise ou attente de verrou |
+| `rfx.det.nondet_sources{source=external_io}` | gauge | descripteurs | Descripteurs où l'analyse trouve : entrée-sortie (`java/io`, `java/nio/file`, `java/net`, domaines `FileSystem`, `Network`) |
+| `rfx.det.nondet_sources{source=native_call}` | gauge | descripteurs | Descripteurs où l'analyse trouve : méthode `native` dans le graphe |
+| `rfx.det.nondet_sources{source=reflection}` | gauge | descripteurs | Descripteurs où l'analyse trouve : appel réflexif rencontré par C-07 |
+| `rfx.det.nondet_sources{source=unknown}` | gauge | descripteurs | Descripteurs où l'analyse trouve : partie du graphe inconnue : ce qu'elle fait n'a pas été vu |
+
+La recherche est statique : aucune exécution en shadow n'est comparée (ADR-058), et
+`rfx.det.shadow_mismatches` n'est pas publiée.
+
 `rfx.dataflow.mismatch` (PARTIE 5.11) n'est pas publiée : elle compterait les écarts
 trouvés par la vérification dynamique (R-382), qui n'existe pas encore. Publiée à zéro,
 elle laisserait croire à une vérification qui n'a pas lieu (ADR-055).

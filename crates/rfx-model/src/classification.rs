@@ -283,6 +283,21 @@ pub enum NonDetSource {
     Unknown = 8,
 }
 
+impl NonDetSource {
+    /// Toutes les sources, dans l'ordre de leur discriminant.
+    pub const ALL: [NonDetSource; 9] = [
+        NonDetSource::SharedRandom,
+        NonDetSource::SystemTime,
+        NonDetSource::IdentityHash,
+        NonDetSource::HashMapIteration,
+        NonDetSource::ThreadScheduling,
+        NonDetSource::ExternalIo,
+        NonDetSource::NativeCall,
+        NonDetSource::Reflection,
+        NonDetSource::Unknown,
+    ];
+}
+
 /// DM-10 : faits de determinisme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DeterminismFacts {
@@ -508,6 +523,9 @@ mod tests {
 
     #[test]
     fn domains_are_bits() {
+        for (index, source) in NonDetSource::ALL.iter().enumerate() {
+            assert_eq!(*source as usize, index, "ALL suit les discriminants");
+        }
         let d = Domains::EMPTY.with(Domain::ModStatics).with(Domain::Random);
         assert!(d.contains(Domain::ModStatics) && d.contains(Domain::Random));
         assert!(!d.contains(Domain::WorldBlocks));

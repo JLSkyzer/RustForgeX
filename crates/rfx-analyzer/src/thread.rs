@@ -140,7 +140,7 @@ fn written_outside_construction(class: &ClassFile, field: &FieldInfo) -> bool {
 }
 
 /// `true` si l'appel prend ou attend un verrou.
-fn is_lock_api(target: &MemberRef) -> bool {
+pub(crate) fn is_lock_api(target: &MemberRef) -> bool {
     target.owner.starts_with("java/util/concurrent/locks/")
         || (target.owner == "java/util/concurrent/Semaphore" && target.name.starts_with("acquire"))
         // `wait` est finale dans Object : quel que soit le type statique du receveur.
@@ -169,13 +169,7 @@ pub fn thread_facts(
     safety: &ThreadSafetyTable,
     determinism: Option<&DeterminismFacts>,
 ) -> ThreadFacts {
-    let causes = &effects.causes;
-    let incomplete = causes.unresolved_sites > 0
-        || causes.unexplored_sites > 0
-        || causes.external_methods > 0
-        || causes.unanalysable_methods > 0
-        || causes.truncated
-        || causes.not_converged;
+    let incomplete = effects.causes.any();
     let mut synchronized = false;
     let mut locks = false;
     let mut thread_locals = effects.reads.domains.contains(Domain::ThreadLocals)

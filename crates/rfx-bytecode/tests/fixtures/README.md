@@ -1,4 +1,4 @@
-# Classes de test de C-07, C-11 et C-12 (ADR-050, ADR-055, ADR-057)
+# Classes de test de C-07, C-11, C-12 et C-13 (ADR-050, ADR-055, ADR-057, ADR-058)
 
 `src/fixtures/*.java` sont écrites pour ce projet ; `classes/` en est la compilation,
 versionnée pour que les tests Rust n'aient pas besoin d'un JDK. Aucune classe tierce
@@ -55,3 +55,9 @@ champ public mutable (`Counter`, et `CounterChild` qui en hérite), champ final
 (`Frozen`), champ privé écrit hors constructeur (`Mutating`), écrit dans une méthode
 synchronisée (`Guarded`), écrit seulement par le constructeur (`CtorOnly`) ; et
 `Threads$InnerPrivate`, le même cas que `CtorOnly` mais dans un nid.
+
+`Chance` sert à C-13 (ADR-058) : une méthode par source de non-déterminisme
+(`Random.nextInt`, `System.nanoTime`, `System.identityHashCode`, `HashMap.keySet`,
+`File.exists`, `Lock.lock`, `Method.invoke`, appel d'une méthode `native`), et des
+méthodes sans source : arithmétique entière en lecture seule, `dadd`, écriture d'un
+statique.

@@ -14,7 +14,8 @@
 //! - [`dependency`] : de quelles autres unites chacune depend dans le tick, au niveau
 //!   des domaines (C-10, ADR-056) ;
 //! - [`thread`] : si une unite doit rester sur le fil autoritatif, et le confinement
-//!   derive des classes (C-12, ADR-057).
+//!   derive des classes (C-12, ADR-057) ;
+//! - [`determinism`] : les sources de non-determinisme d'une unite (C-13, ADR-058).
 //!
 //! # Sens des dependances
 //!
@@ -26,6 +27,7 @@ pub mod callgraph;
 pub mod classify;
 pub mod dataflow;
 pub mod dependency;
+pub mod determinism;
 pub mod hierarchy;
 pub mod thread;
 

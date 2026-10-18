@@ -388,6 +388,8 @@ class TelemetryTest {
         analysis.put("dep_ns", 40_000L);
         analysis.put("thread_main_required", 1L);
         analysis.put("thread_unknown", 1L);
+        analysis.put("det_deterministic", 1L);
+        analysis.put("det_sources", List.of(0L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 2L));
         return analysis;
     }
 
@@ -426,6 +428,10 @@ class TelemetryTest {
         assertEquals(40_000, set.get("rfx.dep.analysis_ns").value());
         assertEquals(0.5, set.get("rfx.thread.main_required_ratio").value(), 1e-9);
         assertEquals(0.5, set.get("rfx.thread.unknown_ratio").value(), 1e-9);
+        assertEquals(0.5, set.get("rfx.det.deterministic_ratio").value(), 1e-9);
+        assertEquals(1, set.get("rfx.det.nondet_sources{source=system_time}").value());
+        assertEquals(2, set.get("rfx.det.nondet_sources{source=unknown}").value());
+        assertEquals(0, set.get("rfx.det.nondet_sources{source=reflection}").value());
 
         Map<String, Object> disabled = analysis(52_000L, 7L, 3L, 0L);
         disabled.put("enabled", false);

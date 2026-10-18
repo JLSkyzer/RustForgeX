@@ -312,6 +312,34 @@ public final class Telemetry {
         appendDataflow(set, analysis);
         appendDependencies(set, analysis);
         appendThreads(set, analysis);
+        appendDeterminism(set, analysis);
+    }
+
+    /** Sources de non-déterminisme, dans l'ordre de leur discriminant (DM-10). */
+    private static final String[] NONDET_SOURCES = {
+        "shared_random", "system_time", "identity_hash", "hash_map_iteration",
+        "thread_scheduling", "external_io", "native_call", "reflection", "unknown",
+    };
+
+    /**
+     * Déterminisme des unités (C-13, ADR-058), d'après une recherche statique des
+     * sources : aucune exécution en shadow n'est comparée.
+     */
+    private static void appendDeterminism(MetricSet set, Map<String, Object> analysis) {
+        long descriptors = longOf(analysis, "descriptors");
+        set.addIfMeasured(descriptors > 0, () -> Metric.gauge("rfx.det.deterministic_ratio",
+                (double) longOf(analysis, "det_deterministic") / descriptors, "ratio",
+                "Part des descripteurs sans source de non-déterminisme sur un graphe complet."));
+        Object sources = analysis == null ? null : analysis.get("det_sources");
+        if (!(sources instanceof List<?> counts) || counts.size() != NONDET_SOURCES.length) {
+            return;
+        }
+        for (int i = 0; i < NONDET_SOURCES.length; i++) {
+            long count = counts.get(i) instanceof Long number ? number : 0L;
+            set.add(Metric.gauge("rfx.det.nondet_sources{source=" + NONDET_SOURCES[i] + "}",
+                    count, "descriptors",
+                    "Descripteurs dont l'analyse trouve cette source de non-déterminisme."));
+        }
     }
 
     /**

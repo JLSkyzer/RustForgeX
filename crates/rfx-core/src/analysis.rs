@@ -17,14 +17,13 @@
 //! Un graphe termine donne un [`Descriptor`] : dependances (DM-08), drapeaux (DM-11) et
 //! confiance (DM-12), calcules par les fonctions pures de `rfx_analyzer::classify`.
 //! Les lectures, ecritures et effets de bord (DM-06, DM-07) viennent de C-11, composes
-//! le long du graphe (ADR-055) ; C-10, C-12 et C-13 n'existant pas encore, leurs faits
-//! sont absents et tout descripteur reste `UNKNOWN` (ADR-054). Les dependances de donnees
-//! entre unites (C-10, ADR-056) sont recalculees a chaque descripteur range ; les
-//! contraintes de fil (C-12, ADR-057) sont deduites du meme graphe. Les unites a
-//! analyser
-//! sont prises parmi les plus chaudes, dans
-//! l'ordre de `chaleur x (1 - confiance) / cout estime` ; un descripteur est recalcule
-//! si le bytecode de sa methode racine change (R-350).
+//! le long du graphe (ADR-055). Les dependances de donnees entre unites (C-10, ADR-056)
+//! sont recalculees a chaque descripteur range ; les faits de determinisme (C-13,
+//! ADR-058) et de fil (C-12, ADR-057) sont deduits du meme graphe. Les dependances
+//! d'ordre (C-06) manquant, tout descripteur reste `UNKNOWN` (ADR-054). Les unites a
+//! analyser sont prises parmi les plus chaudes, dans l'ordre de
+//! `chaleur x (1 - confiance) / cout estime` ; un descripteur est recalcule si le
+//! bytecode de sa methode racine change (R-350).
 //!
 //! # Hors du verrou du runtime
 //!
@@ -37,6 +36,7 @@ use std::time::Instant;
 
 use rfx_analyzer::dataflow::{analyze_graph, workload_effects_from, DataflowLimits, DomainTable};
 use rfx_analyzer::dependency::{dependencies, WholeTick, Workload};
+use rfx_analyzer::determinism::determinism_facts;
 use rfx_analyzer::hierarchy::Skeleton;
 use rfx_analyzer::thread::{thread_facts, ThreadSafetyTable};
 use rfx_analyzer::{
@@ -44,8 +44,9 @@ use rfx_analyzer::{
 };
 use rfx_bytecode::ClassFile;
 use rfx_model::{
-    AccessSet, AnalysisStatus, ClassificationFlags, Confidence, DependencySet, Domain, Domains,
-    Heat, HierarchyEntry, Precision, RuntimeConfig, Side, SideEffectSet, ThreadFacts, Tri, WorkId,
+    AccessSet, AnalysisStatus, ClassificationFlags, Confidence, DependencySet, DeterminismFacts,
+    Domain, Domains, Heat, HierarchyEntry, NonDetSource, Precision, RuntimeConfig, Side,
+    SideEffectSet, ThreadFacts, Tri, WorkId,
 };
 
 /// Tours de construction au plus par graphe ; au-dela, ce qui manque reste non resolu
@@ -140,6 +141,8 @@ pub struct Descriptor {
     pub dependency: DependencyCounts,
     /// Contraintes de fil (DM-09, C-12).
     pub thread: ThreadFacts,
+    /// Determinisme (DM-10, C-13).
+    pub determinism: DeterminismFacts,
     /// Drapeaux (DM-11).
     pub flags: ClassificationFlags,
     /// Confiance (DM-12).
@@ -466,12 +469,19 @@ impl Analysis {
         s.last_build_ns = summary.build_ns;
 
         let started = Instant::now();
-        let (effects, thread) = if exhausted {
+        let (effects, thread, determinism, external_locks) = if exhausted {
             // Tours epuises : ce qui manque n'a pas ete vu, rien n'est affirme (FM-16).
-            (unknown_effects(), unknown_thread())
+            (
+                unknown_effects(),
+                unknown_thread(),
+                unknown_determinism(),
+                None,
+            )
         } else {
             let analysed = analyze_graph(graph, &self.index, &DataflowLimits::DEFAULT);
             let effects = workload_effects_from(graph, &self.index, &self.domains, &analysed);
+            let determinism =
+                determinism_facts(graph, &self.index, &analysed, &effects, &self.domains);
             let thread = thread_facts(
                 graph,
                 &self.index,
@@ -479,8 +489,12 @@ impl Analysis {
                 &effects,
                 &self.domains,
                 &self.safety,
-                None,
+                Some(&determinism),
             );
+            // DM-08 : l'identite des verrous n'est pas suivie ; seule l'absence de tout
+            // verrou, sur un graphe complet, est une liste connue (ADR-058).
+            let lock_free =
+                !effects.causes.any() && !thread.uses_synchronized && !thread.uses_locks;
             (
                 (
                     effects.reads,
@@ -489,6 +503,8 @@ impl Analysis {
                     effects.locks,
                 ),
                 thread,
+                determinism,
+                lock_free.then(Vec::new),
             )
         };
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
@@ -496,6 +512,15 @@ impl Analysis {
 
         let mut descriptor = self.describe(job, graph, summary, exhausted, effects);
         descriptor.thread = thread;
+        descriptor.determinism = determinism;
+        descriptor.deps.external_locks = external_locks;
+        let facts = facts_of(
+            &descriptor,
+            self.observed.get(&job.work_id),
+            self.methods.get(&job.work_id).map(|root| root.side),
+        );
+        descriptor.flags = classify(&facts);
+        descriptor.confidence = confidence(&facts);
         self.record(job.work_id, descriptor);
         self.refresh_dependencies();
     }
@@ -545,6 +570,7 @@ impl Analysis {
             locks,
             dependency: DependencyCounts::default(),
             thread: unknown_thread(),
+            determinism: unknown_determinism(),
             flags: ClassificationFlags::EMPTY,
             confidence: Confidence::new(0.0, 0.0, 0.0),
             bytecode_hash: method_hash(&self.index, &job.root),
@@ -626,6 +652,19 @@ impl Analysis {
         let (main_required, thread_unknown) = (thread(Tri::Yes), thread(Tri::Unknown));
         self.status.thread_main_required = main_required;
         self.status.thread_unknown = thread_unknown;
+        let mut det_sources = [0_u64; 9];
+        for descriptor in self.descriptors.values() {
+            let bits = descriptor.determinism.sources_of_nondeterminism;
+            for (count, source) in det_sources.iter_mut().zip(NonDetSource::ALL) {
+                *count += u64::from(bits & (1 << source as u16) != 0);
+            }
+        }
+        self.status.det_sources = det_sources;
+        self.status.det_deterministic = self
+            .descriptors
+            .values()
+            .filter(|d| d.determinism.deterministic == Tri::Yes)
+            .count() as u64;
     }
 
     /// Range un descripteur, compte les recalculs et les changements significatifs.
@@ -775,7 +814,19 @@ fn facts_of(descriptor: &Descriptor, observed: Option<&(Heat, f32)>, side: Optio
         writes: Some(descriptor.writes),
         side_effects: Some(descriptor.side_effects),
         thread: Some(descriptor.thread),
-        ..Facts::default()
+        determinism: Some(descriptor.determinism),
+    }
+}
+
+/// Determinisme d'une unite dont l'analyse n'a pas abouti : rien n'est affirme.
+fn unknown_determinism() -> DeterminismFacts {
+    DeterminismFacts {
+        deterministic: Tri::Unknown,
+        sources_of_nondeterminism: 1 << NonDetSource::Unknown as u16,
+        order_sensitive: Tri::Unknown,
+        float_sensitive: true,
+        verified_runs: 0,
+        mismatches: 0,
     }
 }
 
@@ -974,6 +1025,59 @@ pub(crate) mod tests {
         assert_eq!(analysis.step(&[hot(id)]), StepState::Idle);
     }
 
+    /// C-13 nourrit C-12 : une unite pure, deterministe et en lecture seule d'un objet
+    /// sur, n'exige pas le fil autoritatif (ADR-057, ADR-058).
+    #[test]
+    fn a_pure_unit_is_free_of_the_main_thread() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let pure = WorkId(13);
+        let synced = WorkId(14);
+        analysis.note(
+            pure,
+            MethodRef::new("fixtures/Threads", "readFrozen", "(Lfixtures/Frozen;)I"),
+            Side::Server,
+        );
+        analysis.note(
+            synced,
+            MethodRef::new("fixtures/Threads", "syncMethod", "()V"),
+            Side::Server,
+        );
+        analysis.declare(hierarchy(&classes));
+        let hot_both = [hot(pure), hot(synced)];
+        assert_eq!(
+            drive(&mut analysis, &hot_both, &classes),
+            StepState::Finished
+        );
+        assert_eq!(
+            drive(&mut analysis, &hot_both, &classes),
+            StepState::Finished
+        );
+        let pure = analysis.descriptor(pure).expect("descripteur");
+        assert_eq!(pure.determinism.deterministic, Tri::Yes);
+        assert!(pure.flags.contains(ClassificationFlags::DETERMINISTIC));
+        assert_eq!(pure.thread.main_thread_required, Tri::No);
+        assert_eq!(pure.deps.external_locks, Some(vec![]));
+
+        // `synchronized`, et `Object.hashCode` ecrit tel quel par javac (hachage
+        // d'identite) vers le JDK absent de l'index : verrous inconnus, source definie.
+        let synced = analysis.descriptor(synced).expect("descripteur");
+        assert_eq!(synced.deps.external_locks, None);
+        let bit = |source: NonDetSource| 1_u16 << source as u16;
+        assert_eq!(
+            synced.determinism.sources_of_nondeterminism,
+            bit(NonDetSource::IdentityHash) | bit(NonDetSource::Unknown)
+        );
+        assert_eq!(synced.determinism.deterministic, Tri::No);
+        assert!(!synced.flags.contains(ClassificationFlags::DETERMINISTIC));
+        let status = analysis.status();
+        assert_eq!(status.det_deterministic, 1);
+        let mut expected = [0_u64; 9];
+        expected[NonDetSource::IdentityHash as usize] = 1;
+        expected[NonDetSource::Unknown as usize] = 1;
+        assert_eq!(status.det_sources, expected);
+    }
+
     /// C-11 : les effets composes le long du graphe remplissent le descripteur. Un objet
     /// construit et lu sur place ne touche aucun domaine : ecritures exactes et vides.
     #[test]
@@ -1013,7 +1117,7 @@ pub(crate) mod tests {
         );
         assert!(
             local.flags.contains(ClassificationFlags::UNKNOWN),
-            "C-12 et C-13 manquent encore"
+            "C-06 manque encore"
         );
 
         let shared = analysis.descriptor(shared).expect("descripteur");
@@ -1039,6 +1143,22 @@ pub(crate) mod tests {
         assert_eq!(local.thread.main_thread_required, Tri::Yes);
         assert!(!local.flags.contains(ClassificationFlags::UNSAFE));
         assert_eq!(analysis.status().thread_main_required, 2);
+
+        // C-13 (ADR-058) : aucune source dans l'unite locale, graphe complet sans verrou ;
+        // l'unite qui ecrit est sensible a l'ordre. Aucun shadow run : rien n'est verifie.
+        assert_eq!(local.determinism.deterministic, Tri::Yes);
+        assert_eq!(local.determinism.sources_of_nondeterminism, 0);
+        assert_eq!(local.determinism.order_sensitive, Tri::No);
+        assert_eq!(local.deps.external_locks, Some(vec![]));
+        assert_ne!(shared.determinism.order_sensitive, Tri::No);
+        assert_eq!(shared.determinism.verified_runs, 0);
+        let status = analysis.status();
+        assert!(status.det_deterministic >= 1, "l'unite locale");
+        assert_eq!(
+            status.det_sources.iter().sum::<u64>(),
+            u64::from(local.determinism.sources_of_nondeterminism.count_ones())
+                + u64::from(shared.determinism.sources_of_nondeterminism.count_ones())
+        );
         let status = analysis.status();
         assert_eq!((status.dep_edges, status.dep_conservative_edges), (1, 1));
         assert!(status.dep_ns > 0);

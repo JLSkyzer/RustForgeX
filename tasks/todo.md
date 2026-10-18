@@ -1094,7 +1094,16 @@ demandent une mesure ; les autres sont des tests de justesse.
       d'observation des rôles de fil ; 13 mutants sur 13 tués. T-212 couvert par la
       classification ; l'observation réelle demande que les sondes portent le rôle de fil
       (DM-02, changement d'interface à décider avec Killian)
-- [ ] C-13 — après C-12
+- [x] C-13 Determinism Analyzer — T-220, T-221 (R-217, R-401), ADR-058 : recherche
+      statique des sources (appels écrits, domaines de C-11, méthodes natives,
+      réflexion, graphe incomplet), sans shadow run (`verified_runs = 0`) ; C-12 reçoit
+      ses faits (`main_thread_required = NO` atteint par une unité pure) ;
+      `external_locks` connu (vide) sur un graphe complet sans verrou ; 26 mutants sur 26
+      tués. Pas encore observé en jeu : le serveur GameTest s'arrête avant le premier
+      graphe. T-222 attend le moteur parallèle, T-223 C-21
+- [ ] `order_deps` (C-10, étape 2 : même flux d'événement, l'un peut annuler ou modifier
+      l'événement) à partir de l'ordre des événements de C-06 — dernier fait qui manque à
+      C-08 : sans lui, tout descripteur reste `UNKNOWN`
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

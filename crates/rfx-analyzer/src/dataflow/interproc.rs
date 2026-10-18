@@ -56,6 +56,19 @@ pub struct UnknownCauses {
     pub not_converged: bool,
 }
 
+impl UnknownCauses {
+    /// `true` si une partie du graphe reste inconnue, pour une raison quelconque.
+    #[must_use]
+    pub fn any(&self) -> bool {
+        self.unresolved_sites > 0
+            || self.unexplored_sites > 0
+            || self.external_methods > 0
+            || self.unanalysable_methods > 0
+            || self.truncated
+            || self.not_converged
+    }
+}
+
 /// Effets d'une unite de travail.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadEffects {
