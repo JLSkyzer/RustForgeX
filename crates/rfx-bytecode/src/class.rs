@@ -1,4 +1,5 @@
-//! Fichier `.class` (JVMS §4.1) : hierarchie, methodes, code, methodes d'amorcage.
+//! Fichier `.class` (JVMS §4.1) : hierarchie, methodes, code, methodes d'amorcage,
+//! types des annotations.
 
 use crate::code::{self, CallSite};
 use crate::constant::ConstantPool;
@@ -41,6 +42,8 @@ pub struct FieldInfo {
     pub name: String,
     /// Descripteur (`I`, `Ljava/util/List;`).
     pub descriptor: String,
+    /// Types des annotations, visibles ou non a l'execution (`Lpkg/Annotation;`).
+    pub annotations: Vec<String>,
 }
 
 impl FieldInfo {
@@ -75,6 +78,8 @@ pub struct MethodInfo {
     pub max_locals: u16,
     /// Gestionnaires d'exceptions du code, dans l'ordre de la table.
     pub handlers: Vec<Handler>,
+    /// Types des annotations, visibles ou non a l'execution (`Lpkg/Annotation;`).
+    pub annotations: Vec<String>,
 }
 
 impl MethodInfo {
@@ -133,6 +138,8 @@ pub struct ClassFile {
     pub methods: Vec<MethodInfo>,
     /// Methodes d'amorcage des `invokedynamic`.
     pub bootstrap_methods: Vec<BootstrapMethod>,
+    /// Types des annotations de la classe, visibles ou non a l'execution.
+    pub annotations: Vec<String>,
     /// La classe appartient a un nid (attribut `NestHost` ou `NestMembers`, JVMS
     /// §4.7.28-29) : d'autres classes peuvent ecrire ses champs prives.
     pub nested: bool,
@@ -169,18 +176,29 @@ impl ClassFile {
             interfaces.push(pool.class_name(cursor.u16()?)?.to_owned());
         }
 
-        // Champs : drapeaux, nom et descripteur ; leurs attributs sont sautes.
+        // Champs : drapeaux, nom, descripteur et annotations ; les autres attributs sont
+        // sautes.
         let field_count = usize::from(cursor.u16()?);
         let mut fields = Vec::with_capacity(cursor.capacity_for(field_count, 8));
         for _ in 0..field_count {
             let access = cursor.u16()?;
             let name = pool.utf8(cursor.u16()?)?.to_owned();
             let descriptor = pool.utf8(cursor.u16()?)?.to_owned();
-            skip_attributes(&mut cursor)?;
+            let mut annotations = Vec::new();
+            let attribute_count = cursor.u16()?;
+            for _ in 0..attribute_count {
+                let attribute_name = pool.utf8(cursor.u16()?)?;
+                let len = cursor.u32()? as usize;
+                let body = cursor.take(len)?;
+                if is_annotation_attribute(attribute_name) {
+                    annotations.extend(parse_annotation_types(body, &pool)?);
+                }
+            }
             fields.push(FieldInfo {
                 access,
                 name,
                 descriptor,
+                annotations,
             });
         }
 
@@ -191,6 +209,7 @@ impl ClassFile {
         }
 
         let mut bootstrap_methods = Vec::new();
+        let mut annotations = Vec::new();
         let mut nested = false;
         let attribute_count = usize::from(cursor.u16()?);
         for _ in 0..attribute_count {
@@ -199,6 +218,8 @@ impl ClassFile {
             let body = cursor.take(len)?;
             if attribute_name == "BootstrapMethods" {
                 bootstrap_methods = parse_bootstrap_methods(body)?;
+            } else if is_annotation_attribute(attribute_name) {
+                annotations.extend(parse_annotation_types(body, &pool)?);
             }
             nested |= attribute_name == "NestHost" || attribute_name == "NestMembers";
         }
@@ -216,6 +237,7 @@ impl ClassFile {
             fields,
             methods,
             bootstrap_methods,
+            annotations,
             nested,
             pool,
         })
@@ -233,6 +255,16 @@ impl ClassFile {
         self.methods
             .iter()
             .find(|method| method.name == name && method.descriptor == descriptor)
+    }
+
+    /// `true` si la classe, ou un de ses champs ou une de ses methodes, porte une
+    /// annotation de ce type (`Lpkg/Annotation;`).
+    #[must_use]
+    pub fn mentions_annotation(&self, descriptor: &str) -> bool {
+        let named = |list: &[String]| list.iter().any(|a| a == descriptor);
+        named(&self.annotations)
+            || self.fields.iter().any(|f| named(&f.annotations))
+            || self.methods.iter().any(|m| named(&m.annotations))
     }
 
     /// `true` si c'est une interface.
@@ -279,12 +311,65 @@ impl ClassFile {
     }
 }
 
-fn skip_attributes(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
-    let count = cursor.u16()?;
+/// Profondeur d'imbrication des valeurs d'annotation au-dela de laquelle le fichier est
+/// tenu pour mal forme : une pile bornee, quel que soit le fichier lu.
+const MAX_ANNOTATION_DEPTH: u32 = 64;
+
+/// Attributs d'annotations dont on garde les types (JVMS §4.7.16-17). Les annotations
+/// invisibles a l'execution comptent aussi : un greffon de lancement lit le fichier,
+/// pas la reflexion.
+fn is_annotation_attribute(name: &str) -> bool {
+    name == "RuntimeVisibleAnnotations" || name == "RuntimeInvisibleAnnotations"
+}
+
+/// Types des annotations d'un attribut `Runtime(In)VisibleAnnotations`.
+fn parse_annotation_types(body: &[u8], pool: &ConstantPool) -> Result<Vec<String>, ParseError> {
+    let mut cursor = Cursor::new(body);
+    let count = usize::from(cursor.u16()?);
+    let mut types = Vec::with_capacity(cursor.capacity_for(count, 4));
     for _ in 0..count {
+        types.push(pool.utf8(cursor.u16()?)?.to_owned());
+        skip_element_pairs(&mut cursor, 0)?;
+    }
+    if cursor.remaining() != 0 {
+        return Err(ParseError::Malformed("octets apres les annotations"));
+    }
+    Ok(types)
+}
+
+/// Saute les paires `nom = valeur` d'une annotation (JVMS §4.7.16).
+fn skip_element_pairs(cursor: &mut Cursor<'_>, depth: u32) -> Result<(), ParseError> {
+    let pairs = cursor.u16()?;
+    for _ in 0..pairs {
         cursor.take(2)?;
-        let len = cursor.u32()? as usize;
-        cursor.take(len)?;
+        skip_element_value(cursor, depth)?;
+    }
+    Ok(())
+}
+
+/// Saute une valeur d'element (JVMS §4.7.16.1).
+fn skip_element_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<(), ParseError> {
+    if depth >= MAX_ANNOTATION_DEPTH {
+        return Err(ParseError::Malformed("annotations trop imbriquees"));
+    }
+    match cursor.u8()? {
+        b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' | b'c' => {
+            cursor.take(2)?;
+        }
+        b'e' => {
+            cursor.take(4)?;
+        }
+        b'@' => {
+            cursor.take(2)?;
+            skip_element_pairs(cursor, depth + 1)?;
+        }
+        b'[' => {
+            let values = cursor.u16()?;
+            for _ in 0..values {
+                skip_element_value(cursor, depth + 1)?;
+            }
+        }
+        _ => return Err(ParseError::Malformed("valeur d'annotation inconnue")),
     }
     Ok(())
 }
@@ -294,6 +379,7 @@ fn parse_method(cursor: &mut Cursor<'_>, pool: &ConstantPool) -> Result<MethodIn
     let name = pool.utf8(cursor.u16()?)?.to_owned();
     let descriptor = pool.utf8(cursor.u16()?)?.to_owned();
     let mut code: Option<Code> = None;
+    let mut annotations = Vec::new();
     let attribute_count = cursor.u16()?;
     for _ in 0..attribute_count {
         let attribute_name = pool.utf8(cursor.u16()?)?;
@@ -306,6 +392,8 @@ fn parse_method(cursor: &mut Cursor<'_>, pool: &ConstantPool) -> Result<MethodIn
                 return Err(ParseError::Malformed("deux attributs Code"));
             }
             code = Some(parse_code(body, pool)?);
+        } else if is_annotation_attribute(attribute_name) {
+            annotations.extend(parse_annotation_types(body, pool)?);
         }
     }
     let code = code.unwrap_or_default();
@@ -317,6 +405,7 @@ fn parse_method(cursor: &mut Cursor<'_>, pool: &ConstantPool) -> Result<MethodIn
         max_stack: code.max_stack,
         max_locals: code.max_locals,
         handlers: code.handlers,
+        annotations,
     })
 }
 

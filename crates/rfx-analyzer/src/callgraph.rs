@@ -35,9 +35,11 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::time::Instant;
 
-use rfx_bytecode::{CallSite, CallTarget, InvokeKind, MemberRef};
+use rfx_bytecode::{access, CallSite, CallTarget, InvokeKind, MemberRef};
 
-use crate::hierarchy::{ClassIndex, MethodRef, Selection, OBJECT, OBJECT_METHODS};
+use crate::hierarchy::{
+    side_conditional, ClassIndex, MethodRef, Selection, OBJECT, OBJECT_METHODS,
+};
 
 /// Profondeur d'exploration par defaut (`analysis.max_call_depth`, R-340).
 pub const DEFAULT_MAX_CALL_DEPTH: u32 = 12;
@@ -110,6 +112,12 @@ pub enum Unresolved {
     /// Les cibles du site ne tiennent pas toutes sous la borne de noeuds (R-340) :
     /// aucune n'est affirmee, un ensemble partiel serait un faux resolu (ADR-053).
     Truncated,
+    /// Une cible porte `@OnlyIn` : le `RuntimeDistCleaner` de Forge la retire de
+    /// l'autre cote, et le natif ne sait pas lequel (ADR-059).
+    SideConditional,
+    /// La methode resolue est de paquet, et la methode trouvee pour un receveur est d'un
+    /// autre paquet : elle ne la redefinit peut-etre pas (JVMS §5.4.5, ADR-059).
+    PackagePrivate,
 }
 
 /// Attribut d'une arete (PARTIE 5.7).
@@ -565,6 +573,9 @@ fn declaration(
             return Err(Unresolved::UnknownClass);
         };
         if let Some(method) = class.method(&member.name, &member.descriptor) {
+            if side_conditional(method) {
+                return Err(Unresolved::SideConditional);
+            }
             return Ok(Some(Declaration {
                 method: named(name),
                 is_abstract: method.is_abstract(),
@@ -635,6 +646,13 @@ fn declaration(
                 .is_some_and(|m| !m.is_abstract())
         })
         .collect();
+    if concrete.iter().any(|iface| {
+        iface
+            .method(&member.name, &member.descriptor)
+            .is_some_and(side_conditional)
+    }) {
+        return Err(Unresolved::SideConditional);
+    }
     match (concrete.as_slice(), maximal.first()) {
         ([one], _) => Ok(Some(Declaration {
             method: named(&one.name),
@@ -711,6 +729,7 @@ fn resolve_virtual(
             Selection::Missing => Err(Unresolved::NoImplementation),
             Selection::Unknown | Selection::Pending => Err(Unresolved::UnknownClass),
             Selection::Ambiguous => Err(Unresolved::Ambiguous),
+            Selection::SideConditional => Err(Unresolved::SideConditional),
         };
     }
 
@@ -742,6 +761,9 @@ fn resolve_virtual(
         }
         match classes.select(receiver, &member.name, &member.descriptor) {
             Selection::Found(target) => {
+                if overrides_in_doubt(classes, declared.as_ref(), &target) {
+                    return Err(Unresolved::PackagePrivate);
+                }
                 if !targets.contains(&target) {
                     targets.push(target);
                 }
@@ -756,6 +778,7 @@ fn resolve_virtual(
             Selection::Pending => pending = true,
             Selection::Unknown => return Err(Unresolved::UnknownClass),
             Selection::Ambiguous => return Err(Unresolved::Ambiguous),
+            Selection::SideConditional => return Err(Unresolved::SideConditional),
         }
     }
     if pending {
@@ -771,6 +794,36 @@ fn resolve_virtual(
             .collect()),
         _ => Err(Unresolved::Megamorphic),
     }
+}
+
+/// `true` si `target`, trouvee pour un receveur, ne redefinit peut-etre pas la methode
+/// resolue `declared` : celle-ci est de paquet, et `target` est d'un autre paquet. La
+/// JVM executerait alors la methode resolue, ou une redefinition transitive que la
+/// regle n'essaie pas de reconstituer (JVMS §5.4.5, ADR-059). Les methodes de
+/// `java/lang/Object` sont publiques ou protegees.
+fn overrides_in_doubt(
+    classes: &ClassIndex,
+    declared: Option<&MethodRef>,
+    target: &MethodRef,
+) -> bool {
+    let Some(declared) = declared else {
+        return false;
+    };
+    if declared.owner == target.owner || declared.owner == OBJECT {
+        return false;
+    }
+    let package_private = classes
+        .get(&declared.owner)
+        .and_then(|class| class.method(&declared.name, &declared.descriptor))
+        .is_none_or(|method| {
+            method.access & (access::PUBLIC | access::PROTECTED | access::PRIVATE) == 0
+        });
+    package_private && package_of(&declared.owner) != package_of(&target.owner)
+}
+
+/// Paquet d'un nom interne de classe (`a/b/C` -> `a/b`).
+fn package_of(class: &str) -> &str {
+    class.rfind('/').map_or("", |at| &class[..at])
 }
 
 /// Composantes fortement connexes (Tarjan, version iterative).

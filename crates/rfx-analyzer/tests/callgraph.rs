@@ -492,3 +492,139 @@ fn metrics_describe_the_graph() {
     );
     assert!(lambda.build_ns() > 0);
 }
+
+/// Index des classes de test, chacune modifiee par `edit` avant d'etre indexee : pour
+/// reproduire ce que la plateforme change au chargement sans recompiler.
+fn index_with(edit: impl Fn(&mut ClassFile)) -> ClassIndex {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../rfx-bytecode/tests/fixtures/classes/fixtures");
+    let classes = std::fs::read_dir(&dir)
+        .expect("classes de test")
+        .map(|entry| entry.expect("entree").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "class"))
+        .map(|path| {
+            let mut class =
+                ClassFile::parse(&std::fs::read(&path).expect("lecture")).expect("lisible");
+            edit(&mut class);
+            class
+        });
+    ClassIndex::from_classes(classes)
+}
+
+/// ADR-059 : une cible marquee `@OnlyIn` peut etre retiree au chargement selon le cote,
+/// que le natif ignore ; l'appel qui l'atteint n'est pas resolu, par une classe comme
+/// par un appel lie statiquement.
+#[test]
+fn a_target_reserved_to_one_side_is_never_resolved() {
+    let mark = |owner: &'static str, name: &'static str| {
+        move |class: &mut ClassFile| {
+            if class.name == owner {
+                for m in class.methods.iter_mut().filter(|m| m.name == name) {
+                    m.annotations
+                        .push(rfx_analyzer::hierarchy::ONLY_IN.to_owned());
+                }
+            }
+        }
+    };
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let graph = CallGraph::build(
+        &index_with(mark("fixtures/Car", "wheels")),
+        &vehicle,
+        Limits::default(),
+    );
+    assert!(
+        resolved_from(&graph, &vehicle).is_empty(),
+        "aucune cible affirmee"
+    );
+    assert_eq!(
+        unresolved_from(&graph, &vehicle),
+        vec![Unresolved::SideConditional]
+    );
+
+    let sound = method("Dog", "sound", "()Ljava/lang/String;");
+    let graph = CallGraph::build(
+        &index_with(mark("fixtures/Dog", "bark")),
+        &sound,
+        Limits::default(),
+    );
+    assert_eq!(
+        unresolved_from(&graph, &sound),
+        vec![Unresolved::SideConditional],
+        "methode privee"
+    );
+}
+
+/// ADR-059 : `Vehicle.wheels` est de paquet ; une sous-classe d'un autre paquet ne la
+/// redefinit pas (JVMS §5.4.5), et l'appel n'est pas resolu plutot que vers elle.
+#[test]
+fn a_package_private_method_is_not_overridden_from_another_package() {
+    let moved = index_with(|class| {
+        if class.name == "fixtures/Bike" {
+            class.name = "elsewhere/Bike".to_owned();
+        }
+    });
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let graph = CallGraph::build(&moved, &vehicle, Limits::default());
+    assert!(resolved_from(&graph, &vehicle).is_empty());
+    assert_eq!(
+        unresolved_from(&graph, &vehicle),
+        vec![Unresolved::PackagePrivate]
+    );
+}
+
+/// Ajoute une annotation aux methodes `name` de la classe `owner`.
+fn annotate(
+    owner: &'static str,
+    name: &'static str,
+    annotation: &'static str,
+) -> impl Fn(&mut ClassFile) {
+    move |class: &mut ClassFile| {
+        if class.name == owner {
+            for m in class.methods.iter_mut().filter(|m| m.name == name) {
+                m.annotations.push(annotation.to_owned());
+            }
+        }
+    }
+}
+
+/// ADR-059 : `@OnlyIns` (plusieurs `@OnlyIn`) rend la cible aussi incertaine, et un
+/// appel lie statiquement (`invokestatic`) vers une cible marquee n'est pas resolu.
+#[test]
+fn only_ins_and_static_targets_reserved_to_one_side_are_not_resolved() {
+    use rfx_analyzer::hierarchy::{ONLY_IN, ONLY_INS};
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let index = index_with(annotate("fixtures/Car", "wheels", ONLY_INS));
+    let graph = CallGraph::build(&index, &vehicle, Limits::default());
+    assert_eq!(
+        unresolved_from(&graph, &vehicle),
+        vec![Unresolved::SideConditional]
+    );
+
+    let c1 = method("Bounds", "c1", "()I");
+    let index = index_with(annotate("fixtures/Bounds", "c2", ONLY_IN));
+    let graph = CallGraph::build(&index, &c1, Limits::default());
+    assert_eq!(
+        unresolved_from(&graph, &c1),
+        vec![Unresolved::SideConditional]
+    );
+}
+
+/// ADR-059 : une methode publique se redefinit depuis n'importe quel paquet ; seule une
+/// methode de paquet rend la redefinition incertaine.
+#[test]
+fn a_public_method_is_overridden_from_another_package() {
+    let moved = index_with(|class| {
+        if class.name == "fixtures/Bike" {
+            class.name = "elsewhere/Bike".to_owned();
+        }
+        for m in class.methods.iter_mut().filter(|m| m.name == "wheels") {
+            m.access |= rfx_bytecode::access::PUBLIC;
+        }
+    });
+    let vehicle = method("Calls", "vehicle", "(Lfixtures/Vehicle;)I");
+    let graph = CallGraph::build(&moved, &vehicle, Limits::default());
+    assert!(unresolved_from(&graph, &vehicle).is_empty());
+    assert!(resolved_from(&graph, &vehicle)
+        .iter()
+        .any(|(target, _)| target == "elsewhere/Bike.wheels()I"));
+}

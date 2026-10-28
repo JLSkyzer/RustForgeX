@@ -67,6 +67,9 @@ public final class CallGraphLink {
     private static final int ACC_FINAL = 0x0010;
     private static final int MAX_FAILURES = 5;
 
+    /** Classes qui définissent des classes nommées au journal, au plus. */
+    private static final int MAX_NAMED_DEFINERS = 5;
+
     private static final Logger LOGGER = LoggerFactory.getLogger("rustforgex");
 
     private final NativeBridge bridge;
@@ -82,6 +85,8 @@ public final class CallGraphLink {
     private volatile long declared;
     private volatile long unreadable;
     private volatile long unreadableMixins;
+    private volatile long definers;
+    private final List<String> definerNames = new ArrayList<>();
     private volatile long hidden;
     private volatile long provided;
     private volatile long absent;
@@ -250,6 +255,13 @@ public final class CallGraphLink {
                     unreadableMixins);
             return false;
         }
+        if (definers > 0) {
+            LOGGER.warn("{} classe(s) du jeu ou des mods peuvent définir des classes à "
+                    + "l'exécution (dont {}) : la hiérarchie relevée ne serait pas "
+                    + "complète, aucun graphe d'appel ne sera construit (ADR-059). Le jeu "
+                    + "tourne normalement.", definers, definerNames);
+            return false;
+        }
         hierarchyReady = true;
         return true;
     }
@@ -268,7 +280,7 @@ public final class CallGraphLink {
         }
 
         @Override
-        public boolean accept(byte[] bytes) {
+        public boolean accept(byte[] bytes, boolean gameLayer) {
             if (MixinTargets.collect(bytes, mixinTargets) == MixinTargets.Outcome.UNREADABLE) {
                 unreadableMixins++;
             }
@@ -276,6 +288,12 @@ public final class CallGraphLink {
             if (header == null) {
                 unreadable++;
                 return !Thread.currentThread().isInterrupted();
+            }
+            if (gameLayer && ClassDefiners.mentions(bytes)) {
+                definers++;
+                if (definerNames.size() < MAX_NAMED_DEFINERS) {
+                    definerNames.add(header.name());
+                }
             }
             int access = transformed.contains(header.name())
                     ? header.access() & ~ACC_FINAL
@@ -422,6 +440,14 @@ public final class CallGraphLink {
     /** @return les classes mixin illisibles ; une seule empêche toute analyse */
     public long unreadableMixins() {
         return unreadableMixins;
+    }
+
+    /**
+     * @return les classes de la couche du jeu qui peuvent définir des classes à
+     *     l'exécution ; une seule empêche toute analyse (ADR-059)
+     */
+    public long definers() {
+        return definers;
     }
 
     /** @return les cibles de mixin, d'access transformer ou de coremod, déclarées absentes */

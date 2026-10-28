@@ -77,6 +77,24 @@ final class TestClasses {
         return writer.toByteArray();
     }
 
+    /**
+     * Classe qui nomme {@code defineClass} dans son réservoir, comme le fait un chargeur
+     * personnalisé ou un appel par réflexion (ADR-059).
+     */
+    static byte[] definer(String name) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, name, null, "java/lang/Object", null);
+        MethodVisitor method = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "definer", "()Ljava/lang/String;", null, null);
+        method.visitCode();
+        method.visitLdcInsn("defineClass");
+        method.visitInsn(Opcodes.ARETURN);
+        method.visitMaxs(0, 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
     /** Classe qui cite le descripteur de {@code @Mixin} sans porter l'annotation. */
     static byte[] mentionsMixin(String name) {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);

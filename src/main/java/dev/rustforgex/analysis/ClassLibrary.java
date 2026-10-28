@@ -17,9 +17,11 @@ public interface ClassLibrary extends AutoCloseable {
     interface ClassSink {
         /**
          * @param bytes contenu d'un fichier {@code .class}
+         * @param gameLayer {@code true} pour une classe de la couche de départ (en jeu,
+         *     Minecraft, Forge et les mods), {@code false} pour une couche parente
          * @return {@code false} pour arrêter le parcours
          */
-        boolean accept(byte[] bytes);
+        boolean accept(byte[] bytes, boolean gameLayer);
     }
 
     /**
@@ -42,7 +44,9 @@ public interface ClassLibrary extends AutoCloseable {
     /**
      * @return les classes qu'un access transformer ou un coremod modifie, en noms
      *     internes ({@link TransformedClasses})
-     * @throws IOException si un fichier n'a pu être lu
+     * @throws IOException si un fichier n'a pu être lu, ou si des transformations
+     *     échappent au relevé (service de transformation inconnu, données de coremod
+     *     introuvables, ADR-059) : l'analyse ne doit pas démarrer
      */
     Set<String> transformedClasses() throws IOException;
 

@@ -34,6 +34,8 @@ class CallGraphLinkTest {
     private static final class MemoryLibrary implements ClassLibrary {
         final Map<String, byte[]> classes = new LinkedHashMap<>();
         final Set<String> transformed = new HashSet<>();
+        /** Classes d'une couche parente ; les autres sont de la couche du jeu. */
+        final Set<String> platform = new HashSet<>();
         final List<String> reads = Collections.synchronizedList(new ArrayList<>());
         volatile boolean failMidway;
         volatile boolean closed;
@@ -50,11 +52,11 @@ class CallGraphLinkTest {
         @Override
         public boolean forEachClass(ClassSink sink) throws IOException {
             int index = 0;
-            for (byte[] bytes : classes.values()) {
+            for (Map.Entry<String, byte[]> entry : classes.entrySet()) {
                 if (failMidway && index++ == classes.size() / 2) {
                     throw new IOException("archive illisible");
                 }
-                if (!sink.accept(bytes)) {
+                if (!sink.accept(entry.getValue(), !platform.contains(entry.getKey()))) {
                     return false;
                 }
             }
@@ -201,6 +203,28 @@ class CallGraphLinkTest {
         assertEquals(1, link.unreadableMixins());
         assertEquals(0, link.step(library, Set.of()));
         assertEquals(0, bridge.stepCalls);
+    }
+
+    @Test
+    @DisplayName("Une classe du jeu qui peut définir des classes : aucun pas (ADR-059)")
+    void aClassDefinerInTheGameLayerBlocksTheAnalysis() throws Exception {
+        MemoryLibrary game = new MemoryLibrary().plain("p/A")
+                .add("p/D", TestClasses.definer("p/D"));
+        RecordingBridge bridge = new RecordingBridge();
+        CallGraphLink link = link(bridge, game, new ArrayList<>());
+        assertFalse(link.declareHierarchy(game, new HashSet<>()));
+        assertFalse(link.hierarchyReady());
+        assertEquals(1, link.definers());
+        assertEquals(0, link.step(game, Set.of()));
+        assertEquals(0, bridge.stepCalls);
+
+        // La même classe dans une couche parente (chargeur de la plateforme) : sans effet.
+        MemoryLibrary parent = new MemoryLibrary().plain("p/A")
+                .add("p/D", TestClasses.definer("p/D"));
+        parent.platform.add("p/D");
+        CallGraphLink ready = link(new RecordingBridge(), parent, new ArrayList<>());
+        assertTrue(ready.declareHierarchy(parent, new HashSet<>()));
+        assertEquals(0, ready.definers());
     }
 
     @Test

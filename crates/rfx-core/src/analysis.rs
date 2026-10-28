@@ -38,6 +38,7 @@ use rfx_analyzer::dataflow::{analyze_graph, workload_effects_from, DataflowLimit
 use rfx_analyzer::dependency::{dependencies, WholeTick, Workload};
 use rfx_analyzer::determinism::determinism_facts;
 use rfx_analyzer::hierarchy::Skeleton;
+use rfx_analyzer::platform;
 use rfx_analyzer::thread::{thread_facts, ThreadSafetyTable};
 use rfx_analyzer::{
     classify, confidence, CallGraph, ClassIndex, EdgeKind, Facts, Limits, MethodRef,
@@ -299,6 +300,10 @@ impl Analysis {
                 .filter(|class| class.name == name)
                 .map(|class| (class, bytes.len() as u64))
         });
+        // Ce qu'un greffon de lancement de Forge reecrit sans qu'on puisse le reproduire
+        // est inconnu, comme une cible de mixin (ADR-059).
+        let class = class
+            .and_then(|(class, len)| platform::as_loaded(class, &self.index).map(|c| (c, len)));
         match class {
             Some((class, len)) => {
                 self.bytecode_bytes = self.bytecode_bytes.saturating_add(len);
@@ -1023,6 +1028,26 @@ pub(crate) mod tests {
         let (id, root) = vehicle();
         analysis.note(id, root, Side::Common);
         assert_eq!(analysis.step(&[hot(id)]), StepState::Idle);
+    }
+
+    /// ADR-059 : une classe qu'un greffon de lancement de Forge reecrit (ici, une
+    /// descendante d'`Event` selon la hierarchie declaree) est fournie comme absente ;
+    /// une classe ordinaire est fournie telle quelle.
+    #[test]
+    fn a_class_rewritten_by_a_forge_plugin_is_provided_as_absent() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let mut entries = hierarchy(&classes);
+        for HierarchyEntry(name, parent, _) in &mut entries {
+            if name == "fixtures/Animal" {
+                *parent = platform::EVENT.to_owned();
+            }
+        }
+        analysis.declare(entries);
+        analysis.provide("fixtures/Dog", Some(&classes["fixtures/Dog"]));
+        analysis.provide("fixtures/Calls", Some(&classes["fixtures/Calls"]));
+        let status = analysis.status();
+        assert_eq!((status.classes_provided, status.classes_absent), (1, 1));
     }
 
     /// C-13 nourrit C-12 : une unite pure, deterministe et en lecture seule d'un objet

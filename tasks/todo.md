@@ -1102,8 +1102,23 @@ demandent une mesure ; les autres sont des tests de justesse.
       tués. Pas encore observé en jeu : le serveur GameTest s'arrête avant le premier
       graphe. T-222 attend le moteur parallèle, T-223 C-21
 - [ ] `order_deps` (C-10, étape 2 : même flux d'événement, l'un peut annuler ou modifier
-      l'événement) à partir de l'ordre des événements de C-06 — dernier fait qui manque à
-      C-08 : sans lui, tout descripteur reste `UNKNOWN`
+      l'événement) — dernier fait qui manque à C-08 : sans lui, tout descripteur reste
+      `UNKNOWN`. Voie choisie par Killian le 2026-10-18 : « Revue ADR-051 puis statique »
+  - [x] Revue des angles morts de l'ADR-051 (ADR-059) : trois angles morts de plus
+        trouvés (greffons de lancement de Forge, fichiers de données des coremods —
+        défaut réel, 22 cibles de `method_redirector.js` manquées —, redéfinition des
+        méthodes de paquet). Parades : `@OnlyIn` et méthodes de paquet non résolus,
+        classes réécrites par Forge absentes, `@ObjectHolder` sans `final` ; l'analyse
+        ne démarre pas devant un service de transformation tiers, des données de
+        coremod non nommées ou une classe du jeu qui définit des classes. 17 + 4
+        mutants tués. Le jeu a pris en défaut la première liste de services (Mixin) ;
+        corrigé. Non observé en jeu : la fin du relevé (le serveur GameTest s'arrête
+        avant)
+  - [ ] Règle statique prudente : une unité qui pourrait être appelée par un
+        répartiteur (bus Forge ou maison) garde `order_deps` inconnu ; les autres
+        reçoivent une liste vide. ADR : la dépendance de contrôle (C-10 étape 3) n'a
+        pas de champ dans DM-08
+  - [ ] Tests, mutations, vérification complète, jeu lancé et journaux relus
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

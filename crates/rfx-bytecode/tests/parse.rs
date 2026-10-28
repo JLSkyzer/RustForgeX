@@ -44,7 +44,7 @@ fn calls(class: &ClassFile, name: &str, descriptor: &str) -> Vec<String> {
 #[test]
 fn every_fixture_parses_with_its_hierarchy() {
     let all = fixtures();
-    assert_eq!(all.len(), 56, "classes : {:?}", all.keys());
+    assert_eq!(all.len(), 60, "classes : {:?}", all.keys());
     for (name, bytes) in &all {
         let class = ClassFile::parse(bytes).unwrap_or_else(|e| panic!("{name} : {e}"));
         assert_eq!(class.name, format!("fixtures/{name}"));
@@ -256,4 +256,33 @@ fn random_corruption_never_panics() {
         parsed > 0,
         "aucun fichier altere relu : le parcours n'est pas exerce"
     );
+}
+
+#[test]
+fn annotation_types_are_read_on_the_class_its_fields_and_its_methods() {
+    // ADR-059 : seuls les types sont gardes, quelles que soient la retention et la
+    // forme des valeurs (enumeration, annotation imbriquee, tableau, classe).
+    let visible = "Lfixtures/Annotated$Visible;";
+    let invisible = "Lfixtures/Annotated$Invisible;";
+    let class = parsed("Annotated");
+    assert_eq!(class.annotations, vec![visible.to_owned()]);
+    let field = |name: &str| class.fields.iter().find(|f| f.name == name).expect("champ");
+    assert_eq!(field("marked").annotations, vec![invisible.to_owned()]);
+    assert!(field("plain").annotations.is_empty());
+    let both = class.method("both", "()V").expect("methode");
+    assert_eq!(
+        both.annotations,
+        vec![visible.to_owned(), invisible.to_owned()]
+    );
+    assert!(class
+        .method("none", "()V")
+        .expect("methode")
+        .annotations
+        .is_empty());
+    assert!(class.mentions_annotation(invisible));
+    assert!(
+        !class.mentions_annotation("Lfixtures/Annotated$Leaf;"),
+        "imbriquee seulement"
+    );
+    assert!(!parsed("Calls").mentions_annotation(visible));
 }

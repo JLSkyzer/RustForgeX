@@ -47,11 +47,14 @@ public final class ModuleLayerLibrary implements ClassLibrary {
     private static final String CORE_MODS = "META-INF/coremods.json";
 
     private final List<ModuleReference> modules;
+    /** Les modules de la couche de départ sont les premiers de {@link #modules}. */
+    private final int gameModules;
     private final ModuleReader[] readers;
     private final Map<String, Integer> packageOwners = new HashMap<>();
 
-    private ModuleLayerLibrary(List<ModuleReference> modules) {
+    private ModuleLayerLibrary(List<ModuleReference> modules, int gameModules) {
         this.modules = List.copyOf(modules);
+        this.gameModules = gameModules;
         this.readers = new ModuleReader[modules.size()];
         for (int index = 0; index < modules.size(); index++) {
             for (String pkg : modules.get(index).descriptor().packages()) {
@@ -69,6 +72,7 @@ public final class ModuleLayerLibrary implements ClassLibrary {
         Set<String> names = new HashSet<>();
         Set<ModuleLayer> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         Deque<ModuleLayer> pending = new ArrayDeque<>(List.of(layer));
+        int gameModules = 0;
         while (!pending.isEmpty()) {
             ModuleLayer current = pending.poll();
             if (!seen.add(current)) {
@@ -78,9 +82,12 @@ public final class ModuleLayerLibrary implements ClassLibrary {
                     .sorted(Comparator.comparing(ResolvedModule::name))
                     .filter(module -> names.add(module.name()))
                     .forEach(module -> modules.add(module.reference()));
+            if (current == layer) {
+                gameModules = modules.size();
+            }
             pending.addAll(current.parents());
         }
-        return new ModuleLayerLibrary(modules);
+        return new ModuleLayerLibrary(modules, gameModules);
     }
 
     /** @return le nombre de modules parcourus */
@@ -107,7 +114,7 @@ public final class ModuleLayerLibrary implements ClassLibrary {
                     try (InputStream in = stream.get()) {
                         bytes = in.readAllBytes();
                     }
-                    if (!sink.accept(bytes)) {
+                    if (!sink.accept(bytes, index < gameModules)) {
                         return false;
                     }
                 }
@@ -191,6 +198,13 @@ public final class ModuleLayerLibrary implements ClassLibrary {
     public Set<String> transformedClasses() throws IOException {
         Set<String> classes = new HashSet<>();
         for (int index = 0; index < modules.size(); index++) {
+            List<String> unknown =
+                    TransformationServices.unknownProviders(modules.get(index).descriptor());
+            if (!unknown.isEmpty()) {
+                throw new IOException("service de transformation inconnu " + unknown
+                        + " dans le module " + modules.get(index).descriptor().name()
+                        + " : ses cibles ne sont pas connues");
+            }
             String accessTransformer = text(index, ACCESS_TRANSFORMER);
             if (accessTransformer != null) {
                 TransformedClasses.accessTransformer(accessTransformer, classes);
@@ -206,6 +220,19 @@ public final class ModuleLayerLibrary implements ClassLibrary {
                     throw new IOException("coremod introuvable : " + path);
                 }
                 TransformedClasses.coreModScript(script, classes);
+                List<String> data = TransformedClasses.coreModDataFiles(script);
+                if (data.isEmpty() && TransformedClasses.loadsData(script)) {
+                    throw new IOException("coremod qui charge des données non nommées : "
+                            + path);
+                }
+                for (String file : data) {
+                    String content =
+                            text(index, file.startsWith("/") ? file.substring(1) : file);
+                    if (content == null) {
+                        throw new IOException("données de coremod introuvables : " + file);
+                    }
+                    TransformedClasses.coreModScript(content, classes);
+                }
             }
         }
         return classes;

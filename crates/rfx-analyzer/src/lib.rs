@@ -15,7 +15,9 @@
 //!   des domaines (C-10, ADR-056) ;
 //! - [`thread`] : si une unite doit rester sur le fil autoritatif, et le confinement
 //!   derive des classes (C-12, ADR-057) ;
-//! - [`determinism`] : les sources de non-determinisme d'une unite (C-13, ADR-058).
+//! - [`determinism`] : les sources de non-determinisme d'une unite (C-13, ADR-058) ;
+//! - [`platform`] : ce que les greffons de lancement de Forge changent au chargement
+//!   (C-07, ADR-059).
 //!
 //! # Sens des dependances
 //!
@@ -29,6 +31,7 @@ pub mod dataflow;
 pub mod dependency;
 pub mod determinism;
 pub mod hierarchy;
+pub mod platform;
 pub mod thread;
 
 pub use callgraph::{CallGraph, Edge, EdgeKind, Limits, Node, Resolution, Unresolved};

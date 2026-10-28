@@ -19,9 +19,11 @@ import java.util.regex.Pattern;
  *       tient un appel vers une méthode finale ou privée pour monomorphe ;</li>
  *   <li>un <strong>coremod</strong> ({@code META-INF/coremods.json}, scripts JS) peut
  *       tout réécrire. Ses cibles sont calculées par le script : on retient tout
- *       littéral qui a la forme d'un nom de classe. C'est une surapproximation, donc
+ *       littéral qui a la forme d'un nom de classe, dans le script et dans les
+ *       fichiers de données {@code .json} qu'il nomme (Forge lit ainsi les cibles de
+ *       {@code method_redirector.js}, ADR-059). C'est une surapproximation, donc
  *       prudente ; un nom construit par concaténation échapperait, risque résiduel
- *       consigné dans l'ADR-051.</li>
+ *       consigné dans l'ADR-051 et l'ADR-059.</li>
  * </ul>
  */
 public final class TransformedClasses {
@@ -32,6 +34,9 @@ public final class TransformedClasses {
 
     /** Chemin d'un script dans {@code coremods.json}. */
     private static final Pattern SCRIPT = Pattern.compile("\"([^\"]+\\.js)\"");
+
+    /** Littéral JS qui nomme un fichier de données {@code .json}. */
+    private static final Pattern DATA_FILE = Pattern.compile("([\"'])([^\"'\\s]+\\.json)\\1");
 
     private TransformedClasses() {
         throw new AssertionError("classe utilitaire, non instanciable");
@@ -84,5 +89,28 @@ public final class TransformedClasses {
         while (matcher.find()) {
             classes.add(matcher.group(2).replace('.', '/'));
         }
+    }
+
+    /**
+     * @param script contenu d'un script de coremod
+     * @return les fichiers de données {@code .json} que le script nomme, relatifs à la
+     *     racine de l'archive ; leurs littéraux en forme de nom de classe sont des cibles
+     */
+    public static List<String> coreModDataFiles(String script) {
+        List<String> files = new ArrayList<>();
+        Matcher matcher = DATA_FILE.matcher(script);
+        while (matcher.find()) {
+            files.add(matcher.group(2));
+        }
+        return files;
+    }
+
+    /**
+     * @param script contenu d'un script de coremod
+     * @return {@code true} si le script charge des données ({@code ASMAPI.loadData}) :
+     *     sans fichier nommé, ses cibles sont inconnues
+     */
+    public static boolean loadsData(String script) {
+        return script.contains("loadData");
     }
 }

@@ -20,11 +20,30 @@
 //! (une cible de mixin, dont le bytecode final nous echappe), sans avoir trouve sa
 //! reponse rend [`Selection::Unknown`] : cette classe aurait pu decider, et deviner
 //! serait affirmer un appel « resolu » qui ne l'est peut-etre pas.
+//!
+//! Une methode qui porte `@OnlyIn` peut etre retiree au chargement par le
+//! `RuntimeDistCleaner` de Forge, selon le cote ; le natif ne sait pas lequel : une
+//! selection qui s'arrete sur elle rend [`Selection::SideConditional`] (ADR-059).
 
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use rfx_bytecode::{access, ClassFile};
+use rfx_bytecode::{access, ClassFile, MethodInfo};
+
+/// Annotation de Forge qui reserve un membre a un cote (`net.minecraftforge.api.distmarker`).
+pub const ONLY_IN: &str = "Lnet/minecraftforge/api/distmarker/OnlyIn;";
+
+/// Conteneur de plusieurs [`ONLY_IN`].
+pub const ONLY_INS: &str = "Lnet/minecraftforge/api/distmarker/OnlyIns;";
+
+/// `true` si la methode peut etre retiree au chargement selon le cote (ADR-059).
+#[must_use]
+pub fn side_conditional(method: &MethodInfo) -> bool {
+    method
+        .annotations
+        .iter()
+        .any(|a| a == ONLY_IN || a == ONLY_INS)
+}
 
 /// Methode designee par sa classe, son nom et son descripteur.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -77,6 +96,9 @@ pub enum Selection {
     Pending,
     /// Plusieurs methodes par defaut candidates : rien n'est affirme.
     Ambiguous,
+    /// La methode trouvee porte `@OnlyIn` : selon le cote, elle existe ou c'est celle
+    /// d'un parent qui s'execute (ADR-059).
+    SideConditional,
 }
 
 /// Index des classes.
@@ -320,6 +342,9 @@ impl ClassIndex {
                 let overrides =
                     !method.is_static() && (!method.is_private() || class_name == receiver);
                 if overrides {
+                    if side_conditional(method) {
+                        return Selection::SideConditional;
+                    }
                     return if method.is_abstract() {
                         Selection::Missing
                     } else {
@@ -333,6 +358,7 @@ impl ClassIndex {
 
         // 2. Les methodes par defaut des interfaces, transitivement.
         let mut defaults = BTreeSet::new();
+        let mut conditional = false;
         let mut unknown = false;
         let mut pending = false;
         let mut seen = HashSet::new();
@@ -355,6 +381,7 @@ impl ClassIndex {
             };
             if let Some(method) = class.method(name, descriptor) {
                 if !method.is_abstract() && !method.is_static() && !method.is_private() {
+                    conditional |= side_conditional(method);
                     defaults.insert(MethodRef::new(interface, name, descriptor));
                 }
             }
@@ -365,6 +392,9 @@ impl ClassIndex {
         }
         if pending {
             return Selection::Pending;
+        }
+        if conditional {
+            return Selection::SideConditional;
         }
         match defaults.len() {
             0 => Selection::Missing,
