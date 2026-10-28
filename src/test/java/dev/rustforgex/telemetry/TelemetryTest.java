@@ -105,6 +105,42 @@ class TelemetryTest {
         assertEquals(12, measured.get("rfx.sched.external_runnable").value());
         assertEquals("fils", measured.get("rfx.sched.external_runnable").unit());
         assertEquals(31, measured.get("rfx.sched.external_runnable_max").value());
+        assertNull(measured.get("rfx.sched.workers_active"), "pool non démarré : rien");
+    }
+
+    /** Compteurs d'un pool démarré (ADR-061). */
+    private static Map<String, Object> pool() {
+        Map<String, Object> pool = new LinkedHashMap<>();
+        pool.put("running", true);
+        pool.put("workers", 6L);
+        pool.put("workers_active", 3L);
+        pool.put("queue_depth", 2L);
+        pool.put("executed", 900L);
+        pool.put("steals", 40L);
+        pool.put("rejected", 1L);
+        pool.put("panics", 0L);
+        pool.put("deadline_misses", 0L);
+        pool.put("serial", false);
+        return pool;
+    }
+
+    @Test
+    @DisplayName("ADR-061 : les compteurs du pool sont publiés quand il a démarré")
+    void thePoolCountersArePublishedOnceRunning() {
+        Map<String, Object> running = status();
+        Map<String, Object> scheduler = new LinkedHashMap<>(Map.of(
+                "external_runnable", 0L, "external_runnable_max", 0L,
+                "external_load_reports", 0L));
+        scheduler.putAll(pool());
+        running.put("scheduler", scheduler);
+        MetricSet set = Telemetry.collect(running, null, null, null);
+        assertEquals(3, set.get("rfx.sched.workers_active").value());
+        assertEquals(2, set.get("rfx.sched.queue_depth").value());
+        assertEquals(900, set.get("rfx.sched.executed").value());
+        assertEquals(40, set.get("rfx.sched.steals").value());
+        assertEquals(1, set.get("rfx.sched.rejected").value());
+        assertEquals(0, set.get("rfx.sched.panics").value());
+        assertEquals(0, set.get("rfx.sched.deadline_misses").value());
     }
 
     @Test
@@ -281,9 +317,11 @@ class TelemetryTest {
         complete.put("probes", new LinkedHashMap<String, Object>(Map.of(
                 "records_consumed", 1L, "records_lost", 0L,
                 "native_bytes", 0L, "native_limit_bytes", 0L)));
-        complete.put("scheduler", new LinkedHashMap<String, Object>(Map.of(
+        Map<String, Object> scheduler = new LinkedHashMap<>(Map.of(
                 "external_runnable", 12L, "external_runnable_max", 31L,
-                "external_load_reports", 4L)));
+                "external_load_reports", 4L));
+        scheduler.putAll(pool());
+        complete.put("scheduler", scheduler);
         complete.put("db", openDb(4L, 3L));
         complete.put("analysis", analysis(52_000L, 7L, 3L, 1_500_000L));
 

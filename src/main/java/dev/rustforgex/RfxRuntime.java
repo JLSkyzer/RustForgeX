@@ -802,6 +802,28 @@ public final class RfxRuntime {
                 table.get("writes"), table.get("write_failures"));
     }
 
+    /**
+     * Résume l'ordonnanceur des travaux internes dans le journal (C-17, ADR-061) : s'il
+     * n'a pas démarré, la base a tourné sur un fil dédié.
+     */
+    private void logSchedulerSummary() {
+        Map<String, Object> status = nativeStatus();
+        Object scheduler = status == null ? null : status.get("scheduler");
+        if (!(scheduler instanceof Map<?, ?> table)) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(table.get("running"))) {
+            LOGGER.info("Ordonnanceur non démarré : la base des unités de travail a tourné "
+                    + "sur un fil dédié. Le jeu tourne normalement.");
+            return;
+        }
+        LOGGER.info("Ordonnanceur : {} worker(s), dont {} actif(s) ; {} tâche(s) exécutée(s), "
+                + "{} refusée(s), {} panique(s){}.", table.get("workers"),
+                table.get("workers_active"), table.get("executed"), table.get("rejected"),
+                table.get("panics"),
+                Boolean.TRUE.equals(table.get("serial")) ? ", en série (sur-souscription)" : "");
+    }
+
     /** Résume le graphe d'appel dans le journal (C-07, ADR-051). */
     private void logCallGraphSummary() {
         Map<String, Object> status = nativeStatus();
@@ -815,7 +837,7 @@ public final class RfxRuntime {
                 table.get("truncated"), table.get("classes_provided"),
                 table.get("classes_absent"));
         LOGGER.info("Profileur d'unités de travail : {} descripteur(s), dont {} UNKNOWN "
-                + "(analyses C-10, C-12 et C-13 absentes, ADR-054) et {} aux écritures "
+                + "(un fait manque ou est inconnu, ADR-054, ADR-060) et {} aux écritures "
                 + "exactes (C-11, ADR-055) ; {} recalcul(s) ; {} dépendance(s) entre "
                 + "unités, dont {} par sûreté (C-10, ADR-056).",
                 table.get("descriptors"), table.get("descriptors_unknown"),
@@ -873,6 +895,7 @@ public final class RfxRuntime {
             dbLink.stop();
             logDbSummary();
         }
+        logSchedulerSummary();
         if (callGraphLink != null) {
             callGraphLink.stop();
             logCallGraphSummary();

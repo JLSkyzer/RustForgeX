@@ -24,7 +24,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rfx_cache::{DbConfig, DbService, DynamicsUpdate, StdFileSystem, SyncBatch, WorkloadRecord};
+use rfx_cache::{
+    DbConfig, DbService, DynamicsUpdate, Executor, StdFileSystem, SyncBatch, WorkloadRecord,
+};
 use rfx_model::{DbOpen, DbStatus, Fingerprint, HardwareClass, RuntimeConfig, WorkDescriptor};
 use rfx_profiler::WorkloadStore;
 use xxhash_rust::xxh3::xxh3_64;
@@ -114,9 +116,17 @@ pub struct DbLink {
     handed_back: u64,
     pending_dropped: u64,
     open_failures: u64,
+    /// Ou s'execute la base : l'ordonnanceur (ADR-061), a defaut un fil dedie.
+    executor: Option<Arc<dyn Executor>>,
 }
 
 impl DbLink {
+    /// Fait executer la base par `executor` plutot que par un fil dedie (ADR-061). A
+    /// donner avant l'ouverture.
+    pub fn use_executor(&mut self, executor: Arc<dyn Executor>) {
+        self.executor = Some(executor);
+    }
+
     /// Lien ferme, d'apres la configuration.
     #[must_use]
     pub fn new(config: &RuntimeConfig) -> Self {
@@ -132,6 +142,7 @@ impl DbLink {
             handed_back: 0,
             pending_dropped: 0,
             open_failures: 0,
+            executor: None,
         }
     }
 
@@ -182,7 +193,15 @@ impl DbLink {
             max_entries: self.max_entries,
             max_bytes,
         };
-        match DbService::start(Arc::new(StdFileSystem), config) {
+        let started = match &self.executor {
+            Some(executor) => Ok(DbService::start_on(
+                Arc::new(StdFileSystem),
+                config,
+                Arc::clone(executor),
+            )),
+            None => DbService::start(Arc::new(StdFileSystem), config),
+        };
+        match started {
             Ok(service) => {
                 self.environment = environment;
                 self.service = Some(service);

@@ -414,6 +414,8 @@ dependencies = [
  "rfx-memory",
  "rfx-model",
  "rfx-profiler",
+ "rfx-scheduler",
+ "rfx-taskgraph",
  "xxhash-rust",
 ]
 

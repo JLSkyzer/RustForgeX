@@ -141,6 +141,13 @@ rapport de comparaison n'est pas connu.
 | `rfx.sched.external_load_reports` | counter | — | Relevés de charge externe reçus par le natif, un par seconde (R-421, ADR-046) |
 | `rfx.sched.external_runnable` | gauge | fils | Fils tiers ayant consommé au moins 10 % d'un cœur depuis le relevé précédent, au dernier relevé — *conditionnelle* |
 | `rfx.sched.external_runnable_max` | gauge | fils | Plus haut relevé depuis le démarrage — *conditionnelle* |
+| `rfx.sched.workers_active` | gauge | fils | Workers actifs du pool, après réduction pour sur-souscription (R-421) — *conditionnelle* : pool démarré (ADR-061) |
+| `rfx.sched.queue_depth` | gauge | tâches | Tâches en attente dans les files d'injection — *conditionnelle* : pool démarré |
+| `rfx.sched.executed` | counter | — | Tâches exécutées par le pool — *conditionnelle* : pool démarré |
+| `rfx.sched.steals` | counter | — | Vols de travail entre workers — *conditionnelle* : pool démarré |
+| `rfx.sched.rejected` | counter | — | Soumissions refusées : contre-pression (`E-2401`) ou exécution en série d'une soumission détachée — *conditionnelle* : pool démarré |
+| `rfx.sched.panics` | counter | — | Tâches qui ont paniqué, worker sauf (R-524) — *conditionnelle* : pool démarré |
+| `rfx.sched.deadline_misses` | counter | — | Tâches dont l'échéance est passée — *conditionnelle* : pool démarré |
 
 Le compte se fait sur le temps processeur consommé, et non sur l'état `RUNNABLE` de la
 JVM : un fil bloqué dans un appel natif — une attente réseau, par exemple — est
@@ -164,7 +171,7 @@ majorité (ADR-046). Les fils internes de la JVM et les workers natifs n'y figur
 | `rfx.db.writes` | counter | — | Fichiers `workload.db` écrits, de façon atomique (R-224) |
 | `rfx.db.write_failures` | counter | — | Échecs d'écriture ; le premier désactive l'écriture (R-692, FM-18) |
 | `rfx.db.write_disabled` | gauge | booléen | 1 si l'écriture est désactivée ; la base continue en mémoire |
-| `rfx.db.persist_ms` | gauge | ms | Durée de la dernière écriture, encodage compris, sur le fil `RFX-IO` — *conditionnelle* : au moins une écriture |
+| `rfx.db.persist_ms` | gauge | ms | Durée de la dernière écriture, encodage compris, hors du fil du jeu (pool de l'ordonnanceur, ou fil `RFX-IO` de secours) — *conditionnelle* : au moins une écriture |
 
 Rien de cette section n'est publié tant que la base n'est pas ouverte (R-660) : Java
 l'ouvre quand l'inventaire des mods est connu, au chargement complet (ADR-049).

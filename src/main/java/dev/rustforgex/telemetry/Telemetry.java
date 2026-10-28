@@ -223,6 +223,31 @@ public final class Telemetry {
         set.addIfMeasured(reports > 0, () -> Metric.gauge("rfx.sched.external_runnable_max",
                 longOf(scheduler, "external_runnable_max"), "fils",
                 "Plus haut relevé de fils exécutables tiers depuis le démarrage."));
+        appendPool(set, scheduler);
+    }
+
+    /**
+     * Pool de l'ordonnanceur (C-17, ADR-061), qui exécute les travaux internes. Absent si
+     * le pool n'a pas démarré : la base tourne alors sur un fil dédié.
+     */
+    private static void appendPool(MetricSet set, Map<String, Object> scheduler) {
+        if (!Boolean.TRUE.equals(scheduler.get("running"))) {
+            return;
+        }
+        set.add(Metric.gauge("rfx.sched.workers_active", longOf(scheduler, "workers_active"),
+                "fils", "Workers actifs, après réduction pour sur-souscription (R-421)."));
+        set.add(Metric.gauge("rfx.sched.queue_depth", longOf(scheduler, "queue_depth"),
+                "tâches", "Tâches en attente dans les files d'injection."));
+        set.add(Metric.counter("rfx.sched.executed", longOf(scheduler, "executed"),
+                "Tâches exécutées par le pool."));
+        set.add(Metric.counter("rfx.sched.steals", longOf(scheduler, "steals"),
+                "Vols de travail entre workers."));
+        set.add(Metric.counter("rfx.sched.rejected", longOf(scheduler, "rejected"),
+                "Soumissions refusées : contre-pression (E-2401) ou exécution en série."));
+        set.add(Metric.counter("rfx.sched.panics", longOf(scheduler, "panics"),
+                "Tâches qui ont paniqué ; le worker a survécu (R-524)."));
+        set.add(Metric.counter("rfx.sched.deadline_misses", longOf(scheduler, "deadline_misses"),
+                "Tâches dont l'échéance est passée."));
     }
 
     /**
@@ -426,7 +451,7 @@ public final class Telemetry {
                 "1 si l'écriture est désactivée après un échec ; la base continue en mémoire."));
         set.addIfMeasured(writes > 0, () -> Metric.gauge("rfx.db.persist_ms",
                 longOf(db, "persist_ms"), "ms",
-                "Durée de la dernière écriture, encodage compris, sur le fil RFX-IO."));
+                "Durée de la dernière écriture, encodage compris, hors du fil du jeu."));
     }
 
     private static void appendProfiler(MetricSet set, Map<String, Object> profiler) {

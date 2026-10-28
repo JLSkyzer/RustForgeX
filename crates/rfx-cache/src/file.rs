@@ -29,11 +29,15 @@
 //! un fil, au demarrage, hors tick. Si un fil ne peut pas etre cree, le decodage se fait
 //! en serie : plus lent, jamais faux.
 
+use std::ops::Range;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
 use rfx_model::Fingerprint;
 use xxhash_rust::xxh3::xxh3_64;
 
+use crate::exec::Fork;
 use crate::record::WorkloadRecord;
 
 /// Signature d'un fichier `workload.db`.
@@ -186,25 +190,62 @@ fn read_header(cursor: &mut Cursor<'_>) -> Result<Fingerprint, DecodeError> {
 ///
 /// [`DecodeError`] si le fichier est invalide, tronque ou altere.
 pub fn decode(bytes: &[u8]) -> Result<Decoded, DecodeError> {
-    let mut cursor = Cursor { bytes, at: 0 };
-    let fingerprint = read_header(&mut cursor)?;
-    let payload_len = cursor.len()?;
-    let checksum = cursor.u64()?;
-    let payload = cursor.take(payload_len)?;
-    if xxh3_64(payload) != checksum {
-        return Err(DecodeError::ChecksumMismatch);
+    let (fingerprint, start, ranges) = layout(bytes)?;
+    let mut records = Vec::new();
+    for range in ranges {
+        records.extend(decode_chunk(
+            &bytes[start + range.start..start + range.end],
+        )?);
     }
-    let chunks = split_chunks(payload)?;
-    let records = decode_chunks(&chunks)?;
     Ok(Decoded {
         fingerprint,
         records,
     })
 }
 
+/// Decode un fichier complet, ses blocs en sous-travaux de `fork` (ADR-061) : en jeu,
+/// des sous-taches de l'ordonnanceur, sans fil cree pour l'occasion.
+///
+/// # Errors
+///
+/// [`DecodeError`] si le fichier est invalide, tronque ou altere, ou si un sous-travail
+/// n'a pas rendu son bloc.
+pub fn decode_with(bytes: Arc<Vec<u8>>, fork: &dyn Fork) -> Result<Decoded, DecodeError> {
+    let (fingerprint, start, ranges) = layout(&bytes)?;
+    let records = decode_chunks(&bytes, start, ranges, fork)?;
+    Ok(Decoded {
+        fingerprint,
+        records,
+    })
+}
+
+/// En-tete verifie, debut du contenu et plages de ses blocs (relatives au contenu).
+fn layout(bytes: &[u8]) -> Result<(Fingerprint, usize, Vec<Range<usize>>), DecodeError> {
+    let mut cursor = Cursor { bytes, at: 0 };
+    let fingerprint = read_header(&mut cursor)?;
+    let payload_len = cursor.len()?;
+    let checksum = cursor.u64()?;
+    let start = cursor.at;
+    let payload = cursor.take(payload_len)?;
+    if xxh3_64(payload) != checksum {
+        return Err(DecodeError::ChecksumMismatch);
+    }
+    Ok((fingerprint, start, chunk_ranges(payload)?))
+}
+
 /// Decoupe le contenu en blocs, d'apres sa table. Le contenu doit se terminer
 /// exactement avec le dernier bloc.
+#[cfg(test)]
 fn split_chunks(payload: &[u8]) -> Result<Vec<&[u8]>, DecodeError> {
+    Ok(chunk_ranges(payload)?
+        .into_iter()
+        .map(|range| &payload[range])
+        .collect())
+}
+
+/// Plages des blocs du contenu, d'apres sa table. Le contenu doit se terminer
+/// exactement avec le dernier bloc.
+fn chunk_ranges(payload: &[u8]) -> Result<Vec<Range<usize>>, DecodeError> {
     let mut cursor = Cursor {
         bytes: payload,
         at: 0,
@@ -217,7 +258,10 @@ fn split_chunks(payload: &[u8]) -> Result<Vec<&[u8]>, DecodeError> {
         .collect::<Result<Vec<_>, _>>()?;
     let chunks = lengths
         .into_iter()
-        .map(|len| cursor.take(len))
+        .map(|len| {
+            let at = cursor.at;
+            cursor.take(len).map(|_| at..at + len)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     if cursor.at != payload.len() {
         return Err(DecodeError::Malformed(
@@ -231,77 +275,56 @@ fn decode_chunk(chunk: &[u8]) -> Result<Vec<WorkloadRecord>, DecodeError> {
     rfx_model::from_cbor(chunk).map_err(|e| DecodeError::Malformed(e.to_string()))
 }
 
-/// Decode les blocs sur plusieurs fils, et rend les enregistrements dans l'ordre.
-fn decode_chunks(chunks: &[&[u8]]) -> Result<Vec<WorkloadRecord>, DecodeError> {
-    let threads = thread::available_parallelism()
+/// Decode les blocs en `parts` sous-travaux de `fork`, et rend les enregistrements dans
+/// l'ordre. Le sous-travail `p` decode les blocs `p`, `p + parts`, `p + 2 * parts`... ;
+/// une panic du decodeur est confinee a son sous-travail : ses blocs manquent, et le
+/// fichier est refuse.
+fn decode_chunks(
+    bytes: &Arc<Vec<u8>>,
+    start: usize,
+    ranges: Vec<Range<usize>>,
+    fork: &dyn Fork,
+) -> Result<Vec<WorkloadRecord>, DecodeError> {
+    type Slots = Vec<Option<Result<Vec<WorkloadRecord>, DecodeError>>>;
+    let parts = thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(MAX_DECODE_THREADS)
-        .min(chunks.len());
-    let decoded: Vec<Result<Vec<WorkloadRecord>, DecodeError>> = if threads <= 1 {
-        chunks.iter().map(|chunk| decode_chunk(chunk)).collect()
-    } else {
-        decode_in_parallel(chunks, threads)
-    };
+        .min(ranges.len())
+        .max(1);
+    let count = ranges.len();
+    let ranges = Arc::new(ranges);
+    let results: Arc<Mutex<Slots>> = Arc::new(Mutex::new((0..count).map(|_| None).collect()));
+    for first in 0..parts {
+        let (bytes, ranges, results) =
+            (Arc::clone(bytes), Arc::clone(&ranges), Arc::clone(&results));
+        fork.spawn(Box::new(move || {
+            for index in (first..ranges.len()).step_by(parts) {
+                let range = start + ranges[index].start..start + ranges[index].end;
+                let decoded = catch_unwind(AssertUnwindSafe(|| decode_chunk(&bytes[range])));
+                if let Ok(decoded) = decoded {
+                    results.lock().unwrap_or_else(PoisonError::into_inner)[index] = Some(decoded);
+                }
+            }
+        }));
+    }
+    fork.join();
+    let slots = std::mem::take(&mut *results.lock().unwrap_or_else(PoisonError::into_inner));
     let mut records = Vec::new();
-    for chunk in decoded {
-        records.extend(chunk?);
+    for slot in slots {
+        let chunk = slot.unwrap_or_else(|| {
+            Err(DecodeError::Malformed(
+                "un sous-travail de decodage a echoue".to_owned(),
+            ))
+        })?;
+        records.extend(chunk);
     }
     Ok(records)
-}
-
-/// Le fil `t` decode les blocs `t`, `t + threads`, `t + 2 * threads`... ; ce que le fil
-/// appelant n'a pas pu confier, il le decode lui-meme.
-fn decode_in_parallel(
-    chunks: &[&[u8]],
-    threads: usize,
-) -> Vec<Result<Vec<WorkloadRecord>, DecodeError>> {
-    let mut results: Vec<Option<Result<Vec<WorkloadRecord>, DecodeError>>> =
-        (0..chunks.len()).map(|_| None).collect();
-    thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(threads);
-        for first in 0..threads {
-            let spawned = thread::Builder::new()
-                .name("RFX-DB-Load".to_owned())
-                .spawn_scoped(scope, move || {
-                    (first..chunks.len())
-                        .step_by(threads)
-                        .map(|index| (index, decode_chunk(chunks[index])))
-                        .collect::<Vec<_>>()
-                });
-            match spawned {
-                Ok(handle) => handles.push(handle),
-                Err(_) => {
-                    for index in (first..chunks.len()).step_by(threads) {
-                        results[index] = Some(decode_chunk(chunks[index]));
-                    }
-                }
-            }
-        }
-        for handle in handles {
-            // Une panic du decodeur est confinee a son fil : son resultat manque, et le
-            // fichier est refuse ci-dessous.
-            if let Ok(done) = handle.join() {
-                for (index, result) in done {
-                    results[index] = Some(result);
-                }
-            }
-        }
-    });
-    results
-        .into_iter()
-        .map(|result| {
-            result.unwrap_or_else(|| {
-                Err(DecodeError::Malformed(
-                    "un fil de decodage a echoue".to_owned(),
-                ))
-            })
-        })
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::InlineFork;
     use crate::record::{HistoryEvent, HistoryKind};
     use rfx_model::{Heat, WorkDescriptor};
 
@@ -367,6 +390,40 @@ mod tests {
         assert_eq!(decode_header(&bytes).unwrap(), environment().environment());
     }
 
+    /// Sous-travaux sur de vrais fils, pour eprouver le decodage concurrent.
+    #[derive(Default)]
+    struct ThreadFork(Mutex<Vec<thread::JoinHandle<()>>>);
+
+    impl Fork for ThreadFork {
+        fn spawn(&self, work: Box<dyn FnOnce() + Send>) {
+            self.0.lock().unwrap().push(thread::spawn(work));
+        }
+
+        fn join(&self) {
+            for handle in self.0.lock().unwrap().drain(..) {
+                handle.join().unwrap();
+            }
+        }
+    }
+
+    /// Un sous-travail qui ne rend rien : le fichier est refuse, rien n'est invente.
+    struct LosingFork;
+
+    impl Fork for LosingFork {
+        fn spawn(&self, _work: Box<dyn FnOnce() + Send>) {}
+
+        fn join(&self) {}
+    }
+
+    #[test]
+    fn a_missing_chunk_rejects_the_file() {
+        let bytes = encode(&environment(), &records(3)).unwrap();
+        assert!(matches!(
+            decode_with(Arc::new(bytes), &LosingFork),
+            Err(DecodeError::Malformed(_))
+        ));
+    }
+
     /// Le decodage en serie et en parallele rendent la meme chose.
     #[test]
     fn parallel_and_serial_decoding_agree() {
@@ -375,13 +432,14 @@ mod tests {
         let start = payload_start(&bytes);
         let chunks = split_chunks(&bytes[start..]).unwrap();
         assert_eq!(chunks.len(), 6);
-        for threads in [2, 3, 8] {
-            let parallel: Vec<WorkloadRecord> = decode_in_parallel(&chunks, threads)
-                .into_iter()
-                .flat_map(Result::unwrap)
-                .collect();
-            assert_eq!(parallel, written, "{threads} fils");
-        }
+        let shared = Arc::new(bytes.clone());
+        let serial = decode_with(Arc::clone(&shared), &InlineFork)
+            .unwrap()
+            .records;
+        assert_eq!(serial, written, "a la suite");
+        let parallel = decode_with(shared, &ThreadFork::default()).unwrap().records;
+        assert_eq!(parallel, written, "sur plusieurs fils");
+        assert_eq!(decode(&bytes).unwrap().records, written);
     }
 
     /// T-182 : un seul octet altere n'importe ou dans le contenu est detecte : chaque

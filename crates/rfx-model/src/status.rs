@@ -161,10 +161,12 @@ pub struct ComponentStatus {
     pub active: bool,
 }
 
-/// Charge externe relevee pour l'ordonnanceur (C-17, R-421, ADR-046).
+/// Ordonnanceur (C-17) : charge externe relevee (R-421, ADR-046) et compteurs du pool
+/// (ADR-061).
 ///
-/// Mesuree cote Java : le nombre de fils tiers qui ont consomme au moins 10 % d'un coeur
-/// depuis le releve precedent. Tous nuls tant qu'aucun releve n'est arrive (R-660).
+/// La charge est mesuree cote Java : le nombre de fils tiers qui ont consomme au moins
+/// 10 % d'un coeur depuis le releve precedent. Tous nuls tant qu'aucun releve n'est
+/// arrive, et les compteurs du pool tant qu'il n'a pas demarre (R-660).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchedulerStatus {
     /// Dernier releve.
@@ -173,6 +175,36 @@ pub struct SchedulerStatus {
     pub external_runnable_max: u32,
     /// Nombre de releves recus.
     pub external_load_reports: u64,
+    /// L'ordonnanceur a demarre (`rfx.sched.running`).
+    #[serde(default)]
+    pub running: bool,
+    /// Workers demarres.
+    #[serde(default)]
+    pub workers: u32,
+    /// Workers actifs, apres reduction pour sur-souscription (`rfx.sched.workers_active`).
+    #[serde(default)]
+    pub workers_active: u32,
+    /// Taches en attente dans les files d'injection (`rfx.sched.queue_depth`).
+    #[serde(default)]
+    pub queue_depth: u64,
+    /// Taches executees (`rfx.sched.executed`).
+    #[serde(default)]
+    pub executed: u64,
+    /// Vols de travail (`rfx.sched.steals`).
+    #[serde(default)]
+    pub steals: u64,
+    /// Soumissions refusees, contre-pression ou serie (`rfx.sched.rejected`).
+    #[serde(default)]
+    pub rejected: u64,
+    /// Taches qui ont panique, worker sauf (`rfx.sched.panics`).
+    #[serde(default)]
+    pub panics: u64,
+    /// Echeances depassees (`rfx.sched.deadline_misses`).
+    #[serde(default)]
+    pub deadline_misses: u64,
+    /// Execution en serie apres sur-souscription persistante (FM-25).
+    #[serde(default)]
+    pub serial: bool,
 }
 
 /// Statut global du runtime natif.
@@ -238,6 +270,16 @@ mod tests {
                 external_runnable: 12,
                 external_runnable_max: 31,
                 external_load_reports: 4,
+                running: true,
+                workers: 6,
+                workers_active: 3,
+                queue_depth: 2,
+                executed: 900,
+                steals: 40,
+                rejected: 1,
+                panics: 0,
+                deadline_misses: 0,
+                serial: false,
             },
             db: crate::DbStatus {
                 enabled: true,

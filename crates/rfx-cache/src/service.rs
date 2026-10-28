@@ -1,13 +1,20 @@
-//! C-09, C-48 : le fil `RFX-IO`, qui detient la base, la relit et l'ecrit.
+//! C-09, C-48 : le service qui detient la base, la relit et l'ecrit.
 //!
 //! Cahier des charges : PARTIE 5.9 (R-360 a R-362), PARTIE 5.46 (R-690 : jamais sur le
 //! fil autoritatif ; R-692 : un echec desactive la persistance, le runtime continue),
 //! R-361 (ecriture asynchrone, hors tick, atomique). Tests : T-184, T-500, T-502.
-//! Decisions : ADR-048, ADR-049. Maturite : `STABLE`.
+//! Decisions : ADR-048, ADR-049, ADR-061. Maturite : `STABLE`.
+//!
+//! # Qui l'execute
+//!
+//! Un [`Executor`] : en jeu, l'ordonnanceur (taches `BACKGROUND`) ; a defaut, un fil
+//! dedie, `RFX-IO` ([`DbService::start`]). La base garde un seul detenteur : une seule
+//! tache de vidage est en cours a la fois, qui sert les demandes dans l'ordre puis se
+//! retire. Aucune demande n'est executee sur le fil qui la confie.
 //!
 //! # Ce que fait l'appelant, et rien de plus
 //!
-//! La base vit sur ce fil. L'appelant — le runtime, sous son verrou — ne lui confie que
+//! La base vit dans le service. L'appelant — le runtime, sous son verrou — ne lui confie que
 //! des lots ([`SyncBatch`]) : les unites de travail decouvertes depuis le lot precedent
 //! et les dynamiques qui ont change. Il ne copie jamais la base entiere : cette copie,
 //! faite sous le verrou que le tick partage, le ferait attendre.
@@ -17,8 +24,9 @@
 //!
 //! # Au demarrage
 //!
-//! Le fil relit d'abord le fichier ([`crate::store::load`]), puis sert les lots. Le jeu
-//! n'attend pas cette relecture : un lot confie entre-temps attend son tour dans la file.
+//! La premiere tache relit d'abord le fichier ([`crate::store::load_with`], blocs decodes
+//! en sous-travaux), puis sert les lots. Le jeu n'attend pas cette relecture : un lot
+//! confie entre-temps attend son tour dans la file.
 //!
 //! # Quand le disque refuse
 //!
@@ -28,32 +36,36 @@
 //! rotation est compte mais ne desactive rien : un journal verrouille par un autre
 //! programme ne doit pas arreter l'ecriture de la base.
 
+use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::JoinHandle;
+use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use rfx_model::{Fingerprint, WorkId, WorkloadDynamics};
 
 use crate::db::WorkloadDb;
+use crate::exec::{Executor, Fork, InlineFork, ThreadExecutor};
 use crate::file;
 use crate::fs::FileSystem;
 use crate::record::{HistoryEvent, HistoryKind, WorkloadRecord};
 use crate::rotation::{self, RotationPolicy};
 use crate::store::{self, LoadOutcome};
 
-/// Nom du fil. Il commence par `RFX-` : le capteur de charge l'exclut.
+/// Nom du fil de secours. Il commence par `RFX-` : le capteur de charge l'exclut.
 pub const THREAD_NAME: &str = "RFX-IO";
 
 /// Attente au plus d'une fermeture par `Drop` : un disque qui ne repond plus ne doit pas
 /// bloquer l'arret du jeu.
 pub const DROP_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Demandes en attente au plus. Au-dela, une demande est refusee : l'appelant n'attend
-/// jamais le disque.
+/// Tranche d'attente de [`DbService::flush`] : entre deux, il verifie qu'une tache de
+/// vidage est confiee, et rend la main si l'executeur les refuse.
+const FLUSH_SLICE: Duration = Duration::from_millis(10);
+
+/// Demandes en attente au plus, hors celle en cours. Au-dela, une demande est refusee :
+/// l'appelant n'attend jamais le disque.
 pub const QUEUE_CAPACITY: usize = 4;
 
 /// Ce que le fil doit savoir de la base qu'il detient.
@@ -227,11 +239,28 @@ impl State {
     }
 }
 
-/// Le fil `RFX-IO` et la base qu'il detient.
+/// Ce que la base garde entre deux taches de vidage.
+struct Holder {
+    db: Option<WorkloadDb>,
+    max_bytes: usize,
+}
+
+/// Le service, partage avec la tache de vidage en cours.
+struct Inner {
+    executor: Arc<dyn Executor>,
+    fs: Arc<dyn FileSystem>,
+    config: DbConfig,
+    state: State,
+    queue: Mutex<VecDeque<Request>>,
+    /// Une tache de vidage est confiee ou en cours.
+    scheduled: AtomicBool,
+    closed: AtomicBool,
+    holder: Mutex<Holder>,
+}
+
+/// La base des unites de travail et le service qui la detient.
 pub struct DbService {
-    sender: Option<SyncSender<Request>>,
-    thread: Option<JoinHandle<()>>,
-    state: Arc<State>,
+    inner: Arc<Inner>,
 }
 
 impl std::fmt::Debug for DbService {
@@ -243,43 +272,66 @@ impl std::fmt::Debug for DbService {
 }
 
 impl DbService {
-    /// Demarre le fil, qui commence par relire `config.path`. Rend la main aussitot.
+    /// Demarre le service sur un fil dedie (`RFX-IO`) : le secours quand l'ordonnanceur
+    /// n'a pas demarre. Il commence par relire `config.path`. Rend la main aussitot.
     ///
     /// # Errors
     ///
     /// L'erreur du systeme si le fil ne peut pas etre cree.
     pub fn start(fs: Arc<dyn FileSystem>, config: DbConfig) -> io::Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel(QUEUE_CAPACITY);
-        let state = Arc::new(State::default());
-        let worker_state = Arc::clone(&state);
-        let thread = std::thread::Builder::new()
-            .name(THREAD_NAME.to_owned())
-            .spawn(move || run(&receiver, fs.as_ref(), &config, &worker_state))?;
-        Ok(Self {
-            sender: Some(sender),
-            thread: Some(thread),
-            state,
-        })
+        let executor = ThreadExecutor::start(THREAD_NAME)?;
+        Ok(Self::start_on(fs, config, Arc::new(executor)))
+    }
+
+    /// Demarre le service sur `executor` (ADR-061). Il commence par relire
+    /// `config.path`. Rend la main aussitot ; si l'executeur refuse, la relecture attend
+    /// la premiere demande.
+    #[must_use]
+    pub fn start_on(
+        fs: Arc<dyn FileSystem>,
+        config: DbConfig,
+        executor: Arc<dyn Executor>,
+    ) -> Self {
+        let max_bytes = config.max_bytes;
+        let inner = Arc::new(Inner {
+            executor,
+            fs,
+            config,
+            state: State::default(),
+            queue: Mutex::new(VecDeque::with_capacity(QUEUE_CAPACITY)),
+            scheduled: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            holder: Mutex::new(Holder {
+                db: None,
+                max_bytes,
+            }),
+        });
+        schedule(&inner);
+        Self { inner }
     }
 
     fn submit(&self, request: Request) -> Result<(), (Refused, Request)> {
-        let Some(sender) = &self.sender else {
+        let inner = &self.inner;
+        if inner.closed.load(Ordering::Acquire) {
             return Err((Refused::Stopped, request));
-        };
-        sender.try_send(request).map_err(|error| match error {
-            TrySendError::Full(request) => {
-                self.state.refused.fetch_add(1, Ordering::Relaxed);
-                (Refused::QueueFull, request)
+        }
+        {
+            let mut queue = inner.queue.lock().unwrap_or_else(PoisonError::into_inner);
+            if queue.len() >= QUEUE_CAPACITY {
+                inner.state.refused.fetch_add(1, Ordering::Relaxed);
+                return Err((Refused::QueueFull, request));
             }
-            TrySendError::Disconnected(request) => (Refused::Stopped, request),
-        })
+            queue.push_back(request);
+        }
+        schedule(inner);
+        Ok(())
     }
 
     /// Confie un lot. Rend la main aussitot (R-361).
     ///
     /// # Errors
     ///
-    /// [`Rejected`], avec le lot intact, si la file est pleine ou le fil arrete.
+    /// [`Rejected`], avec le lot intact, si la file est pleine ou le service ferme.
     pub fn sync(&self, batch: SyncBatch) -> Result<(), Rejected> {
         self.submit(Request::Sync(batch))
             .map_err(|(reason, request)| match request {
@@ -296,7 +348,7 @@ impl DbService {
     ///
     /// # Errors
     ///
-    /// [`Refused`] si la file est pleine ou le fil arrete.
+    /// [`Refused`] si la file est pleine ou le service ferme.
     pub fn rotate(&self, dir: impl Into<PathBuf>, policy: RotationPolicy) -> Result<(), Refused> {
         self.submit(Request::Rotate {
             dir: dir.into(),
@@ -310,52 +362,80 @@ impl DbService {
     /// depuis le fil autoritatif, ni sous le verrou du runtime.
     pub fn flush(&self, timeout: Duration) -> bool {
         let (done, wait) = mpsc::channel();
-        let Some(sender) = &self.sender else {
-            return true;
-        };
         // La demande d'attente ne doit pas etre perdue : on reessaie tant que la file
         // est pleine, jusqu'au delai.
         let deadline = Instant::now() + timeout;
         let mut request = Request::Flush(done);
         loop {
-            match sender.try_send(request) {
+            match self.submit(request) {
                 Ok(()) => break,
-                Err(TrySendError::Disconnected(_)) => return true,
-                Err(TrySendError::Full(back)) => {
+                Err((Refused::Stopped, _)) => return true,
+                Err((Refused::QueueFull, back)) => {
                     if Instant::now() >= deadline {
                         return false;
                     }
                     request = back;
+                    schedule(&self.inner);
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
         }
-        wait.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .is_ok()
+        // Attente par tranches : si aucune tache de vidage n'est confiee et qu'on ne peut
+        // pas en confier (executeur en serie ou arrete), inutile d'attendre le delai.
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match wait.recv_timeout(left.min(FLUSH_SLICE)) {
+                Ok(()) => return true,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            schedule(&self.inner);
+            if !self.inner.scheduled.load(Ordering::Acquire) {
+                return false;
+            }
+        }
     }
 
-    /// Ferme le fil : attend au plus `timeout` que tout ce qui a ete confie soit ecrit,
-    /// puis le rejoint. Renvoie `false` si le delai est depasse : le fil est alors
-    /// laisse a lui-meme, et l'arret du jeu n'attend pas un disque qui ne repond plus.
-    pub fn close(mut self, timeout: Duration) -> bool {
+    /// Ferme le service : attend au plus `timeout` que tout ce qui a ete confie soit
+    /// ecrit. Si aucune tache n'a pu etre lancee entre-temps (executeur en serie ou
+    /// arrete), ce qui reste est servi sur le fil appelant, qui n'est jamais le fil
+    /// autoritatif ni sous le verrou du runtime. Renvoie `false` si le travail n'a pas pu
+    /// etre fini : un disque qui ne repond plus ne bloque pas l'arret du jeu.
+    pub fn close(self, timeout: Duration) -> bool {
         self.shut(timeout)
     }
 
-    fn shut(&mut self, timeout: Duration) -> bool {
-        let drained = self.flush(timeout);
-        self.sender = None;
-        if let Some(thread) = self.thread.take() {
-            if drained {
-                let _ = thread.join();
-            }
+    fn shut(&self, timeout: Duration) -> bool {
+        let inner = &self.inner;
+        if inner.closed.load(Ordering::Acquire) {
+            return true;
         }
-        drained
+        let drained = self.flush(timeout);
+        inner.closed.store(true, Ordering::Release);
+        if drained {
+            return true;
+        }
+        // Une tache en cours, peut-etre bloquee sur le disque, garde la base : on ne
+        // l'attend pas.
+        let Ok(mut holder) = inner.holder.try_lock() else {
+            return false;
+        };
+        serve(inner, &mut holder, &InlineFork);
+        drop(holder);
+        inner
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
     }
 
     /// Compteurs.
     #[must_use]
     pub fn stats(&self) -> DbStats {
-        let s = &self.state;
+        let s = &self.inner.state;
         let read = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         DbStats {
             load: LoadState::from_code(s.load.load(Ordering::Acquire)),
@@ -377,7 +457,8 @@ impl DbService {
     /// Derniere erreur du disque, pour le diagnostic.
     #[must_use]
     pub fn last_error(&self) -> Option<String> {
-        self.state
+        self.inner
+            .state
             .last_error
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -392,10 +473,115 @@ impl Drop for DbService {
     }
 }
 
-fn load_db(fs: &dyn FileSystem, config: &DbConfig, state: &State) -> WorkloadDb {
+/// Confie une tache de vidage, s'il n'y en a pas deja une. Refusee, la demande reste en
+/// file : la prochaine demande, ou la fermeture, relance le vidage.
+fn schedule(inner: &Arc<Inner>) {
+    if inner
+        .scheduled
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    let task = Arc::clone(inner);
+    if inner
+        .executor
+        .execute(Box::new(move |fork: &dyn Fork| drain(&task, fork)))
+        .is_err()
+    {
+        inner.scheduled.store(false, Ordering::Release);
+    }
+}
+
+/// La tache de vidage : sert la file dans l'ordre, puis se retire. Une demande arrivee
+/// pendant le retrait est servie par la meme tache.
+fn drain(inner: &Arc<Inner>, fork: &dyn Fork) {
+    /// Libere le drapeau meme si le vidage panique : sinon plus aucune tache ne serait
+    /// jamais confiee, et la base ne serait plus ecrite.
+    struct Release<'a>(&'a AtomicBool);
+    impl Drop for Release<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+    loop {
+        {
+            let _release = Release(&inner.scheduled);
+            let mut holder = inner.holder.lock().unwrap_or_else(PoisonError::into_inner);
+            serve(inner, &mut holder, fork);
+        }
+        let waiting = !inner
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty();
+        if !waiting
+            || inner
+                .scheduled
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return;
+        }
+    }
+}
+
+/// Relit la base si ce n'est pas fait, puis sert la file jusqu'a la vider.
+fn serve(inner: &Inner, holder: &mut Holder, fork: &dyn Fork) {
+    let db = holder
+        .db
+        .get_or_insert_with(|| load_db(inner.fs.as_ref(), &inner.config, &inner.state, fork));
+    loop {
+        let request = inner
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front();
+        let Some(request) = request else {
+            return;
+        };
+        handle(inner, db, &mut holder.max_bytes, request);
+    }
+}
+
+/// Une demande.
+fn handle(inner: &Inner, db: &mut WorkloadDb, max_bytes: &mut usize, request: Request) {
+    let (fs, config, state) = (inner.fs.as_ref(), &inner.config, &inner.state);
+    match request {
+        Request::Flush(done) => {
+            let _ = done.send(());
+        }
+        Request::Sync(batch) => {
+            if let Some(bytes) = batch.max_bytes {
+                *max_bytes = bytes;
+            }
+            let mut dirty = apply(db, batch);
+            dirty |= db.evict(config.max_entries, *max_bytes) > 0;
+            state.publish(db);
+            if dirty && !state.disabled.load(Ordering::Acquire) {
+                persist(fs, config, db, state);
+            }
+        }
+        Request::Rotate { dir, policy } => {
+            match rotation::rotate(fs, &dir, &policy, SystemTime::now()) {
+                Ok(report) => {
+                    state
+                        .rotated
+                        .fetch_add(report.removed as u64, Ordering::Relaxed);
+                }
+                Err(error) => {
+                    state.rotation_failures.fetch_add(1, Ordering::Relaxed);
+                    state.note_error(&error);
+                }
+            }
+        }
+    }
+}
+
+fn load_db(fs: &dyn FileSystem, config: &DbConfig, state: &State, fork: &dyn Fork) -> WorkloadDb {
     // Les empreintes courantes des unites de travail ne sont pas encore connues : le
     // filtre par entree se fera a leur observation (`WorkloadDb::observe`).
-    let (load, db) = match store::load(fs, &config.path, &config.environment, |_| None) {
+    let (load, db) = match store::load_with(fs, &config.path, &config.environment, |_| None, fork) {
         Ok(LoadOutcome::Missing) => (LoadState::Missing, WorkloadDb::new()),
         Ok(LoadOutcome::EnvironmentChanged) => (LoadState::EnvironmentChanged, WorkloadDb::new()),
         Ok(LoadOutcome::SetAside { .. }) => (LoadState::SetAside, WorkloadDb::new()),
@@ -461,46 +647,4 @@ fn persist(fs: &dyn FileSystem, config: &DbConfig, db: &WorkloadDb, state: &Stat
             state.disabled.store(true, Ordering::Release);
         }
     }
-}
-
-fn run(receiver: &Receiver<Request>, fs: &dyn FileSystem, config: &DbConfig, state: &State) {
-    let mut db = load_db(fs, config, state);
-    let mut max_bytes = config.max_bytes;
-    let mut dirty = false;
-    let write_if_dirty = |db: &WorkloadDb, dirty: &mut bool| {
-        if *dirty && !state.disabled.load(Ordering::Acquire) {
-            persist(fs, config, db, state);
-        }
-        *dirty = false;
-    };
-    for request in receiver {
-        match request {
-            Request::Flush(done) => {
-                let _ = done.send(());
-            }
-            Request::Sync(batch) => {
-                if let Some(bytes) = batch.max_bytes {
-                    max_bytes = bytes;
-                }
-                dirty |= apply(&mut db, batch);
-                dirty |= db.evict(config.max_entries, max_bytes) > 0;
-                state.publish(&db);
-                write_if_dirty(&db, &mut dirty);
-            }
-            Request::Rotate { dir, policy } => {
-                match rotation::rotate(fs, &dir, &policy, SystemTime::now()) {
-                    Ok(report) => {
-                        state
-                            .rotated
-                            .fetch_add(report.removed as u64, Ordering::Relaxed);
-                    }
-                    Err(error) => {
-                        state.rotation_failures.fetch_add(1, Ordering::Relaxed);
-                        state.note_error(&error);
-                    }
-                }
-            }
-        }
-    }
-    write_if_dirty(&db, &mut dirty);
 }

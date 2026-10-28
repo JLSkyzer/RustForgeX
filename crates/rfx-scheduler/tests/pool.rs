@@ -443,3 +443,47 @@ fn deadline_misses_are_counted() {
     assert_eq!(group.tally().success, 1);
     assert_eq!(scheduler.stats().deadline_misses, 2);
 }
+
+/// ADR-061 : une soumission detachee ne s'execute jamais sur le fil qui soumet. En
+/// `FORCE_SERIAL`, elle est refusee, meme `CRITICAL` ; sinon, un worker l'execute.
+#[test]
+fn a_detached_submission_never_runs_on_the_submitting_thread() {
+    let mut serial = config(2);
+    serial.force_serial = true;
+    let scheduler = Scheduler::start(serial).expect("demarrage");
+    let ran = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&ran);
+    let group = TaskGroup::new();
+    let refused = scheduler.submit_detached(
+        &group,
+        JobOptions::new(Priority::Critical),
+        move |_: &mut TaskContext<'_>| {
+            flag.store(true, Ordering::Release);
+            TaskOutcome::Success
+        },
+    );
+    assert!(refused.is_err(), "refusee en serie");
+    assert!(!ran.load(Ordering::Acquire), "jamais executee en ligne");
+    assert_eq!(scheduler.stats().rejected_submissions, 1);
+    scheduler.shutdown();
+
+    let scheduler = Scheduler::start(config(2)).expect("demarrage");
+    let caller = std::thread::current().id();
+    let where_ran = Arc::new(Mutex::new(None));
+    let slot = Arc::clone(&where_ran);
+    let group = TaskGroup::new();
+    scheduler
+        .submit_detached(
+            &group,
+            JobOptions::new(Priority::Background),
+            move |_: &mut TaskContext<'_>| {
+                *slot.lock().unwrap() = Some(std::thread::current().id());
+                TaskOutcome::Success
+            },
+        )
+        .expect("acceptee");
+    assert!(group.wait(GUARD));
+    let ran_on = where_ran.lock().unwrap().expect("executee");
+    assert_ne!(ran_on, caller, "sur un worker");
+    scheduler.shutdown();
+}

@@ -15,8 +15,10 @@ use rfx_model::{
     RuntimeConfig, RuntimeStatus, SchedulerStatus, Side, TickStatus, WorkDescriptor,
 };
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
+use rfx_scheduler::{Scheduler, SchedulerConfig};
 
 use crate::analysis::{Analysis, HotWorkload, StagedRoot, ROOTS_PER_REFILL};
+use crate::background::SchedulerExecutor;
 use crate::db::DbLink;
 use crate::error::ErrorCode;
 use crate::state::RuntimeState;
@@ -78,6 +80,9 @@ pub struct Runtime {
     pending_levels: Option<Vec<u8>>,
     /// Charge externe relevee cote Java (R-421, ADR-046).
     scheduler: SchedulerStatus,
+    /// Ordonnanceur des travaux internes (C-17, ADR-061) ; absent s'il n'a pas pu
+    /// demarrer : la base tourne alors sur un fil dedie.
+    pool: Option<Arc<Scheduler>>,
     /// Base des unites de travail (C-09, ADR-049).
     db: DbLink,
     /// Analyse statique (C-07, ADR-051), sous son propre verrou : un graphe se
@@ -105,7 +110,14 @@ impl Runtime {
             baseline_pause_ticks: config.profiler_baseline_pause_ticks,
             baseline_cycles: config.profiler_baseline_cycles,
         };
-        let db = DbLink::new(&config);
+        let mut db = DbLink::new(&config);
+        let logical_cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let pool = Scheduler::start(SchedulerConfig::for_machine(logical_cores))
+            .ok()
+            .map(Arc::new);
+        if let Some(pool) = &pool {
+            db.use_executor(Arc::new(SchedulerExecutor::new(pool)));
+        }
         let analysis = Arc::new(Mutex::new(Analysis::new(&config)));
         let analysis_status = AnalysisStatus {
             enabled: config.analysis_enabled,
@@ -129,6 +141,7 @@ impl Runtime {
             profiler_over_budget: 0,
             pending_levels: None,
             scheduler: SchedulerStatus::default(),
+            pool,
             db,
             analysis,
             analysis_staging: Vec::new(),
@@ -284,6 +297,34 @@ impl Runtime {
             .sync_step(self.profiler.store(), self.profiler.ticks(), max_bytes)
     }
 
+    /// Statut de l'ordonnanceur : releves de charge et compteurs du pool.
+    fn scheduler_status(&self) -> SchedulerStatus {
+        let mut status = self.scheduler;
+        if let Some(pool) = &self.pool {
+            let stats = pool.stats();
+            status.running = true;
+            status.workers = u32::try_from(pool.workers()).unwrap_or(u32::MAX);
+            status.workers_active = u32::try_from(stats.active_workers).unwrap_or(u32::MAX);
+            status.queue_depth = pool.queue_depth() as u64;
+            status.executed = stats.executed;
+            status.steals = stats.steals;
+            status.rejected = stats.rejected_submissions;
+            status.panics = stats.panics;
+            status.deadline_misses = stats.deadline_misses;
+            status.serial = stats.serial_fallback;
+        }
+        status
+    }
+
+    /// Abandonne l'ordonnanceur sans rejoindre ses workers : quand la base n'a pas pu
+    /// finir d'ecrire, un worker est peut-etre bloque sur le disque, et l'arret du jeu
+    /// ne doit pas l'attendre (comme le fil `RFX-IO` laisse a lui-meme, ADR-061).
+    fn abandon_pool(&mut self) {
+        if let Some(pool) = self.pool.take() {
+            std::mem::forget(pool);
+        }
+    }
+
     /// Ferme la base : dernier lot complet, puis attente de son ecriture, au plus
     /// `timeout`. A appeler hors du verrou du registre.
     pub fn close_db(&mut self, timeout: Duration) -> bool {
@@ -379,6 +420,10 @@ impl Runtime {
 
     /// Ouvre la fenetre de tick (IF-02, `rfx_tick_begin`).
     pub fn tick_begin(&mut self, tick: u64, side: Side, now: Instant) {
+        // R-423 : aucune tache BACKGROUND ne demarre pendant le tick.
+        if let Some(pool) = &self.pool {
+            pool.set_critical_window(true);
+        }
         self.tick_window.begin(tick, side, now);
         self.last_period_ns = self
             .last_tick_begin
@@ -399,6 +444,9 @@ impl Runtime {
     ///
     /// Renvoie `false` si aucun tick n'etait ouvert.
     pub fn tick_end(&mut self, now: Instant) -> bool {
+        if let Some(pool) = &self.pool {
+            pool.set_critical_window(false);
+        }
         if !self.tick_window.end(now) {
             // Aucun tick n'etait ouvert : il n'y a pas de cout de tick a attribuer, et
             // cloturer une fenetre de profilage inexistante fausserait la mesure.
@@ -469,10 +517,12 @@ impl Runtime {
     /// Releve de la charge externe : fils tiers qui ont consomme au moins 10 % d'un coeur
     /// depuis le releve precedent, comptes cote Java (R-421, ADR-046).
     ///
-    /// Conserve et publie dans le statut. L'ordonnanceur (C-17) n'est pas encore demarre
-    /// par le runtime : quand il le sera, ce releve lui sera transmis tel quel
-    /// (`Scheduler::report_external_load`, ADR-045).
+    /// Conserve, publie dans le statut, et transmis a l'ordonnanceur
+    /// (`Scheduler::report_external_load`, ADR-045, ADR-061).
     pub fn report_external_load(&mut self, runnable_threads: u32) {
+        if let Some(pool) = &self.pool {
+            pool.report_external_load(runnable_threads as usize);
+        }
         self.scheduler.external_runnable = runnable_threads;
         self.scheduler.external_runnable_max =
             self.scheduler.external_runnable_max.max(runnable_threads);
@@ -595,7 +645,7 @@ impl Runtime {
                 native_limit_bytes: self.budget.limit(),
             },
             profiler: self.profiler.status(),
-            scheduler: self.scheduler,
+            scheduler: self.scheduler_status(),
             db: self.db.status(),
             analysis: self.analysis_status,
             tick: {
@@ -706,7 +756,11 @@ pub fn shutdown(handle: u64) -> Result<(), ErrorCode> {
     reg.generation = 0;
     drop(reg);
     if let Some(mut runtime) = runtime {
-        runtime.close_db(crate::db::CLOSE_TIMEOUT);
+        // La base d'abord, l'ordonnanceur ensuite : ses workers executent encore la
+        // derniere ecriture (ADR-061).
+        if !runtime.close_db(crate::db::CLOSE_TIMEOUT) {
+            runtime.abandon_pool();
+        }
     }
     Ok(())
 }
@@ -1031,6 +1085,15 @@ mod tests {
         }
         while !rt.db_sync_step() {}
         assert!(rt.close_db(Duration::from_secs(30)), "ecrite a temps");
+        // ADR-061 : la relecture et l'ecriture ont tourne sur le pool de l'ordonnanceur
+        // (une seule tache de vidage peut servir les deux).
+        let scheduler = rt.status().scheduler;
+        assert!(scheduler.running);
+        assert!(scheduler.workers >= 1);
+        assert!(
+            scheduler.executed >= 2,
+            "relecture et ecriture : {scheduler:?}"
+        );
 
         let bytes = std::fs::read(dir.join(crate::db::FILE_NAME)).expect("fichier");
         let _ = std::fs::remove_dir_all(&dir);

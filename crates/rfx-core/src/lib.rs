@@ -10,6 +10,7 @@
 //! (INV-13).
 
 pub mod analysis;
+pub mod background;
 pub mod db;
 pub mod error;
 pub mod hw;

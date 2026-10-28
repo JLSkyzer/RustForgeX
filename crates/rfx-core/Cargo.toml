@@ -19,6 +19,9 @@ xxhash-rust = { workspace = true }
 # Graphe d'appel (C-07, ADR-051).
 rfx-analyzer = { workspace = true }
 rfx-bytecode = { workspace = true }
+# Ordonnanceur des travaux internes (C-17, ADR-061).
+rfx-scheduler = { workspace = true }
+rfx-taskgraph = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

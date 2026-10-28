@@ -591,12 +591,42 @@ impl Scheduler {
         options: JobOptions,
         task: T,
     ) -> Result<(), Backpressure> {
+        self.enqueue(group, options, task, true)
+    }
+
+    /// Soumet une tache qui ne doit jamais s'executer sur le fil qui soumet (ADR-061) :
+    /// en serie (`FORCE_SERIAL`, ou sur-souscription persistante), elle est refusee au
+    /// lieu d'etre executee en ligne. Pour un travail confie sous un verrou que le tick
+    /// partage.
+    ///
+    /// # Errors
+    ///
+    /// [`Backpressure`] comme [`Scheduler::submit`], et aussi en serie, quelle que soit
+    /// la priorite.
+    pub fn submit_detached<T: Task + 'static>(
+        &self,
+        group: &TaskGroup,
+        options: JobOptions,
+        task: T,
+    ) -> Result<(), Backpressure> {
+        self.enqueue(group, options, task, false)
+    }
+
+    fn enqueue<T: Task + 'static>(
+        &self,
+        group: &TaskGroup,
+        options: JobOptions,
+        task: T,
+        inline_allowed: bool,
+    ) -> Result<(), Backpressure> {
         let queued = self.shared.queued.load(Ordering::Relaxed);
-        let refused = match options.priority {
-            Priority::Low | Priority::Background => queued >= self.config.high_watermark,
-            Priority::Normal => queued >= self.config.hard_limit,
-            Priority::High | Priority::Critical => false,
-        };
+        let serial = self.shared.runs_serial();
+        let refused = (serial && !inline_allowed)
+            || match options.priority {
+                Priority::Low | Priority::Background => queued >= self.config.high_watermark,
+                Priority::Normal => queued >= self.config.hard_limit,
+                Priority::High | Priority::Critical => false,
+            };
         if refused {
             self.shared.rejected.fetch_add(1, Ordering::Relaxed);
             return Err(Backpressure {
@@ -613,7 +643,7 @@ impl Scheduler {
             depth: 0,
             on_done: None,
         };
-        if self.shared.runs_serial() {
+        if serial {
             // FORCE_SERIAL, ou sur-souscription persistante : sur le fil qui soumet.
             group.0.enter();
             self.shared.run(job, None);

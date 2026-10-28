@@ -956,7 +956,13 @@ demandent une mesure ; les autres sont des tests de justesse.
         seconde, entrée FFI `rfx_sched_report_external_load`. Le compte des états
         `RUNNABLE` relevait 49-50 sur le modpack (≈ 46 fils en attente native, vus au
         `jcmd`) ; le temps CPU relève 3 (max 12). Vérifié en jeu, 299 relevés
-  - [ ] Transmettre le relevé à l'ordonnanceur quand `rfx-core` le démarrera
+  - [x] Ordonnanceur démarré par le runtime (ADR-061, choix de Killian du 2026-10-29) :
+        relevé de charge transmis, fenêtre critique ouverte pendant le tick, base des
+        unités de travail (relecture, décodage parallèle, écriture) en tâches
+        `BACKGROUND` soumises en détaché, jamais en ligne sous le verrou ; fil `RFX-IO`
+        gardé en secours. Métriques `rfx.sched.*` du pool. Vérifié en jeu : 14 workers,
+        `workload.db` relue par le pool. 14 mutants tués sur 15 (la relance pendant le
+        retrait n'est pas testable de façon déterministe, consignée)
   - [x] Famine (FM-24) : pendant `run_graph`, le fil qui attend exécute lui-même le travail
         `CRITICAL` resté en file plus d'une milliseconde, et rien d'autre ; attente par
         `yield` (un sommeil d'1 ms peut en durer 15 sous Windows). `famine_escalations`
@@ -1036,7 +1042,7 @@ demandent une mesure ; les autres sont des tests de justesse.
         sous-types empruntés ; 32 graphes en 1,87 s (médiane), graphes identiques
   - [x] (ancien libellé) Mesurer le coût d'un graphe sur des classes réelles, et en isoler la
         cause avant d'optimiser (ADR-051, « Vérification en jeu »)
-  - [ ] Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
+  - [x] (ADR-059) Avant que C-10 ou C-08 utilisent les graphes : réexaminer les risques
         résiduels de l'ADR-051 (classes générées, coremods à noms calculés,
         transformateurs tiers)
   - [x] Acceptance (ADR-053, demande de Killian du 2026-10-17) : 85,2 % des sites des
@@ -1101,7 +1107,7 @@ demandent une mesure ; les autres sont des tests de justesse.
       `external_locks` connu (vide) sur un graphe complet sans verrou ; 26 mutants sur 26
       tués. Pas encore observé en jeu : le serveur GameTest s'arrête avant le premier
       graphe. T-222 attend le moteur parallèle, T-223 C-21
-- [ ] `order_deps` (C-10, étape 2 : même flux d'événement, l'un peut annuler ou modifier
+- [x] `order_deps` (C-10, étape 2 : même flux d'événement, l'un peut annuler ou modifier
       l'événement) — dernier fait qui manque à C-08 : sans lui, tout descripteur reste
       `UNKNOWN`. Voie choisie par Killian le 2026-10-18 : « Revue ADR-051 puis statique »
   - [x] Revue des angles morts de l'ADR-051 (ADR-059) : trois angles morts de plus

@@ -8,10 +8,12 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rfx_model::{Fingerprint, WorkId};
 
 use crate::db::WorkloadDb;
+use crate::exec::{Fork, InlineFork};
 use crate::file::{self, DecodeError};
 use crate::fs::FileSystem;
 
@@ -76,15 +78,30 @@ pub fn load(
     environment: &Fingerprint,
     current: impl Fn(WorkId) -> Option<Fingerprint>,
 ) -> io::Result<LoadOutcome> {
+    load_with(fs, path, environment, current, &InlineFork)
+}
+
+/// Comme [`load`], le decodage des blocs en sous-travaux de `fork` (ADR-061).
+///
+/// # Errors
+///
+/// Comme [`load`].
+pub fn load_with(
+    fs: &dyn FileSystem,
+    path: &Path,
+    environment: &Fingerprint,
+    current: impl Fn(WorkId) -> Option<Fingerprint>,
+    fork: &dyn Fork,
+) -> io::Result<LoadOutcome> {
     let bytes = match fs.read(path) {
-        Ok(bytes) => bytes,
+        Ok(bytes) => Arc::new(bytes),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(LoadOutcome::Missing),
         Err(error) => return Err(error),
     };
     // L'en-tete seul d'abord : un autre environnement est rejete sans decoder le reste.
     let decoded = file::decode_header(&bytes).and_then(|header| {
         if header.same_environment(environment) {
-            file::decode(&bytes).map(Some)
+            file::decode_with(Arc::clone(&bytes), fork).map(Some)
         } else {
             Ok(None)
         }

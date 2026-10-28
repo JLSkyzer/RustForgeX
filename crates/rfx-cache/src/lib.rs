@@ -22,6 +22,7 @@
 #![doc(html_root_url = "https://example.invalid/rustforgex")]
 
 pub mod db;
+pub mod exec;
 pub mod file;
 pub mod fs;
 pub mod record;
@@ -30,10 +31,11 @@ pub mod service;
 pub mod store;
 
 pub use db::{Idx, WorkloadDb};
+pub use exec::{Executor, Fork, InlineFork, ThreadExecutor, Work};
 pub use fs::{FileInfo, FileSystem, StdFileSystem};
 pub use record::{History, HistoryEvent, HistoryKind, WorkloadRecord, HISTORY_CAPACITY};
 pub use rotation::{RotationPolicy, RotationReport};
 pub use service::{
     DbConfig, DbService, DbStats, DynamicsUpdate, LoadState, Refused, Rejected, SyncBatch,
 };
-pub use store::{load, LoadOutcome};
+pub use store::{load, load_with, LoadOutcome};

@@ -16,8 +16,9 @@ use rfx_cache::file::{self, DecodeError};
 use rfx_cache::service::THREAD_NAME;
 use rfx_cache::store::backup_path;
 use rfx_cache::{
-    load, DbConfig, DbService, DynamicsUpdate, FileInfo, FileSystem, HistoryKind, LoadOutcome,
-    LoadState, Refused, RotationPolicy, StdFileSystem, SyncBatch, WorkloadDb, WorkloadRecord,
+    load, DbConfig, DbService, DynamicsUpdate, Executor, FileInfo, FileSystem, Fork, HistoryKind,
+    LoadOutcome, LoadState, Refused, RotationPolicy, StdFileSystem, SyncBatch, Work, WorkloadDb,
+    WorkloadRecord,
 };
 use rfx_model::{Fingerprint, Heat, WorkDescriptor, WorkId};
 
@@ -619,4 +620,91 @@ fn the_real_disk_write_is_atomic_and_leaves_no_temporary() {
         .map(|file| file.path)
         .collect();
     assert_eq!(names, vec![target.clone()], "aucun .tmp restant");
+}
+
+/// Executeur qui refuse tout, comme l'ordonnanceur en serie (ADR-061).
+#[derive(Debug)]
+struct Refusing;
+
+impl Executor for Refusing {
+    fn execute(&self, work: Work) -> Result<(), Work> {
+        Err(work)
+    }
+}
+
+/// ADR-061 : rien ne s'execute tant que l'executeur refuse ; la fermeture sert alors la
+/// file sur son propre fil, et rien n'est perdu.
+#[test]
+fn a_refusing_executor_defers_the_work_to_closing() {
+    let fs = Arc::new(MemoryFs::default());
+    let service = DbService::start_on(fs.clone(), config(), Arc::new(Refusing));
+    service.sync(news(records(3))).unwrap();
+    assert_eq!(
+        service.stats().load,
+        LoadState::Pending,
+        "rien n'a pu etre lance"
+    );
+    assert_eq!(service.stats().writes, 0);
+    // Pas d'attente du delai entier : le refus se voit, et la fermeture sert la file.
+    let started = std::time::Instant::now();
+    assert!(service.close(GUARD));
+    assert!(started.elapsed() < GUARD / 2, "{:?}", started.elapsed());
+    assert_eq!(fs.decoded().len(), 3, "ecrit a la fermeture");
+}
+
+/// Executeur qui lance chaque travail sur un fil neuf : des taches de vidage peuvent se
+/// chevaucher, comme sur un pool.
+#[derive(Debug)]
+struct Spawning(AtomicUsize);
+
+impl Executor for Spawning {
+    fn execute(&self, work: Work) -> Result<(), Work> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            struct Serial;
+            impl Fork for Serial {
+                fn spawn(&self, work: Box<dyn FnOnce() + Send>) {
+                    work();
+                }
+                fn join(&self) {}
+            }
+            work(&Serial);
+        });
+        Ok(())
+    }
+}
+
+/// ADR-061 : sur un executeur concurrent, les lots sont appliques dans l'ordre ou ils
+/// ont ete confies.
+#[test]
+fn batches_are_applied_in_order_on_a_concurrent_executor() {
+    let fs = Arc::new(MemoryFs::default());
+    let executor = Arc::new(Spawning(AtomicUsize::new(0)));
+    let service = DbService::start_on(fs.clone(), config(), executor.clone());
+    let first = record(0);
+    let id = first.id;
+    service.sync(news(vec![first.clone()])).unwrap();
+    for calls in 1..=40_u64 {
+        let mut dynamics = first.dynamics;
+        dynamics.total_calls = calls;
+        let batch = SyncBatch {
+            updates: vec![DynamicsUpdate { id, dynamics }],
+            ..SyncBatch::default()
+        };
+        // File bornee : on attend son tour plutot que de perdre un lot.
+        while service.sync(batch.clone()).is_err() {
+            std::thread::yield_now();
+        }
+    }
+    assert!(service.flush(GUARD));
+    let stored = fs.decoded();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(
+        stored[0].dynamics.total_calls, 40,
+        "le dernier lot l'emporte"
+    );
+    assert!(
+        executor.0.load(Ordering::Relaxed) >= 2,
+        "plusieurs taches de vidage"
+    );
 }
