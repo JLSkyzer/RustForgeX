@@ -977,7 +977,11 @@ demandent une mesure ; les autres sont des tests de justesse.
       remise à zéro après chaque tâche. T-270, T-271, T-273 (0 allocation système sur
       10 000 tâches) ; T-272 porté par T-263. Piège de `bumpalo` 3.20 trouvé et contourné :
       un premier bloc au-dessus du plafond désactive le plafond
-  - [ ] Faire entrer les arènes dans le budget de mémoire native (`max_native_mb`)
+  - [x] Faire entrer les arènes dans le budget de mémoire native (ADR-062) : arènes
+        taillées pour que leur pire cas borné tienne dans un quart du budget (R-533 prime
+        sur le défaut de 16 Mio), réservé avant le démarrage ; refusé, l'ordonnanceur
+        reste éteint et la base garde son fil de secours. 4 mutants sur 5 tués (la
+        libération après un échec de démarrage des fils n'est pas provocable en test)
 - [~] C-09 Workload DB et C-48 Persistance — crate `rfx-cache` (ADR-048), 21 tests,
       seize défauts volontaires détectés :
   - [x] `Fingerprint` (DM-05) dans `rfx-model` : environnement et unité de travail

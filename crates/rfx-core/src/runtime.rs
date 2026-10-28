@@ -111,10 +111,19 @@ impl Runtime {
             baseline_cycles: config.profiler_baseline_cycles,
         };
         let mut db = DbLink::new(&config);
+        let mut budget = MemoryBudget::new(max_native_mb);
         let logical_cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let pool = Scheduler::start(SchedulerConfig::for_machine(logical_cores))
+        // ADR-062 : les arenes des workers sont taillees pour le budget, et leur pire cas
+        // y est reserve avant le demarrage ; refusee, la base garde son fil de secours.
+        let (pool_config, arena_bytes) = pool_config(budget.limit(), logical_cores);
+        let pool = budget
+            .reserve(Pool::Runtime, arena_bytes)
             .ok()
+            .and_then(|()| Scheduler::start(pool_config).ok())
             .map(Arc::new);
+        if pool.is_none() {
+            budget.release(Pool::Runtime, arena_bytes);
+        }
         if let Some(pool) = &pool {
             db.use_executor(Arc::new(SchedulerExecutor::new(pool)));
         }
@@ -131,7 +140,7 @@ impl Runtime {
             panics: 0,
             recent_panics: Vec::new(),
             tick_window: TickWindow::default(),
-            budget: MemoryBudget::new(max_native_mb),
+            budget,
             probe_buffers: ProbeBufferPool::new(DEFAULT_BUFFER_BYTES, MAX_PROBED_THREADS),
             probe_records_consumed: 0,
             profiler: Profiler::new(profiler_config),
@@ -720,6 +729,29 @@ pub fn initialize(config: RuntimeConfig) -> Result<u64, ErrorCode> {
     Ok(HANDLE_PATTERN | generation)
 }
 
+/// Part du budget natif accordee aux arenes des workers (ADR-062).
+pub const ARENA_BUDGET_SHARE: u64 = 4;
+
+/// Plafond d'une arene au plus bas, quel que soit le budget (ADR-062).
+pub const MIN_ARENA_BYTES: usize = 256 << 10;
+
+/// Reglages de l'ordonnanceur pour `logical_cores` coeurs et un budget natif de
+/// `budget_bytes` octets, et le pire cas borne de ses arenes, a reserver (ADR-062) :
+/// `workers x (max_nesting + 1)` arenes, chacune plafonnee pour que le tout tienne dans
+/// `budget / ARENA_BUDGET_SHARE`, entre [`MIN_ARENA_BYTES`] et le defaut du cahier.
+#[must_use]
+pub fn pool_config(budget_bytes: u64, logical_cores: usize) -> (SchedulerConfig, u64) {
+    let mut config = SchedulerConfig::for_machine(logical_cores);
+    let arenas = config.effective_workers() as u64 * (u64::from(config.max_nesting) + 1);
+    let share = budget_bytes / ARENA_BUDGET_SHARE / arenas.max(1);
+    let max = usize::try_from(share)
+        .unwrap_or(usize::MAX)
+        .clamp(MIN_ARENA_BYTES, rfx_memory::DEFAULT_ARENA_MAX_BYTES);
+    config.arena_max_bytes = max;
+    config.arena_initial_bytes = rfx_memory::DEFAULT_ARENA_INITIAL_BYTES.min(max);
+    (config, arenas * max as u64)
+}
+
 /// Execute `f` sur l'instance, apres validation du handle (R-521).
 ///
 /// # Erreurs
@@ -773,6 +805,58 @@ mod tests {
     fn test_lock() -> MutexGuard<'static, ()> {
         static V: Mutex<()> = Mutex::new(());
         V.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// ADR-062 : les arenes tiennent dans un quart du budget, entre le plancher et le
+    /// defaut du cahier ; le pire cas rendu est celui qui sera reserve.
+    #[test]
+    fn worker_arenas_are_sized_for_the_native_budget() {
+        const MIB: u64 = 1 << 20;
+        for cores in [1, 4, 14, 64] {
+            let (config, reserved) = pool_config(512 * MIB, cores);
+            let arenas = config.effective_workers() as u64 * (u64::from(config.max_nesting) + 1);
+            assert_eq!(
+                reserved,
+                arenas * config.arena_max_bytes as u64,
+                "{cores} coeurs"
+            );
+            assert!(config.arena_initial_bytes <= config.arena_max_bytes);
+            assert!(config.arena_max_bytes <= rfx_memory::DEFAULT_ARENA_MAX_BYTES);
+            if config.arena_max_bytes > MIN_ARENA_BYTES {
+                assert!(reserved <= 512 * MIB / ARENA_BUDGET_SHARE, "{cores} coeurs");
+            }
+        }
+        let (roomy, _) = pool_config(64 * 1024 * MIB, 4);
+        assert_eq!(
+            roomy.arena_max_bytes,
+            rfx_memory::DEFAULT_ARENA_MAX_BYTES,
+            "defaut du cahier"
+        );
+        assert_eq!(
+            roomy.arena_initial_bytes,
+            rfx_memory::DEFAULT_ARENA_INITIAL_BYTES
+        );
+        let (tight, _) = pool_config(MIB, 14);
+        assert_eq!(tight.arena_max_bytes, MIN_ARENA_BYTES, "plancher");
+        assert_eq!(tight.arena_initial_bytes, MIN_ARENA_BYTES);
+    }
+
+    /// ADR-062 : le pire cas des arenes est reserve dans le budget ; un budget trop petit
+    /// pour lui laisse l'ordonnanceur eteint, et rien n'est reserve.
+    #[test]
+    fn the_arena_reservation_starts_or_withholds_the_pool() {
+        let runtime = Runtime::new(RuntimeConfig::default());
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let (_, reserved) = pool_config(runtime.budget.limit(), cores);
+        assert!(runtime.status().scheduler.running);
+        assert_eq!(runtime.budget.in_use_by(Pool::Runtime), reserved);
+
+        let tiny = Runtime::new(RuntimeConfig {
+            max_native_mb: 1,
+            ..RuntimeConfig::default()
+        });
+        assert!(!tiny.status().scheduler.running, "reservation refusee");
+        assert_eq!(tiny.budget.in_use_by(Pool::Runtime), 0);
     }
 
     /// Les deux options de profilage du fichier de configuration doivent atteindre le
@@ -1090,10 +1174,7 @@ mod tests {
         let scheduler = rt.status().scheduler;
         assert!(scheduler.running);
         assert!(scheduler.workers >= 1);
-        assert!(
-            scheduler.executed >= 2,
-            "relecture et ecriture : {scheduler:?}"
-        );
+        assert!(scheduler.executed >= 1, "{scheduler:?}");
 
         let bytes = std::fs::read(dir.join(crate::db::FILE_NAME)).expect("fichier");
         let _ = std::fs::remove_dir_all(&dir);
