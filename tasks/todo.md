@@ -1114,11 +1114,13 @@ demandent une mesure ; les autres sont des tests de justesse.
         mutants tués. Le jeu a pris en défaut la première liste de services (Mixin) ;
         corrigé. Non observé en jeu : la fin du relevé (le serveur GameTest s'arrête
         avant)
-  - [ ] Règle statique prudente : une unité qui pourrait être appelée par un
-        répartiteur (bus Forge ou maison) garde `order_deps` inconnu ; les autres
-        reçoivent une liste vide. ADR : la dépendance de contrôle (C-10 étape 3) n'a
-        pas de champ dans DM-08
-  - [ ] Tests, mutations, vérification complète, jeu lancé et journaux relus
+  - [x] Règle statique prudente (ADR-060) : `order_deps` liste les partenaires WAW,
+        WAR et verrou ; inconnu pour un rappel possible (racine d'instance, paramètre
+        objet ou tableau, synthétique, désignée par une poignée de sa classe, inconnue)
+        ou des accès inconnus. Limite actée : la dépendance de contrôle (C-10 étape 3)
+        n'a pas de champ dans DM-08, R-331 reste à la charge du consommateur.
+        Premier descripteur hors `UNKNOWN` (`Chance.pure`, drapeau `PURE`)
+  - [x] Tests, 13 mutants sur 13 tués (un 14ᵉ équivalent : code retiré)
 - [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
       déclare faussée au besoin (ADR-042, « Bancs réalistes »)
 

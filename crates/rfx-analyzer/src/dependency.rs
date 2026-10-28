@@ -16,8 +16,15 @@
 //! L'intersection se fait au niveau des domaines seulement (R-370, premiere etape) : le
 //! domaine `Unknown` croise tout (R-211). Les paires ne sont jamais enumerees : un
 //! ensemble de bits par domaine donne, pour chaque unite, ses dependances par union.
+//!
+//! `order_deps` (ADR-060) : les partenaires WAW, WAR et verrou, dont l'ordre relatif se
+//! voit dans le resultat ; inconnu pour une unite qui depend de tout le tick ou qui est
+//! un rappel possible ([`may_be_dispatched`]), dont un repartiteur decide de l'appel.
 
+use rfx_bytecode::{access, Constant};
 use rfx_model::{AccessSet, Domain, Precision, WorkId};
+
+use crate::hierarchy::{ClassIndex, MethodRef};
 
 /// Producteurs RAW listes au plus par unite ; au-dela, elle depend de tout le tick.
 pub const MAX_DEPS_PER_WORKLOAD: usize = 256;
@@ -36,6 +43,9 @@ pub struct Workload {
     pub writes: AccessSet,
     /// Un verrou est pris sur un objet non local (C-11).
     pub locks: bool,
+    /// L'unite peut etre un rappel qu'un repartiteur decide d'appeler
+    /// ([`may_be_dispatched`]) : son ordre est inconnu (ADR-060).
+    pub dispatched: bool,
 }
 
 /// Pourquoi une unite depend de tout le tick (R-372).
@@ -52,6 +62,10 @@ pub enum WholeTick {
 pub struct WorkloadDeps {
     /// Producteurs RAW, tries ; `None` si l'unite depend de tout le tick.
     pub producers: Option<Vec<WorkId>>,
+    /// Partenaires WAW, WAR et verrou, tries : unites dont l'ordre relatif est
+    /// observable (DM-08 `order_deps`, ADR-060) ; `None` si l'unite depend de tout le
+    /// tick, en a trop, ou est un rappel possible.
+    pub ordered: Option<Vec<WorkId>>,
     /// Motif d'une dependance a tout le tick.
     pub whole_tick: Option<WholeTick>,
     /// Unites dont elle lit ce qu'elles ecrivent.
@@ -229,11 +243,67 @@ pub fn dependencies(workloads: &[Workload]) -> Dependencies {
                 producers.sort_unstable();
                 deps.producers = Some(producers);
             }
+            let mut ordered = waw.clone();
+            ordered.union(&war);
+            ordered.union(&resource);
+            if !workload.dispatched && ordered.count() as usize <= MAX_DEPS_PER_WORKLOAD {
+                let mut partners: Vec<WorkId> = ordered.iter().map(|j| workloads[j].id).collect();
+                partners.sort_unstable();
+                deps.ordered = Some(partners);
+            }
         }
         result.conflicts += u64::from(deps.waw);
         result.per_workload.push(deps);
     }
     result
+}
+
+/// `true` si l'unite de racine `root` peut etre un rappel qu'un repartiteur (bus de
+/// Forge, ou repartiteur d'un mod) decide d'appeler ou non (ADR-060) : racine inconnue,
+/// methode d'instance, parametre de type reference, methode synthetique, ou methode
+/// designee par une poignee d'une methode d'amorcage de sa propre classe.
+#[must_use]
+pub fn may_be_dispatched(index: &ClassIndex, root: &MethodRef) -> bool {
+    let Some(class) = index.get(&root.owner) else {
+        return true;
+    };
+    let Some(method) = class.method(&root.name, &root.descriptor) else {
+        return true;
+    };
+    if !method.is_static() || method.access & access::SYNTHETIC != 0 {
+        return true;
+    }
+    if takes_reference(&root.descriptor) {
+        return true;
+    }
+    let pool = class.pool();
+    class
+        .bootstrap_methods
+        .iter()
+        .flat_map(|bootstrap| &bootstrap.arguments)
+        .any(|&argument| match pool.get(argument) {
+            Ok(Constant::MethodHandle { .. }) => match pool.method_handle(argument) {
+                Ok(handle) => {
+                    handle.member.owner == root.owner
+                        && handle.member.name == root.name
+                        && handle.member.descriptor == root.descriptor
+                }
+                Err(_) => true,
+            },
+            Ok(_) => false,
+            Err(_) => true,
+        })
+}
+
+/// `true` si un descripteur de methode a un parametre de type reference (objet ou
+/// tableau) ; un descripteur illisible est tenu pour en avoir un.
+fn takes_reference(descriptor: &str) -> bool {
+    let Some(end) = descriptor.find(')') else {
+        return true;
+    };
+    descriptor
+        .get(1..end)
+        .is_none_or(|params| params.contains('L') || params.contains('['))
 }
 
 #[cfg(test)]
@@ -261,7 +331,51 @@ mod tests {
             reads,
             writes,
             locks: false,
+            dispatched: false,
         }
+    }
+
+    /// ADR-060 : `order_deps` liste les partenaires WAW, WAR et verrou, pas les seuls
+    /// producteurs RAW ; inconnu pour un rappel possible ou des acces inconnus.
+    #[test]
+    fn order_dependencies_list_write_conflicts_but_not_pure_producers() {
+        let e = Domain::EntityState;
+        let mut locker = workload(5, set(&[]), set(&[]));
+        locker.locks = true;
+        let mut other_locker = workload(6, set(&[]), set(&[]));
+        other_locker.locks = true;
+        let mut callback = workload(7, set(&[]), set(&[e]));
+        callback.dispatched = true;
+        let deps = dependencies(&[
+            workload(1, set(&[]), set(&[e])),
+            workload(2, set(&[]), set(&[e])),
+            workload(3, set(&[e]), set(&[])),
+            workload(4, unknown_set(), set(&[])),
+            locker,
+            other_locker,
+            callback,
+        ]);
+        let ordered = |i: usize| deps.per_workload[i].ordered.clone();
+        // 1 : WAW avec 2 et 7, WAR avec 3 (lit E) et 4 (lit tout).
+        assert_eq!(
+            ordered(0),
+            Some(vec![WorkId(2), WorkId(3), WorkId(4), WorkId(7)])
+        );
+        // 3 ne fait que lire : ses ecrivains sont des producteurs, pas un ordre.
+        assert_eq!(ordered(2), Some(vec![]));
+        assert_eq!(
+            deps.per_workload[2].producers,
+            Some(vec![WorkId(1), WorkId(2), WorkId(7)])
+        );
+        assert_eq!(ordered(3), None, "acces inconnus");
+        assert_eq!(ordered(4), Some(vec![WorkId(6)]), "verrous");
+        assert_eq!(ordered(6), None, "rappel possible");
+
+        // Au-dela du plafond, l'ordre n'est plus liste : inconnu.
+        let writers: Vec<Workload> = (0..=MAX_DEPS_PER_WORKLOAD as u64 + 1)
+            .map(|id| workload(id, set(&[]), set(&[e])))
+            .collect();
+        assert_eq!(dependencies(&writers).per_workload[0].ordered, None);
     }
 
     #[test]

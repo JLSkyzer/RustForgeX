@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use rfx_analyzer::dataflow::{analyze_graph, workload_effects_from, DataflowLimits, DomainTable};
-use rfx_analyzer::dependency::{dependencies, WholeTick, Workload};
+use rfx_analyzer::dependency::{dependencies, may_be_dispatched, WholeTick, Workload};
 use rfx_analyzer::determinism::determinism_facts;
 use rfx_analyzer::hierarchy::Skeleton;
 use rfx_analyzer::platform;
@@ -144,6 +144,9 @@ pub struct Descriptor {
     pub thread: ThreadFacts,
     /// Determinisme (DM-10, C-13).
     pub determinism: DeterminismFacts,
+    /// La racine peut etre un rappel qu'un repartiteur decide d'appeler : `order_deps`
+    /// reste inconnu (C-10, ADR-060).
+    pub may_be_dispatched: bool,
     /// Drapeaux (DM-11).
     pub flags: ClassificationFlags,
     /// Confiance (DM-12).
@@ -519,6 +522,9 @@ impl Analysis {
         descriptor.thread = thread;
         descriptor.determinism = determinism;
         descriptor.deps.external_locks = external_locks;
+        // Calcule tant que le bytecode de la racine est dans l'index (ADR-060). Une unite
+        // epuisee a des acces inconnus : son ordre l'est de toute facon.
+        descriptor.may_be_dispatched = may_be_dispatched(&self.index, &job.root);
         let facts = facts_of(
             &descriptor,
             self.observed.get(&job.work_id),
@@ -576,6 +582,7 @@ impl Analysis {
             dependency: DependencyCounts::default(),
             thread: unknown_thread(),
             determinism: unknown_determinism(),
+            may_be_dispatched: true,
             flags: ClassificationFlags::EMPTY,
             confidence: Confidence::new(0.0, 0.0, 0.0),
             bytecode_hash: method_hash(&self.index, &job.root),
@@ -606,6 +613,7 @@ impl Analysis {
                     reads: d.reads,
                     writes: d.writes,
                     locks: d.locks,
+                    dispatched: d.may_be_dispatched,
                 }
             })
             .collect();
@@ -617,6 +625,7 @@ impl Analysis {
                 continue;
             };
             descriptor.deps.data_deps = deps.producers;
+            descriptor.deps.order_deps = deps.ordered;
             descriptor.dependency = DependencyCounts {
                 raw: deps.raw,
                 waw: deps.waw,
@@ -795,8 +804,9 @@ fn method_hash(index: &ClassIndex, method: &MethodRef) -> Option<u64> {
 /// Memoire estimee d'un descripteur.
 fn descriptor_bytes(descriptor: &Descriptor) -> u64 {
     let producers = descriptor.deps.data_deps.as_ref().map_or(0, Vec::len) as u64;
+    let ordered = descriptor.deps.order_deps.as_ref().map_or(0, Vec::len) as u64;
     BYTES_PER_DESCRIPTOR
-        + producers * 8
+        + (producers + ordered) * 8
         + descriptor
             .deps
             .calls
@@ -1030,6 +1040,40 @@ pub(crate) mod tests {
         assert_eq!(analysis.step(&[hot(id)]), StepState::Idle);
     }
 
+    /// ADR-060 : une unite statique a parametres primitifs, au graphe complet, sans
+    /// effet ni source de non-determinisme, sort d'UNKNOWN : premier drapeau PURE.
+    #[test]
+    fn a_complete_static_unit_is_the_first_known_descriptor() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let pure = WorkId(15);
+        analysis.note(
+            pure,
+            MethodRef::new("fixtures/Chance", "pure", "(II)I"),
+            Side::Server,
+        );
+        analysis.declare(hierarchy(&classes));
+        let hot_one = [hot(pure)];
+        assert_eq!(
+            drive(&mut analysis, &hot_one, &classes),
+            StepState::Finished
+        );
+        let pure = analysis.descriptor(pure).expect("descripteur");
+        assert!(!pure.may_be_dispatched);
+        assert_eq!(pure.deps.order_deps, Some(vec![]));
+        assert!(
+            !pure.flags.contains(ClassificationFlags::UNKNOWN),
+            "{:?}",
+            pure.flags
+        );
+        assert!(
+            pure.flags.contains(ClassificationFlags::PURE),
+            "{:?}",
+            pure.flags
+        );
+        assert!(pure.flags.contains(ClassificationFlags::DETERMINISTIC));
+    }
+
     /// ADR-059 : une classe qu'un greffon de lancement de Forge reecrit (ici, une
     /// descendante d'`Event` selon la hierarchie declaree) est fournie comme absente ;
     /// une classe ordinaire est fournie telle quelle.
@@ -1140,9 +1184,14 @@ pub(crate) mod tests {
             !local.flags.contains(ClassificationFlags::WRITE),
             "aucune ecriture"
         );
+        // ADR-060 : racine statique sans parametre, graphe complet, acces connus :
+        // l'ordre est connu, et le descripteur sort d'UNKNOWN.
+        assert!(!local.may_be_dispatched);
+        assert_eq!(local.deps.order_deps, Some(vec![]));
         assert!(
-            local.flags.contains(ClassificationFlags::UNKNOWN),
-            "C-06 manque encore"
+            !local.flags.contains(ClassificationFlags::UNKNOWN),
+            "{:?}",
+            local.flags
         );
 
         let shared = analysis.descriptor(shared).expect("descripteur");

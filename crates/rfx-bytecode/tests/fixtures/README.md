@@ -60,4 +60,5 @@ synchronisée (`Guarded`), écrit seulement par le constructeur (`CtorOnly`) ; e
 (`Random.nextInt`, `System.nanoTime`, `System.identityHashCode`, `HashMap.keySet`,
 `File.exists`, `Lock.lock`, `Method.invoke`, appel d'une méthode `native`), et des
 méthodes sans source : arithmétique entière en lecture seule, `dadd`, écriture d'un
-statique.
+statique. Elle sert aussi aux rappels possibles de C-10 (ADR-060) : `first` prend un
+tableau, `doubled` est désignée par une référence de méthode de sa propre classe.

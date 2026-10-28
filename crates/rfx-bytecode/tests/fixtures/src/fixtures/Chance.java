@@ -5,6 +5,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Random;
 import java.util.concurrent.locks.Lock;
+import java.util.function.IntUnaryOperator;
 
 /**
  * Classes de test de C-13 (ADR-058) : une methode par source de non-determinisme, et des
@@ -74,5 +75,20 @@ public class Chance {
     /** Aucune source, ecrit un statique. */
     static void store(int value) {
         last = value;
+    }
+
+    /** Statique, mais un tableau est un objet : il peut porter le flux (ADR-060). */
+    static int first(int[] values) {
+        return values[0];
+    }
+
+    /** Statique a parametre primitif, mais transmise comme rappel par sa classe. */
+    static int doubled(int value) {
+        return value * 2;
+    }
+
+    /** Reference de methode vers `doubled` (ADR-060). */
+    static IntUnaryOperator twice() {
+        return Chance::doubled;
     }
 }
