@@ -1212,6 +1212,18 @@ T-390..T-392, T-460..T-461.
   - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`
   - [ ] Propriétés détectées depuis l'analyse (cibles de transformateurs, réflexion)
   - [ ] `rfx.compat.*`
+- [~] C-15 Decision Engine — T-240..T-245 (ADR-068)
+  - [x] Moteur pur dans `rfx-decision` : filtre dur avec motifs DM-15 (huit genres),
+        gain = temps économisé `coût × (1 − 1/speedup)` (seule lecture compatible avec
+        R-410 : sans mesure, rien ne s'active), pénalité de risque, politique des modes,
+        plafond TL2 du jalon, stabilité 600 ticks et verrouillage FM-21. DM-13
+        (`StrategyKind`) et DM-15 (`RejectReason`) dans `rfx-model`. Filtre exhaustif sur
+        34 560 cas × 8 genres ; 5 mutants sur 5 tués (la pénalité de risque n'était
+        testée qu'à l'égalité, resserré)
+  - [ ] Brancher dans `rfx-core` : décision par descripteur, stratégie tenue, `E-2201`,
+        `rfx.decision.*`, bloc `DECISION` de `/rfx why`
+  - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
+        l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
 

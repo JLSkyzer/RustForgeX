@@ -581,6 +581,7 @@ mod tests {
             ("lib.rs", include_str!("lib.rs")),
             ("risk.rs", include_str!("risk.rs")),
             ("compat.rs", include_str!("compat.rs")),
+            ("decision.rs", include_str!("decision.rs")),
         ] {
             let code = source.split("#[cfg(test)]").next().unwrap_or("");
             for line in code.lines() {
