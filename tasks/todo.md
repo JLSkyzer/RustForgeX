@@ -1131,8 +1131,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         n'a pas de champ dans DM-08, R-331 reste à la charge du consommateur.
         Premier descripteur hors `UNKNOWN` (`Chance.pure`, drapeau `PURE`)
   - [x] Tests, 13 mutants sur 13 tués (un 14ᵉ équivalent : code retiré)
-- [ ] Banc : chaque exécution consigne la charge de la machine hors serveur et se
-      déclare faussée au besoin (ADR-042, « Bancs réalistes »)
+- [x] Banc : chaque exécution consigne la charge de la machine hors serveur et se
+      déclare faussée au besoin (ADR-042, « Bancs réalistes ») : relevé par seconde
+      pendant la fenêtre (`MachineLoad`, fil `RFX-BenchLoad`), champ `machine` du
+      fichier d'exécution, non-conformité au-delà de 10 % au p95 (seuil de départ, non
+      mesuré) ou sans relevé. Vérifié en jeu : banc court, 13 relevés, 27,5 % en médiane
+      et 70 % au p95 sur la machine de développement occupée
 
 ---
 

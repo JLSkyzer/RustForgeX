@@ -140,6 +140,8 @@ public final class MacroRecorder {
     private long gcTimeAtStartMs;
     private long lastGcCount;
     private boolean finished;
+    /** Charge de la machine hors serveur pendant la fenêtre de mesure (ADR-042). */
+    private MachineLoad machineLoad;
 
     private MacroRecorder(int warmupTicks, int measuredTicks, Path out, String label, int run) {
         this.warmupTicks = warmupTicks;
@@ -235,6 +237,7 @@ public final class MacroRecorder {
                 gcCountAtStart = gcCount();
                 gcTimeAtStartMs = gcTimeMs();
                 lastGcCount = gcCountAtStart;
+                machineLoad = MachineLoad.start();
                 openProfilingWindow();
             }
             return;
@@ -316,8 +319,11 @@ public final class MacroRecorder {
     /** Écrit le fichier d'exécution puis demande l'arrêt du serveur. */
     private void finish() {
         long windowNs = System.nanoTime() - windowStartNs;
+        MachineLoad.Summary machine = machineLoad == null
+                ? MachineLoad.summarize(new double[0])
+                : machineLoad.stop();
         try {
-            write(windowNs);
+            write(windowNs, machine);
             LOGGER.info("Macro-benchmark terminé : {} ticks mesurés, résultat dans {}",
                     recorded, out.toAbsolutePath());
         } catch (IOException | RuntimeException e) {
@@ -334,7 +340,7 @@ public final class MacroRecorder {
     }
 
     /** Compose et écrit le fichier d'exécution. */
-    private void write(long windowNs) throws IOException {
+    private void write(long windowNs, MachineLoad.Summary machine) throws IOException {
         long[] sorted = new long[recorded];
         System.arraycopy(durations, 0, sorted, 0, recorded);
         java.util.Arrays.sort(sorted);
@@ -367,6 +373,13 @@ public final class MacroRecorder {
                 .append("\",\n");
         json.append("    \"flags\": [").append(jvmFlags()).append("]\n");
         json.append("  },\n");
+        // Ce qui tournait d'autre sur la machine : l'agrégateur déclare l'exécution
+        // faussée au-delà d'un seuil, plutôt que d'exiger une machine au repos (ADR-042).
+        json.append("  \"machine\": {\"samples\": ").append(machine.samples())
+                .append(", \"outside_load_p50\": ").append(format(machine.p50()))
+                .append(", \"outside_load_p95\": ").append(format(machine.p95()))
+                .append(", \"outside_load_max\": ").append(format(machine.max()))
+                .append("},\n");
         json.append("  \"metrics\": {\n");
         json.append("    \"mspt_p50\": ").append(format(percentileMs(sorted, 0.50))).append(",\n");
         json.append("    \"mspt_p95\": ").append(format(percentileMs(sorted, 0.95))).append(",\n");

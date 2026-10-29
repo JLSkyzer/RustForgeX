@@ -20,7 +20,11 @@
 //!   (PARTIE 21.3, point 7) : la machine n'était pas au repos, et le chiffre ne
 //!   décrit pas le logiciel ;
 //! - la **comparaison** n'est produite que si exactement deux configurations sont
-//!   présentes, et elle nomme laquelle sert de référence.
+//!   présentes, et elle nomme laquelle sert de référence ;
+//! - une exécution pendant laquelle la machine faisait autre chose (charge hors serveur
+//!   au-delà de [`MAX_OUTSIDE_LOAD`] au p95), ou qui ne l'a pas consigné, rend la
+//!   campagne non conforme (ADR-042, « Bancs réalistes ») : on ne demande pas une
+//!   machine au repos, on refuse de citer une mesure faussée.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -38,6 +42,11 @@ const REQUIRED_MEASURED_TICKS: u64 = 12_000;
 
 /// Dispersion inter-exécutions au-delà de laquelle la campagne est invalidée.
 const MAX_RELATIVE_STDDEV: f64 = 0.10;
+
+/// Charge hors serveur (part de la capacité de la machine, p95 de la fenêtre) au-delà de
+/// laquelle une exécution est faussée. Seuil de départ, choisi et non mesuré : à
+/// recalibrer quand des campagnes sous charge réelle auront été conduites (ADR-042).
+pub const MAX_OUTSIDE_LOAD: f64 = 0.10;
 
 /// Métrique servant de juge pour le rejet d'exécution.
 const JUDGE_METRIC: &str = "mspt_p95";
@@ -58,6 +67,10 @@ pub struct RunFile {
     /// État de RUSTFORGE-X à l'arrêt, dont la surface sondée.
     #[serde(default)]
     pub rfx: Option<RunRfx>,
+    /// Charge de la machine hors serveur pendant la fenêtre ; absente des exécutions
+    /// écrites avant qu'elle soit relevée.
+    #[serde(default)]
+    pub machine: Option<RunMachine>,
     /// Ticks d'échauffement ignorés.
     pub warmup_ticks: u64,
     /// Ticks effectivement mesurés.
@@ -74,6 +87,15 @@ pub struct RunRfx {
     /// Méthodes portant une sonde à l'arrêt du serveur.
     #[serde(default)]
     pub methods_probed: u64,
+}
+
+/// Ce que l'exécution a relevé de la machine pendant sa fenêtre de mesure.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct RunMachine {
+    /// Relevés (un par seconde) ; zéro si la sonde de la JVM manquait.
+    pub samples: u64,
+    /// Charge hors serveur, 95e centile, en part de la capacité de la machine.
+    pub outside_load_p95: f64,
 }
 
 /// Statistique d'une métrique sur l'ensemble des exécutions d'une configuration.
@@ -115,6 +137,8 @@ pub struct Configuration {
     /// (ADR-021), et le moment de l'armement la fait varier d'un facteur cinq
     /// (ADR-022). Deux résultats qui ne l'exposent pas ne sont pas comparables.
     pub methods_probed: u64,
+    /// Pire charge hors serveur relevée (p95 d'une exécution), si toutes l'ont relevée.
+    pub outside_load_p95_max: Option<f64>,
     /// `true` si la campagne suit la méthodologie de la PARTIE 21.3.
     pub methodology_compliant: bool,
     /// Ce qui manque à la conformité, en clair.
@@ -263,6 +287,34 @@ fn summarize(runs: &[RunFile]) -> Configuration {
         ));
     }
 
+    let mut outside_load_p95_max = Some(0.0_f64);
+    let mut sorted_runs: Vec<&RunFile> = runs.iter().collect();
+    sorted_runs.sort_by_key(|r| r.run);
+    for run in sorted_runs {
+        match run.machine.filter(|m| m.samples > 0) {
+            None => {
+                outside_load_p95_max = None;
+                compliance_notes.push(format!(
+                    "exécution {} : charge de la machine non consignée (ADR-042)",
+                    run.run
+                ));
+            }
+            Some(machine) => {
+                if let Some(worst) = outside_load_p95_max.as_mut() {
+                    *worst = worst.max(machine.outside_load_p95);
+                }
+                if machine.outside_load_p95 > MAX_OUTSIDE_LOAD {
+                    compliance_notes.push(format!(
+                        "exécution {} faussée : charge hors serveur {:.0} % au p95, au-delà de {:.0} % (ADR-042)",
+                        run.run,
+                        machine.outside_load_p95 * 100.0,
+                        MAX_OUTSIDE_LOAD * 100.0
+                    ));
+                }
+            }
+        }
+    }
+
     let rejected = aggregated
         .get(JUDGE_METRIC)
         .is_some_and(|a| a.relative_stddev > MAX_RELATIVE_STDDEV);
@@ -274,6 +326,7 @@ fn summarize(runs: &[RunFile]) -> Configuration {
         measured_ticks: measured,
         load,
         methods_probed,
+        outside_load_p95_max,
         methodology_compliant: compliance_notes.is_empty(),
         compliance_notes,
         rejected,
@@ -357,6 +410,81 @@ fn compare(configurations: &BTreeMap<String, Configuration>) -> Vec<Comparison> 
 mod tests {
     use super::*;
 
+    /// Le champ `machine` tel que `MacroRecorder` l'écrit, relevé en jeu le 2026-10-29
+    /// sur une machine occupée : il est lu, et l'exécution est faussée.
+    #[test]
+    fn the_machine_field_written_by_the_game_is_read() {
+        let json = r#"{
+          "label": "essai-machine", "run": 1, "load": "aucune",
+          "warmup_ticks": 100, "measured_ticks": 300, "window_seconds": 15.0,
+          "machine": {"samples": 13, "outside_load_p50": 0.275, "outside_load_p95": 0.704,
+                      "outside_load_max": 0.704},
+          "metrics": {"mspt_p95": 2.0}
+        }"#;
+        let run: RunFile = serde_json::from_str(json).expect("lisible");
+        let machine = run.machine.expect("champ machine");
+        assert_eq!(machine.samples, 13);
+        assert!((machine.outside_load_p95 - 0.704).abs() < 1e-12);
+        let summary = summarize(&[run]);
+        assert!(summary
+            .compliance_notes
+            .iter()
+            .any(|note| note.contains("exécution 1 faussée") && note.contains("70 %")));
+    }
+
+    /// ADR-042 : une exécution chargée au-delà du seuil, ou sans relevé de la machine,
+    /// rend la campagne non conforme, et le dit en clair.
+    #[test]
+    fn a_loaded_or_unrecorded_machine_makes_the_campaign_non_compliant() {
+        let quiet: Vec<RunFile> = (1..=5).map(|i| run("a", i, 2.0)).collect();
+        let summary = summarize(&quiet);
+        assert!(
+            summary.methodology_compliant,
+            "{:?}",
+            summary.compliance_notes
+        );
+        assert_eq!(summary.outside_load_p95_max, Some(0.02));
+
+        let mut loaded: Vec<RunFile> = (1..=5).map(|i| run("a", i, 2.0)).collect();
+        loaded[2].machine = Some(RunMachine {
+            samples: 600,
+            outside_load_p95: 0.35,
+        });
+        let summary = summarize(&loaded);
+        assert!(!summary.methodology_compliant);
+        assert_eq!(summary.outside_load_p95_max, Some(0.35));
+        assert!(summary
+            .compliance_notes
+            .iter()
+            .any(|note| note.contains("exécution 3 faussée") && note.contains("35 %")));
+
+        let mut at_threshold: Vec<RunFile> = (1..=5).map(|i| run("a", i, 2.0)).collect();
+        at_threshold[0].machine = Some(RunMachine {
+            samples: 600,
+            outside_load_p95: MAX_OUTSIDE_LOAD,
+        });
+        assert!(
+            summarize(&at_threshold).methodology_compliant,
+            "le seuil lui-même passe"
+        );
+
+        let mut unrecorded: Vec<RunFile> = (1..=5).map(|i| run("a", i, 2.0)).collect();
+        unrecorded[4].machine = None;
+        unrecorded[1].machine = Some(RunMachine {
+            samples: 0,
+            outside_load_p95: 0.0,
+        });
+        let summary = summarize(&unrecorded);
+        assert!(!summary.methodology_compliant);
+        assert_eq!(summary.outside_load_p95_max, None);
+        let unrecorded_notes = summary
+            .compliance_notes
+            .iter()
+            .filter(|note| note.contains("non consignée"))
+            .count();
+        assert_eq!(unrecorded_notes, 2);
+    }
+
     fn run(label: &str, index: u32, p95: f64) -> RunFile {
         RunFile {
             label: label.to_owned(),
@@ -364,6 +492,10 @@ mod tests {
             load: Some("mobs".to_owned()),
             rfx: Some(RunRfx {
                 methods_probed: 2_635,
+            }),
+            machine: Some(RunMachine {
+                samples: 600,
+                outside_load_p95: 0.02,
             }),
             warmup_ticks: REQUIRED_WARMUP_TICKS,
             measured_ticks: REQUIRED_MEASURED_TICKS,

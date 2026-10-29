@@ -71,6 +71,14 @@ et rien d'autre. Un profil de charge de la PARTIE 22 donnera un chiffre différe
 - **`rejected`** signale une dispersion inter-exécutions supérieure à 10 % sur le
   MSPT p95 (PARTIE 21.3, point 7). La machine n'était pas au repos : le chiffre décrit
   l'environnement, pas le logiciel.
+- **La charge de la machine hors serveur** est relevée une fois par seconde pendant la
+  fenêtre de mesure (`machine` dans le fichier d'exécution : charge de toute la machine
+  moins celle du jeu, en part de sa capacité). Une exécution au-delà de 10 % au p95, ou
+  qui ne l'a pas relevée, rend la campagne non conforme, avec l'exécution nommée dans
+  `compliance_notes` (ADR-042, « Bancs réalistes »). On ne demande pas une machine au
+  repos ; on refuse de citer une mesure faussée. Le seuil de 10 % est un choix de départ,
+  pas une mesure : à recalibrer. Les campagnes archivées, écrites avant ce relevé, sont
+  désormais non conformes à la ré-agrégation.
 Retirer le JAR du transformateur n'est pas un détail de mise en scène :
 `general.enabled=false` éteint le runtime, mais laisse le transformateur énumérer ses
 cibles et décoder en `ClassNode` chaque classe désignée. Une configuration B qui le
