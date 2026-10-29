@@ -116,9 +116,50 @@ class WhyReportTest {
         assertTrue(flatten(lines).contains(WhyReport.KEY_PREFIX + "unavailable"));
     }
 
-    /** R-660 : sans moteur de décision, la fiche le dit au lieu d'inventer une stratégie. */
+    /**
+     * ADR-068 : la décision calculée s'affiche avec son risque, son verdict et chaque
+     * genre rejeté avec ses motifs, et la fiche dit qu'elle n'est pas appliquée.
+     */
     @Test
-    @DisplayName("R-660 : la fiche dit qu'aucune décision n'est prise")
+    @DisplayName("La décision calculée s'affiche, motifs compris, comme non appliquée")
+    void theComputedDecisionIsShownAsNotApplied() {
+        Map<String, Object> rejected = new LinkedHashMap<>();
+        rejected.put("strategy", "JAVA_BATCH");
+        rejected.put("reasons", List.of("UnsafeSharedState"));
+        Map<String, Object> decision = new LinkedHashMap<>();
+        decision.put("mode", "Balanced");
+        decision.put("strategy", "JAVA_ONLY");
+        decision.put("level", 0L);
+        decision.put("expected_gain_ns", 0L);
+        decision.put("correctness_x1000", 100L);
+        decision.put("stability_x1000", 800L);
+        decision.put("compat_x1000", 0L);
+        decision.put("data_x1000", 1_000L);
+        decision.put("blast", "WORLD");
+        decision.put("max_level", 2L);
+        decision.put("risk_rules", List.of("R4", "R5", "R10"));
+        decision.put("compat_verdict", "ALLOW");
+        decision.put("compat_source", "Default");
+        decision.put("rejected", List.of(rejected));
+        decision.put("requires_validation", false);
+        Map<String, Object> card = card(measured(), knownAnalysis(), false);
+        card.put("decision", decision);
+
+        String text = flatten(WhyReport.lines(card, null, false));
+
+        assertTrue(text.contains(WhyReport.KEY_PREFIX + "decision_strategy"), text);
+        assertTrue(text.contains("JAVA_ONLY"), text);
+        assertTrue(text.contains("0.800"), "stabilité en millièmes : " + text);
+        assertTrue(text.contains("R4, R5, R10"), text);
+        assertTrue(text.contains(WhyReport.KEY_PREFIX + "decision_rejected"), text);
+        assertTrue(text.contains("UnsafeSharedState"), text);
+        assertTrue(text.contains(WhyReport.KEY_PREFIX + "decision_not_applied"), text);
+        assertFalse(text.contains(WhyReport.KEY_PREFIX + "decision_none"), text);
+    }
+
+    /** Sans bloc de décision (unité non décrite), la fiche le dit. */
+    @Test
+    @DisplayName("Sans bloc de décision, la fiche dit qu'il n'y en a pas")
     void theCardSaysNoDecisionIsTaken() {
         String text = flatten(WhyReport.lines(card(measured(), knownAnalysis(), false),
                 null, false));

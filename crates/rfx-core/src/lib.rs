@@ -13,6 +13,7 @@ pub mod analysis;
 pub mod background;
 pub mod db;
 pub mod error;
+pub mod explain;
 pub mod hw;
 pub mod runtime;
 pub mod state;

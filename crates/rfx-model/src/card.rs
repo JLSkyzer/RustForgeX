@@ -33,11 +33,61 @@ pub struct WorkloadCard {
     /// L'analyse construisait un graphe au moment de la demande : rien n'a ete attendu,
     /// redemander.
     pub analysis_busy: bool,
+    /// Bloc `DECISION` : risque, compatibilite et decision calcules, non appliques
+    /// (M3, ADR-068) ; omis sans analyse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionCard>,
 }
 
 impl WorkloadCard {
     /// Version courante du format.
     pub const SCHEMA: u32 = 1;
+}
+
+/// Bloc `DECISION` : ce que C-14, C-33 et C-15 concluent de l'unite.
+///
+/// Les probabilites passent en milliemes : le lecteur CBOR de Java ne lit pas les reels.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionCard {
+    /// Mode du runtime qui a servi a decider.
+    pub mode: String,
+    /// Strategie retenue (`JAVA_ONLY`, `JAVA_BATCH`...).
+    pub strategy: String,
+    /// Son niveau de transformation, de 0 a 6.
+    pub level: u8,
+    /// Gain attendu, en nanosecondes par tick ; zero sans mesure (R-410).
+    pub expected_gain_ns: u64,
+    /// Risque de correction, en milliemes (C-14).
+    pub correctness_x1000: u32,
+    /// Risque de stabilite, en milliemes.
+    pub stability_x1000: u32,
+    /// Risque de compatibilite, en milliemes.
+    pub compat_x1000: u32,
+    /// Risque pour les donnees, en milliemes.
+    pub data_x1000: u32,
+    /// Portee maximale des degats (`TASK`, `WORKLOAD`, `SUBSYSTEM`, `WORLD`).
+    pub blast: String,
+    /// Niveau maximal que le blast radius autorise.
+    pub max_level: u8,
+    /// Regles de risque qui ont pose un plancher (`R1`..`R10`).
+    pub risk_rules: Vec<String>,
+    /// Verdict de compatibilite (C-33).
+    pub compat_verdict: String,
+    /// Source de ce verdict.
+    pub compat_source: String,
+    /// Genres candidats rejetes, avec leurs motifs (DM-15).
+    pub rejected: Vec<RejectedCard>,
+    /// La strategie demande une validation avant d'etre active.
+    pub requires_validation: bool,
+}
+
+/// Un genre rejete et ses motifs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RejectedCard {
+    /// Le genre.
+    pub strategy: String,
+    /// Ses motifs (`ThreadAffinity`...).
+    pub reasons: Vec<String>,
 }
 
 /// Bloc `ANALYSIS` : le descripteur de l'unite (C-08), resume.
@@ -114,6 +164,21 @@ mod tests {
                 ..AnalysisCard::default()
             }),
             analysis_busy: false,
+            decision: Some(DecisionCard {
+                mode: "Balanced".to_owned(),
+                strategy: "JAVA_ONLY".to_owned(),
+                correctness_x1000: 1_000,
+                blast: "WORLD".to_owned(),
+                max_level: 2,
+                risk_rules: vec!["R1".to_owned()],
+                compat_verdict: "ALLOW".to_owned(),
+                compat_source: "Default".to_owned(),
+                rejected: vec![RejectedCard {
+                    strategy: "JAVA_BATCH".to_owned(),
+                    reasons: vec!["InsufficientConfidence".to_owned()],
+                }],
+                ..DecisionCard::default()
+            }),
         };
         let bytes = crate::to_cbor(&card).unwrap();
         crate::assert_java_readable(&bytes).unwrap();

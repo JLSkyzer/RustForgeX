@@ -98,5 +98,10 @@
   "rustforgex.why.reason.determinism": "   - son déterminisme est inconnu",
   "rustforgex.why.stale": "  §ePérimée§r : son bytecode a changé depuis l'analyse ; elle sera recalculée.",
   "rustforgex.why.decision_title": "§7DÉCISION",
-  "rustforgex.why.decision_none": "  §8Aucune décision prise : le moteur de décision n'existe pas encore. L'unité tourne en Java, inchangée."
+  "rustforgex.why.decision_none": "  §8Aucune décision : l'unité n'est pas encore décrite.",
+  "rustforgex.why.decision_strategy": "  Stratégie : §e%s§r (TL%s), mode %s, gain attendu %s µs/tick",
+  "rustforgex.why.decision_risk": "  Risque : correction %s, stabilité %s, compatibilité %s, données %s ; portée %s (TL%s max) ; règles %s",
+  "rustforgex.why.decision_compat": "  Compatibilité : %s (%s)",
+  "rustforgex.why.decision_rejected": "   - rejeté %s : %s",
+  "rustforgex.why.decision_not_applied": "  §8Calculée et expliquée, non appliquée (jalon M3)."
 }

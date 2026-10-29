@@ -1220,8 +1220,12 @@ T-390..T-392, T-460..T-461.
         (`StrategyKind`) et DM-15 (`RejectReason`) dans `rfx-model`. Filtre exhaustif sur
         34 560 cas × 8 genres ; 5 mutants sur 5 tués (la pénalité de risque n'était
         testée qu'à l'égalité, resserré)
-  - [ ] Brancher dans `rfx-core` : décision par descripteur, stratégie tenue, `E-2201`,
-        `rfx.decision.*`, bloc `DECISION` de `/rfx why`
+  - [x] Bloc `DECISION` de `/rfx why` et `/rfx workload` : risque, verdict et décision
+        calculés à la demande (`rfx-core::explain`, premier pas de C-43), genres rejetés
+        avec leurs motifs, « non appliquée (M3) ». Le verdict ne voit que la réflexion
+        tant que règles utilisateur, quarantaines et transformateurs concurrents ne sont
+        pas branchés (sans effet en M3 : le plafond TL2 vaut `FORCE_SERIAL`)
+  - [ ] Décision tenue par unité, `E-2201`, `rfx.decision.*`, `rfx.risk.*`
   - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles

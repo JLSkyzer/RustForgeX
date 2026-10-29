@@ -98,5 +98,10 @@
   "rustforgex.why.reason.determinism": "   - its determinism is unknown",
   "rustforgex.why.stale": "  §eStale§r: its bytecode changed since the analysis; it will be recomputed.",
   "rustforgex.why.decision_title": "§7DECISION",
-  "rustforgex.why.decision_none": "  §8No decision taken: the decision engine does not exist yet. The unit runs in Java, unchanged."
+  "rustforgex.why.decision_none": "  §8No decision: the unit is not described yet.",
+  "rustforgex.why.decision_strategy": "  Strategy: §e%s§r (TL%s), mode %s, expected gain %s µs/tick",
+  "rustforgex.why.decision_risk": "  Risk: correctness %s, stability %s, compatibility %s, data %s; blast %s (TL%s max); rules %s",
+  "rustforgex.why.decision_compat": "  Compatibility: %s (%s)",
+  "rustforgex.why.decision_rejected": "   - rejected %s: %s",
+  "rustforgex.why.decision_not_applied": "  §8Computed and explained, not applied (milestone M3)."
 }

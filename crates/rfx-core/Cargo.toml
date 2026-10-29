@@ -22,6 +22,8 @@ rfx-bytecode = { workspace = true }
 # Ordonnanceur des travaux internes (C-17, ADR-061).
 rfx-scheduler = { workspace = true }
 rfx-taskgraph = { workspace = true }
+# Risque, compatibilite et decision (C-14, C-33, C-15 ; ADR-066 a ADR-068).
+rfx-decision = { workspace = true }
 
 [lints.rust]
 missing_docs = "deny"

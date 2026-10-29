@@ -16,9 +16,10 @@ import java.util.Map;
  * {@code STABLE}.
  *
  * <p>Trois blocs, comme la fiche normative : ce qui est mesuré, ce que l'analyse en sait,
- * et la décision. Le dernier dit qu'aucune décision n'est prise : le moteur de décision
- * n'existe pas encore, et inventer une stratégie serait mentir (R-660). Une unité
- * {@code UNKNOWN} dit pourquoi : quels faits manquent ou restent inconnus.
+ * et la décision. La décision est calculée par le natif (risque C-14, compatibilité
+ * C-33, décision C-15) et expliquée, mais n'est pas appliquée : c'est le jalon M3
+ * (ADR-068). Une unité {@code UNKNOWN} dit pourquoi : quels faits manquent ou restent
+ * inconnus.
  *
  * <p>Séparé de la commande pour être testable sans démarrer Minecraft ; aucun appel
  * natif ici.
@@ -83,9 +84,53 @@ public final class WhyReport {
 
         appendMeasured(lines, measured, longOf(card, "tick_ns"));
         appendAnalysis(lines, card, detailed);
-        lines.add(Component.translatable(KEY_PREFIX + "decision_title"));
-        lines.add(Component.translatable(KEY_PREFIX + "decision_none"));
+        appendDecision(lines, mapOf(card, "decision"));
         return lines;
+    }
+
+    /**
+     * Bloc {@code DECISION} : stratégie retenue, risque, compatibilité, genres rejetés
+     * avec leurs motifs. Rien n'est appliqué en M3, et la fiche le dit.
+     */
+    private static void appendDecision(List<Component> lines, Map<String, Object> decision) {
+        lines.add(Component.translatable(KEY_PREFIX + "decision_title"));
+        if (decision == null) {
+            lines.add(Component.translatable(KEY_PREFIX + "decision_none"));
+            return;
+        }
+        lines.add(Component.translatable(KEY_PREFIX + "decision_strategy",
+                Component.literal(stringOf(decision, "strategy")),
+                longOf(decision, "level"),
+                Component.literal(stringOf(decision, "mode")),
+                Component.literal(String.format(Locale.ROOT, "%.1f",
+                        longOf(decision, "expected_gain_ns") / 1_000.0))));
+        lines.add(Component.translatable(KEY_PREFIX + "decision_risk",
+                Component.literal(perMille(decision, "correctness_x1000")),
+                Component.literal(perMille(decision, "stability_x1000")),
+                Component.literal(perMille(decision, "compat_x1000")),
+                Component.literal(perMille(decision, "data_x1000")),
+                Component.literal(stringOf(decision, "blast")),
+                longOf(decision, "max_level"),
+                Component.literal(join(decision.get("risk_rules")))));
+        lines.add(Component.translatable(KEY_PREFIX + "decision_compat",
+                Component.literal(stringOf(decision, "compat_verdict")),
+                Component.literal(stringOf(decision, "compat_source"))));
+        if (decision.get("rejected") instanceof List<?> rejected) {
+            for (Object item : rejected) {
+                if (item instanceof Map<?, ?> entry) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> r = (Map<String, Object>) entry;
+                    lines.add(Component.translatable(KEY_PREFIX + "decision_rejected",
+                            Component.literal(stringOf(r, "strategy")),
+                            Component.literal(join(r.get("reasons")))));
+                }
+            }
+        }
+        lines.add(Component.translatable(KEY_PREFIX + "decision_not_applied"));
+    }
+
+    private static String perMille(Map<String, Object> table, String key) {
+        return String.format(Locale.ROOT, "%.3f", longOf(table, key) / 1000.0);
     }
 
     private static void appendMeasured(List<Component> lines, Map<String, Object> measured,

@@ -102,6 +102,22 @@ impl StrategyKind {
             Self::Reject => None,
         }
     }
+
+    /// Nom normatif, tel que la fiche d'explication l'affiche (PARTIE 5.33).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::JavaOnly => "JAVA_ONLY",
+            Self::JavaBatch => "JAVA_BATCH",
+            Self::JavaParallel => "JAVA_PARALLEL",
+            Self::RustOffload => "RUST_OFFLOAD",
+            Self::RustBatch => "RUST_BATCH",
+            Self::RustParallel => "RUST_PARALLEL",
+            Self::RustTransformed => "RUST_TRANSFORMED",
+            Self::RustNative => "RUST_NATIVE",
+            Self::Reject => "REJECT",
+        }
+    }
 }
 
 /// DM-15 : motif d'un rejet. Tout rejet en porte un (R-219).

@@ -411,6 +411,7 @@ dependencies = [
  "rfx-analyzer",
  "rfx-bytecode",
  "rfx-cache",
+ "rfx-decision",
  "rfx-memory",
  "rfx-model",
  "rfx-profiler",
