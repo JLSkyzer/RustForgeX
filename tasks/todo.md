@@ -598,12 +598,16 @@ trouver.
       MSPT p95 2,468 → 3,366 ms, soit **+36,4 %** contre +33,7 % la veille. Les deux
       correctifs du jour n'y changent rien — le filtre n'a retiré que 2,6 % des cibles,
       et le gouverneur d'overhead ne s'est jamais déclenché
-- [~] **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
+- [x] (réglé le 2026-10-29 par le commit porté dans chaque exécution, ci-dessous) **À l'agrégation** : l'agrégateur lit le commit de `HEAD`, qui aura avancé depuis
       le lancement. Agréger depuis un `git checkout 38eacfa` détaché — `benchmarks/runs`
       est ignoré par git et survit au changement — sans quoi le résultat citerait un
       commit dont le code n'a jamais été mesuré
-- [~] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
-      n'ait plus à le déduire de `HEAD`
+- [x] Faire porter au fichier d'exécution le commit **mesuré**, pour que l'agrégateur
+      n'ait plus à le déduire de `HEAD` (2026-10-29) : tâche Gradle `buildStamp`
+      (`dev/rustforgex/build.properties`, commit et arbre modifié, sans horodatage),
+      champ `build` du fichier d'exécution, agrégateur qui retient le commit des
+      exécutions, déclare un mélange et ne retombe sur `HEAD` qu'en le disant. Vérifié
+      en jeu : banc court, commit du JAR relu
 - [~] **Profils de charge de la PARTIE 22 — la lacune la plus importante de la mesure.**
       Formulation à corriger : « profil chargé » voulait dire 272 mods *chargés*, pas
       serveur *sous charge*. Les quatre campagnes ont mesuré un serveur **au repos** :

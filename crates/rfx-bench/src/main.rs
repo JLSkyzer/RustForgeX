@@ -389,7 +389,25 @@ fn macro_level() {
         }
     };
 
-    let (commit, dirty) = git_state(&root);
+    // Le commit mesuré vient des exécutions, écrit à la build ; `HEAD` n'est qu'un
+    // dernier recours, car il a pu avancer depuis le lancement de la campagne.
+    let (commit, dirty) = match &result.measured {
+        macro_bench::MeasuredCommit::One { commit, dirty } => (commit.clone(), *dirty),
+        macro_bench::MeasuredCommit::Mixed(commits) => {
+            notes.push(format!(
+                "exécutions de plusieurs commits ({}) : ce résultat n'en décrit aucun",
+                commits.join(", ")
+            ));
+            ("mixed".to_owned(), true)
+        }
+        macro_bench::MeasuredCommit::Unrecorded => {
+            notes.push(
+                "commit déduit de HEAD à l'agrégation, qui a pu avancer : les exécutions ne le portent pas"
+                    .to_owned(),
+            );
+            git_state(&root)
+        }
+    };
     if dirty {
         notes.push(
             "arbre de travail modifié : ce résultat ne décrit aucun commit publiable".to_owned(),
@@ -404,7 +422,7 @@ fn macro_level() {
         }
         if configuration.rejected {
             notes.push(format!(
-                "configuration « {label} » rejetée : dispersion inter-exécutions au-delà                  du seuil (PARTIE 21.3, point 7)"
+                "configuration « {label} » rejetée : dispersion inter-exécutions au-delà du seuil (PARTIE 21.3, point 7)"
             ));
         }
     }

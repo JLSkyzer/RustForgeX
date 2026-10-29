@@ -71,6 +71,9 @@ et rien d'autre. Un profil de charge de la PARTIE 22 donnera un chiffre différe
 - **`rejected`** signale une dispersion inter-exécutions supérieure à 10 % sur le
   MSPT p95 (PARTIE 21.3, point 7). La machine n'était pas au repos : le chiffre décrit
   l'environnement, pas le logiciel.
+- **Le commit mesuré** est celui que porte chaque fichier d'exécution (`build`, écrit
+  dans le JAR à la build), plus celui de `HEAD` au moment d'agréger. Des exécutions de
+  commits différents, ou qui ne le portent pas, sont signalées dans `notes`.
 - **La charge de la machine hors serveur** est relevée une fois par seconde pendant la
   fenêtre de mesure (`machine` dans le fichier d'exécution : charge de toute la machine
   moins celle du jeu, en part de sa capacité). Une exécution au-delà de 10 % au p95, ou

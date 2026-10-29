@@ -71,6 +71,9 @@ pub struct RunFile {
     /// écrites avant qu'elle soit relevée.
     #[serde(default)]
     pub machine: Option<RunMachine>,
+    /// Commit du JAR mesuré, écrit à la build ; absent des exécutions plus anciennes.
+    #[serde(default)]
+    pub build: Option<RunBuild>,
     /// Ticks d'échauffement ignorés.
     pub warmup_ticks: u64,
     /// Ticks effectivement mesurés.
@@ -87,6 +90,58 @@ pub struct RunRfx {
     /// Méthodes portant une sonde à l'arrêt du serveur.
     #[serde(default)]
     pub methods_probed: u64,
+}
+
+/// Ce que la build du JAR mesuré savait de son commit.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunBuild {
+    /// Commit, ou `unknown` sans git à la build.
+    pub commit: String,
+    /// L'arbre de travail portait des modifications non commitées.
+    pub dirty: bool,
+}
+
+/// Commit mesuré par une campagne, d'après ses exécutions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MeasuredCommit {
+    /// Toutes les exécutions portent ce commit.
+    One {
+        /// Le commit.
+        commit: String,
+        /// Une exécution au moins venait d'un arbre modifié.
+        dirty: bool,
+    },
+    /// Les exécutions viennent de plusieurs commits : la campagne ne décrit aucun d'eux.
+    Mixed(Vec<String>),
+    /// Une exécution au moins ne porte pas son commit, ou l'ignore.
+    Unrecorded,
+}
+
+/// Commit mesuré par `runs`.
+#[must_use]
+pub fn measured_commit<'a>(runs: impl IntoIterator<Item = &'a RunFile>) -> MeasuredCommit {
+    let mut commits: Vec<String> = Vec::new();
+    let mut dirty = false;
+    for run in runs {
+        match &run.build {
+            Some(build) if build.commit != "unknown" => {
+                dirty |= build.dirty;
+                if !commits.contains(&build.commit) {
+                    commits.push(build.commit.clone());
+                }
+            }
+            _ => return MeasuredCommit::Unrecorded,
+        }
+    }
+    commits.sort();
+    match commits.len() {
+        0 => MeasuredCommit::Unrecorded,
+        1 => MeasuredCommit::One {
+            commit: commits.remove(0),
+            dirty,
+        },
+        _ => MeasuredCommit::Mixed(commits),
+    }
 }
 
 /// Ce que l'exécution a relevé de la machine pendant sa fenêtre de mesure.
@@ -169,6 +224,9 @@ pub struct MacroResult {
     pub configurations: BTreeMap<String, Configuration>,
     /// Comparaison, présente seulement si exactement deux configurations existent.
     pub comparisons: Vec<Comparison>,
+    /// Commit mesuré, d'après les exécutions ; écrit à part dans le résultat.
+    #[serde(skip)]
+    pub measured: MeasuredCommit,
 }
 
 /// Lit toutes les exécutions d'un répertoire et les agrège.
@@ -205,6 +263,7 @@ pub fn aggregate(runs_dir: &Path) -> Result<(MacroResult, Vec<String>), String> 
         ));
     }
 
+    let measured = measured_commit(by_label.values().flatten());
     let configurations: BTreeMap<String, Configuration> = by_label
         .into_iter()
         .map(|(label, runs)| (label, summarize(&runs)))
@@ -216,6 +275,7 @@ pub fn aggregate(runs_dir: &Path) -> Result<(MacroResult, Vec<String>), String> 
         MacroResult {
             configurations,
             comparisons,
+            measured,
         },
         notes,
     ))
@@ -410,6 +470,40 @@ fn compare(configurations: &BTreeMap<String, Configuration>) -> Vec<Comparison> 
 mod tests {
     use super::*;
 
+    /// Le commit mesuré vient des exécutions : un seul, plusieurs, ou inconnu.
+    #[test]
+    fn the_measured_commit_comes_from_the_runs() {
+        let mut runs: Vec<RunFile> = (1..=3).map(|i| run("a", i, 2.0)).collect();
+        assert_eq!(
+            measured_commit(&runs),
+            MeasuredCommit::One {
+                commit: "57bfcb1".to_owned(),
+                dirty: false
+            }
+        );
+        runs[1].build.as_mut().unwrap().dirty = true;
+        assert_eq!(
+            measured_commit(&runs),
+            MeasuredCommit::One {
+                commit: "57bfcb1".to_owned(),
+                dirty: true
+            },
+            "un arbre modifie suffit"
+        );
+        runs[2].build.as_mut().unwrap().commit = "e8c52ba".to_owned();
+        assert_eq!(
+            measured_commit(&runs),
+            MeasuredCommit::Mixed(vec!["57bfcb1".to_owned(), "e8c52ba".to_owned()])
+        );
+        runs[2].build = None;
+        assert_eq!(measured_commit(&runs), MeasuredCommit::Unrecorded);
+        runs[2].build = Some(RunBuild {
+            commit: "unknown".to_owned(),
+            dirty: true,
+        });
+        assert_eq!(measured_commit(&runs), MeasuredCommit::Unrecorded);
+    }
+
     /// Le champ `machine` tel que `MacroRecorder` l'écrit, relevé en jeu le 2026-10-29
     /// sur une machine occupée : il est lu, et l'exécution est faussée.
     #[test]
@@ -496,6 +590,10 @@ mod tests {
             machine: Some(RunMachine {
                 samples: 600,
                 outside_load_p95: 0.02,
+            }),
+            build: Some(RunBuild {
+                commit: "57bfcb1".to_owned(),
+                dirty: false,
             }),
             warmup_ticks: REQUIRED_WARMUP_TICKS,
             measured_ticks: REQUIRED_MEASURED_TICKS,

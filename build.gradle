@@ -626,8 +626,43 @@ tasks.register('cleanNative', Delete) {
     delete nativesRoot
 }
 
+// C-36 : le commit dont le JAR est construit, et si l'arbre de travail portait des
+// modifications. Le banc le recopie dans chaque fichier d'execution : l'agregateur n'a
+// plus a deduire le commit mesure de `HEAD`, qui a pu avancer depuis. Pas d'horodatage :
+// deux builds du meme etat donnent le meme fichier (PARTIE 23.4).
+var buildStampDir = layout.buildDirectory.dir('generated/rustforgex-stamp')
+sourceSets.main.resources { srcDir buildStampDir }
+
+tasks.register('buildStamp') {
+    group = 'rustforgex'
+    description = 'Ecrit le commit et l etat de l arbre de travail dans les ressources'
+    var racine = rootDir
+    var sortie = buildStampDir
+    outputs.dir(sortie)
+    // L'etat de git change sans qu'aucune entree de Gradle ne change.
+    outputs.upToDateWhen { false }
+    doLast {
+        var lire = { List<String> commande ->
+            try {
+                var processus = commande.execute(null, racine)
+                var texte = processus.text
+                processus.waitFor() == 0 ? texte : null
+            } catch (IOException ignored) {
+                null
+            }
+        }
+        var commit = lire(['git', 'rev-parse', 'HEAD'])?.trim()
+        var etat = lire(['git', 'status', '--porcelain'])
+        // Sans git, ni le commit ni l'etat ne sont connus : modifie par prudence.
+        var modifie = etat == null || !etat.isEmpty()
+        var fichier = sortie.get().file('dev/rustforgex/build.properties').asFile
+        fichier.parentFile.mkdirs()
+        fichier.text = "commit=${commit ?: 'unknown'}\ndirty=${modifie}\n"
+    }
+}
+
 tasks.named('processResources').configure {
-    dependsOn 'nativeManifest'
+    dependsOn 'nativeManifest', 'buildStamp'
 }
 
 // PARTIE 23.4 : deux builds du meme commit doivent produire des archives identiques.

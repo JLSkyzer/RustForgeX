@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * C-36, niveau B : enregistrement d'une exécution de macro-benchmark.
@@ -339,6 +341,21 @@ public final class MacroRecorder {
         }
     }
 
+    /** Commit et état de l'arbre de travail du JAR, écrits à la build ; vide sinon. */
+    private static Properties buildStamp() {
+        Properties properties = new Properties();
+        try (InputStream in = MacroRecorder.class.getResourceAsStream(
+                "/dev/rustforgex/build.properties")) {
+            if (in != null) {
+                properties.load(in);
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Macro-benchmark : commit de la build illisible ({}) ; il sera "
+                    + "déclaré inconnu.", e.toString());
+        }
+        return properties;
+    }
+
     /** Compose et écrit le fichier d'exécution. */
     private void write(long windowNs, MachineLoad.Summary machine) throws IOException {
         long[] sorted = new long[recorded];
@@ -363,6 +380,14 @@ public final class MacroRecorder {
         // Sans lui, on ne saurait pas si un résultat décrit un serveur au repos ou un
         // serveur sous charge — deux régimes que rien ne permet de comparer.
         json.append("  \"load\": \"").append(escape(LoadProfile.requested())).append("\",\n");
+        // Le commit du JAR mesure, ecrit a la build : l'agregateur ne le deduit plus de
+        // `HEAD`, qui a pu avancer depuis le lancement.
+        Properties build = buildStamp();
+        json.append("  \"build\": {\"commit\": \"")
+                .append(escape(build.getProperty("commit", "unknown")))
+                .append("\", \"dirty\": ")
+                .append(!"false".equals(build.getProperty("dirty", "true")))
+                .append("},\n");
         json.append("  \"warmup_ticks\": ").append(warmupTicks).append(",\n");
         json.append("  \"measured_ticks\": ").append(recorded).append(",\n");
         json.append("  \"window_seconds\": ").append(format(windowSeconds)).append(",\n");
