@@ -21,9 +21,16 @@ use rfx_bytecode::{access, CallTarget, ClassFile};
 use crate::callgraph_acceptance::build_like_the_game;
 use crate::callgraph_cost::Corpus;
 
-/// Appels qui definissent des classes cachees, anonymes ou des implementations
-/// generees d'une interface.
-const DEFINERS: [(&str, &str); 4] = [
+/// Appels qui definissent des classes cachees, anonymes, ordinaires ou des
+/// implementations generees d'une interface. Les proxys et `defineClass` comptent :
+/// leurs classes ne passent pas par les transformateurs de ModLauncher, et un proxy
+/// implemente l'interface que son appelant choisit (ADR-055, 2026-10-29).
+const DEFINERS: [(&str, &str); 9] = [
+    ("java/lang/ClassLoader", "defineClass"),
+    ("java/security/SecureClassLoader", "defineClass"),
+    ("java/lang/invoke/MethodHandles$Lookup", "defineClass"),
+    ("java/lang/reflect/Proxy", "newProxyInstance"),
+    ("java/lang/reflect/Proxy", "getProxyClass"),
     ("java/lang/invoke/MethodHandles$Lookup", "defineHiddenClass"),
     (
         "java/lang/invoke/MethodHandles$Lookup",

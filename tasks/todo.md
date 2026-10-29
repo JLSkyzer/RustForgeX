@@ -1114,9 +1114,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         Chaque signature connue est une affirmation à prouver (ADR à écrire).
         Mesure par unité (ADR-055, 2026-10-29) : les cibles sans code (174 natives du
         JDK) ne sont la seule cause d'**aucune** unité, écartées ; `clone()` de tableau
-        rapporterait 5 unités en écritures seulement, non retenu. **Reste un choix de
-        conception pour Killian** : fermeture conditionnelle des interfaces, types
-        atteignables, ou cibles observées sous vérification dynamique (R-382)
+        rapporterait 5 unités en écritures seulement, non retenu. Fermeture
+        conditionnelle choisie le 2026-10-29 puis **réfutée par la mesure** avant tout
+        code : Guava, JNA, commons-lang, jline et netty fabriquent des `Proxy`
+        d'interfaces quelconques, invisibles aux transformateurs (ADR-055). **Reste à
+        Killian** : types atteignables, ou cibles observées sous vérification
+        dynamique (R-382)
   - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*` — reste à observer en jeu sous charge (aucune unité chaude
         dans un serveur sans joueur)
@@ -1205,7 +1208,8 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
   poussée.
 - ~~Écarts à IF-12, persistance des descripteurs, voie de C-11, Miri~~ — **décidés le
   2026-10-29** : écarts validés ; descripteurs persistés dans `workload.db` avec
-  migration ; fermeture conditionnelle des interfaces ; Miri installé.
+  migration ; Miri installé. La fermeture conditionnelle des interfaces, retenue, a
+  été réfutée par la mesure avant tout code (ADR-055) : voie de C-11 à rechoisir.
 
 ---
 
