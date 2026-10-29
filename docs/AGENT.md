@@ -10,31 +10,17 @@ antérieure**. Il est normatif au sens de la PARTIE 27.2 du cahier des charges.
 
 ## 0. État courant du projet
 
-**Jalon en cours : M0 (Bootstrap) — composants livrés, jalon en cours de clôture.**
+**Jalon en cours : M3 (Décision).** M0 est clos ; M1 et M2 sont clos avec réserves
+(ADR-042, ADR-065). Le jeu n'est toujours transformé en rien : RF-X observe, mesure,
+analyse, et ordonnance ses propres tâches internes.
 
-| Élément | État |
-|---|---|
-| Squelette Forge (MDK 1.20.1 / Forge 47.4.23) | en place |
-| Workspace Rust (`crates/`) | `rfx-model`, `rfx-core`, `rfx-ffi` |
-| C-27 Rust Runtime Core | implémenté, `STABLE` |
-| C-45 Hardware Probe | implémenté, `STABLE` |
-| C-03 Native Loader | implémenté, `STABLE` |
-| C-02 Bootstrap | implémenté, `STABLE` |
-| C-37 Configuration | implémenté, `STABLE` (options du jalon uniquement) |
-| C-01 Forge Integration | implémenté, `STABLE` (aucun hook de tick à ce jalon) |
-| C-38 CLI | `/rfx status` seulement, `STABLE` |
-| C-40 Release System | build natif, artifact-verify et CI en place |
-| Composants C-04 à C-53 | **non implémentés** |
-| Tests | 55 côté Java, 47 côté Rust, tous verts |
-| Benchmarks B-xx | **aucun** |
+L'état détaillé, composant par composant, avec ses réserves et ses mesures, est tenu
+dans [`tasks/todo.md`](../tasks/todo.md) ; les décisions, dans
+[`docs/decisions/`](decisions/). Cette section n'en garde que le résumé : un tableau
+recopié ici avait cessé d'être vrai dès M1.
 
-Le mod a été lancé dans Minecraft : il démarre, charge son binaire natif, mesure la
-machine, et s'arrête proprement. Aucun chiffre de performance n'existe et aucun ne
-doit être écrit nulle part tant que le harnais de bench (C-36, jalon M1) n'en a pas
-produit un fichier de résultats.
-
-**Reste à faire pour clore M0** : `INSTALLATION.md` et `RELEASING.md` (à la première
-release), et la vérification sur serveur dédié et client réels.
+Les chiffres de performance ne s'écrivent qu'avec le fichier de résultats du harnais
+(C-36) qui les a produits.
 
 ---
 
@@ -141,10 +127,10 @@ projet dans un état non fonctionnel.
 
 | Jalon | Contenu | Livrable |
 |---|---|---|
-| **M0** | C-01, C-02, C-03, C-27 (squelette), C-37, C-45, C-40 | JAR qui se charge, charge le natif, sonde le matériel, expose `/rfx status`, ne fait rien d'autre |
+| M0 | C-01, C-02, C-03, C-27 (squelette), C-37, C-45, C-40 | JAR qui se charge, charge le natif, sonde le matériel, expose `/rfx status`, ne fait rien d'autre |
 | M1 | C-04, C-05, C-06, C-31, C-34, C-35, C-38, C-41, C-36 | profilage adaptatif complet, overhead < 2 % mesuré |
 | M2 | C-07..C-10, C-12, C-16, C-17, C-18, C-48 | task graph + scheduler, aucune transformation du jeu |
-| M3 | Décision | moteur de décision, toujours sans exécution transformée |
+| **M3** | Décision : C-11, C-13, C-14, C-15, C-32, C-33, C-43 | décisions calculées et expliquées, appliquées seulement pour TL0..TL2 |
 | M4 | Exécution sûre | snapshots, command buffers, commit, validation |
 | M5 | Adaptation et domaine entités | apprentissage + C-49 |
 | M6 | IR et chunks | RF-IR + C-50 |

@@ -928,7 +928,9 @@ donc ouvert.
 
 ---
 
-## M2 — Analyse et ordonnancement
+## M2 — Analyse et ordonnancement ✅ CLOS AVEC RÉSERVES (2026-10-30, ADR-065)
+
+Réserves (ADR-065) : T-190, T-194, T-262, T-267, T-212 ; précision de C-11 reportée à M3.
 
 **Livrable** : workloads modélisés, task graph, scheduler opérationnel utilisé
 uniquement pour des tâches internes (analyse, persistance). **Aucune transformation du
@@ -1121,9 +1123,10 @@ demandent une mesure ; les autres sont des tests de justesse.
         rapporterait 5 unités en écritures seulement, non retenu. Fermeture
         conditionnelle choisie le 2026-10-29 puis **réfutée par la mesure** avant tout
         code : Guava, JNA, commons-lang, jline et netty fabriquent des `Proxy`
-        d'interfaces quelconques, créés à l'exécution après les graphes (ADR-055). **Reste à
-        Killian** : types atteignables, ou cibles observées sous vérification
-        dynamique (R-382)
+        d'interfaces quelconques, créés à l'exécution après les graphes (ADR-055).
+        **Reporté à M3 par Killian le 2026-10-30** : C-11 reste sûr et imprécis en M2 ;
+        la voie des cibles observées s'appuiera sur la vérification dynamique (R-382)
+        que M3 construit pour valider les déports
   - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*` — reste à observer en jeu sous charge (aucune unité chaude
         dans un serveur sans joueur)
@@ -1173,6 +1176,26 @@ demandent une mesure ; les autres sont des tests de justesse.
 
 ---
 
+## M3 — Décision
+
+**Livrable** : décisions calculées et expliquées, appliquées uniquement pour TL0..TL2
+(`JAVA_ONLY`, `JAVA_BATCH`).
+
+**Composants** : C-11 (reste), C-13 (reste), C-14, C-15, C-32, C-33, C-43.
+
+**DoD** : T-200..T-205, T-220..T-223, T-230..T-232, T-240..T-245, T-380..T-384,
+T-390..T-392, T-460..T-461.
+
+**Sortie** : premiers gains réels par batching, `/rfx why` complet.
+
+- [ ] Lire les fiches de C-14, C-15, C-32, C-33, C-43 (PARTIE 5) et leurs IF/DM/INV,
+      puis ce qui reste de C-11 (T-200..T-205) et de C-13 (T-220..T-223), avant tout code
+- [ ] Plan de M3 : ordre des composants, ADR d'entrée, ce qui demande Killian
+- [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
+      observées sous la vérification dynamique de R-382
+
+---
+
 ## Dette documentaire suivie
 
 Documents exigés par la PARTIE 27.1, à rédiger au jalon où leur contenu devient réel :
@@ -1213,7 +1236,8 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
 - ~~Écarts à IF-12, persistance des descripteurs, voie de C-11, Miri~~ — **décidés le
   2026-10-29** : écarts validés ; descripteurs persistés dans `workload.db` avec
   migration ; Miri installé. La fermeture conditionnelle des interfaces, retenue, a
-  été réfutée par la mesure avant tout code (ADR-055) : voie de C-11 à rechoisir.
+  été réfutée par la mesure avant tout code (ADR-055) ; le 2026-10-30, Killian reporte
+  la précision de C-11 à M3.
 
 ---
 
