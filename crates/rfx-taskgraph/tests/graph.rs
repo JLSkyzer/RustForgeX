@@ -86,7 +86,10 @@ fn t250_every_cycle_is_refused_and_the_graph_is_left_intact() {
 /// reste ordonnable jusqu'au bout.
 #[test]
 fn t250_random_edges_are_refused_exactly_when_they_close_a_cycle() {
-    for seed in 1..=20u64 {
+    // Sous Miri (PARTIE 19.1), qui interprete chaque instruction, une graine suffit a
+    // parcourir le code ; vingt depassaient une demi-heure. Hors Miri, rien ne change.
+    let seeds: u64 = if cfg!(miri) { 1 } else { 20 };
+    for seed in 1..=seeds {
         let mut random = XorShift(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let count = 60;
         let mut graph = TaskGraph::new();

@@ -23,7 +23,7 @@ use crate::callgraph_cost::Corpus;
 
 /// Appels qui definissent des classes cachees, anonymes, ordinaires ou des
 /// implementations generees d'une interface. Les proxys et `defineClass` comptent :
-/// leurs classes ne passent pas par les transformateurs de ModLauncher, et un proxy
+/// leurs classes apparaissent a l'execution, apres les graphes, et un proxy
 /// implemente l'interface que son appelant choisit (ADR-055, 2026-10-29).
 const DEFINERS: [(&str, &str); 9] = [
     ("java/lang/ClassLoader", "defineClass"),

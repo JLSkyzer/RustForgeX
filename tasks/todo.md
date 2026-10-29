@@ -1121,7 +1121,7 @@ demandent une mesure ; les autres sont des tests de justesse.
         rapporterait 5 unités en écritures seulement, non retenu. Fermeture
         conditionnelle choisie le 2026-10-29 puis **réfutée par la mesure** avant tout
         code : Guava, JNA, commons-lang, jline et netty fabriquent des `Proxy`
-        d'interfaces quelconques, invisibles aux transformateurs (ADR-055). **Reste à
+        d'interfaces quelconques, créés à l'exécution après les graphes (ADR-055). **Reste à
         Killian** : types atteignables, ou cibles observées sous vérification
         dynamique (R-382)
   - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
