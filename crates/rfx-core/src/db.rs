@@ -25,9 +25,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rfx_cache::{
-    DbConfig, DbService, DynamicsUpdate, Executor, StdFileSystem, SyncBatch, WorkloadRecord,
+    AnalysisUpdate, DbConfig, DbService, DynamicsUpdate, Executor, StdFileSystem, SyncBatch,
+    WorkloadRecord,
 };
-use rfx_model::{DbOpen, DbStatus, Fingerprint, HardwareClass, RuntimeConfig, WorkDescriptor};
+use rfx_model::{
+    DbOpen, DbStatus, Fingerprint, HardwareClass, PersistedAnalysis, RuntimeConfig, WorkDescriptor,
+    WorkId,
+};
 use rfx_profiler::WorkloadStore;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -109,6 +113,8 @@ pub struct DbLink {
     service: Option<DbService>,
     environment: Fingerprint,
     pending: Vec<WorkDescriptor>,
+    /// Faits d'analyse a confier au prochain lot (ADR-064).
+    analyses: Vec<AnalysisUpdate>,
     cycle: Option<Cycle>,
     /// Les dynamiques vues jusqu'a ce tick sont deja confiees.
     synced_through: u64,
@@ -136,6 +142,7 @@ impl DbLink {
             service: None,
             environment: Fingerprint::default(),
             pending: Vec::new(),
+            analyses: Vec::new(),
             cycle: None,
             synced_through: 0,
             syncs: 0,
@@ -162,6 +169,30 @@ impl DbLink {
             return;
         }
         self.pending.push(descriptor.clone());
+    }
+
+    /// Note des faits d'analyse a ecrire au prochain lot (ADR-064). Au-dela de
+    /// `max_workloads` en attente, les plus recents sont perdus : l'unite sera
+    /// analysee de nouveau a la partie suivante.
+    pub fn note_analyses(&mut self, analyses: Vec<(WorkId, PersistedAnalysis)>) {
+        if !self.enabled {
+            return;
+        }
+        for (id, analysis) in analyses {
+            if self.analyses.len() >= self.max_entries {
+                self.pending_dropped = self.pending_dropped.saturating_add(1);
+                continue;
+            }
+            self.analyses.push(AnalysisUpdate {
+                id,
+                analysis: Some(analysis),
+            });
+        }
+    }
+
+    /// Analyses relues au demarrage, rendues une seule fois (ADR-064).
+    pub fn take_restored(&mut self) -> Option<Vec<(WorkId, PersistedAnalysis)>> {
+        self.service.as_ref().and_then(DbService::take_restored)
     }
 
     /// Ouvre la base : demarre le fil, qui la relit en arriere-plan. Sans effet si
@@ -262,6 +293,7 @@ impl DbLink {
                 .map(|descriptor| WorkloadRecord::new(descriptor, environment))
                 .collect(),
             updates: cycle.updates,
+            analyses: std::mem::take(&mut self.analyses),
             max_bytes: Some(max_bytes),
         };
         match service.sync(batch) {
@@ -280,6 +312,7 @@ impl DbLink {
                         .into_iter()
                         .map(|record| record.descriptor),
                 );
+                self.analyses.extend(rejected.batch.analyses);
             }
         }
         true

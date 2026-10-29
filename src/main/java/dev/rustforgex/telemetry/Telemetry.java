@@ -347,6 +347,14 @@ public final class Telemetry {
                 "Changements significatifs d'un descripteur : drapeaux, ou confiance de 0,1."));
         set.add(Metric.counter("rfx.analysis.recomputes", longOf(analysis, "recomputes"),
                 "Recalculs sur changement du bytecode de la méthode racine (R-350)."));
+        set.add(Metric.counter("rfx.analysis.restored",
+                longOf(analysis, "descriptors_restored"),
+                "Descripteurs relus de workload.db au démarrage, sans nouvelle analyse "
+                        + "(ADR-064)."));
+        set.add(Metric.counter("rfx.analysis.restore_rejected",
+                longOf(analysis, "restore_rejected"),
+                "Analyses relues mais écartées : produites par un autre code d'analyse "
+                        + "(ADR-064)."));
         appendDataflow(set, analysis);
         appendDependencies(set, analysis);
         appendThreads(set, analysis);

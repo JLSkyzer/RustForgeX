@@ -297,6 +297,23 @@ impl Runtime {
             .map_err(|_| ErrorCode::InvalidArgument)
     }
 
+    /// Analyses relues de la base au demarrage, rendues une seule fois (ADR-064).
+    pub fn db_take_restored(
+        &mut self,
+    ) -> Option<Vec<(rfx_model::WorkId, rfx_model::PersistedAnalysis)>> {
+        self.db.take_restored()
+    }
+
+    /// Faits d'analyse a ecrire dans la base au prochain cycle (ADR-064).
+    pub fn db_note_analyses(
+        &mut self,
+        analyses: Vec<(rfx_model::WorkId, rfx_model::PersistedAnalysis)>,
+    ) {
+        if !analyses.is_empty() {
+            self.db.note_analyses(analyses);
+        }
+    }
+
     /// Avance d'une tranche la collecte des dynamiques pour la base. Renvoie `true` quand
     /// le cycle est termine et son lot confie ; `false` s'il faut rappeler, apres avoir
     /// rendu le verrou.
@@ -1224,6 +1241,99 @@ mod tests {
             "trois passages et une sortie"
         );
         assert_eq!(record.dynamics.last_seen_tick, 40);
+    }
+
+    /// ADR-064, de bout en bout : un descripteur calcule a une partie est ecrit dans
+    /// `workload.db`, relu a la partie suivante par un autre runtime, et repris par son
+    /// analyse avec les memes faits.
+    #[test]
+    fn a_descriptor_survives_a_restart_through_the_database() {
+        use crate::analysis::tests::{drive, fixtures, hierarchy};
+        use crate::analysis::{Analysis, StepState};
+        use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
+
+        let classes = fixtures();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .expect("horloge")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rfx-core-adr064-{}-{unique}", std::process::id()));
+        let descriptor = WorkDescriptor {
+            owner_id: "fixtures".to_owned(),
+            class_internal_name: "fixtures/Calls".to_owned(),
+            method_name: "vehicle".to_owned(),
+            method_descriptor: "(Lfixtures/Vehicle;)I".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+        let open = DbOpen {
+            schema: rfx_model::MODEL_SCHEMA_VERSION,
+            dir: dir.to_string_lossy().into_owned(),
+            minecraft: "1.20.1".to_owned(),
+            ..DbOpen::default()
+        };
+
+        // Premiere partie : mesure, analyse, ecriture.
+        let saved = {
+            let mut rt = Runtime::new(RuntimeConfig::default());
+            rt.start_profiler();
+            let probe_id = rt.register_workload(&descriptor, work_id).expect("sondee");
+            rt.open_db(&open).expect("ouverte");
+            assert!(rt.acquire_probe_buffer(3).is_some());
+            let record = ProbeRecord {
+                probe_id,
+                value: 50_000,
+                kind: RecordKind::Exit.to_byte(),
+                ..ProbeRecord::default()
+            };
+            for tick in 1..=40 {
+                rt.tick_begin(tick, Side::Server, Instant::now());
+                let buffer = rt.probe_buffers.get_mut(3).expect("tampon");
+                assert!(buffer.write_at(0, &record.encode()));
+                rt.flush_probe_buffer(3, PROBE_RECORD_SIZE);
+                rt.tick_end(Instant::now());
+            }
+            let (shared, staged) = rt.analysis_handoff();
+            let hot = rt.hot_workloads();
+            let unsaved = {
+                let mut analysis = shared.lock().unwrap();
+                for (id, method, side) in staged {
+                    analysis.note(id, method, side);
+                }
+                analysis.declare(hierarchy(&classes));
+                assert_eq!(drive(&mut analysis, &hot, &classes), StepState::Finished);
+                analysis.take_unsaved()
+            };
+            assert_eq!(unsaved.len(), 1);
+            rt.db_note_analyses(unsaved.clone());
+            while !rt.db_sync_step() {}
+            assert!(rt.close_db(Duration::from_secs(30)), "ecrite a temps");
+            unsaved
+        };
+
+        // Partie suivante : un autre runtime relit la base et reprend le descripteur.
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.register_workload(&descriptor, work_id).expect("sondee");
+        rt.open_db(&open).expect("rouverte");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let restored = loop {
+            if let Some(restored) = rt.db_take_restored() {
+                break restored;
+            }
+            assert!(Instant::now() < deadline, "relecture trop longue");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert!(rt.close_db(Duration::from_secs(30)));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(restored, saved, "relues telles qu'ecrites");
+
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        assert_eq!(analysis.restore(restored), 1);
+        assert_eq!(
+            analysis.descriptor(work_id).expect("repris").persisted(),
+            saved[0].1
+        );
     }
 
     #[test]

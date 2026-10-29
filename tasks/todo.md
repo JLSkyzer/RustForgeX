@@ -1093,8 +1093,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         serveur de développement n'a pas d'unité chaude : les descripteurs ne se
         voient pas en jeu ; la chaîne profileur → descripteur → statut est vérifiée
         par le test d'intégration du runtime
-  - [ ] Hors périmètre, à décider par Killian : persistance des descripteurs dans
-        `workload.db` (change DM-17) ; acceptance (attend C-10 à C-13, profil `heavy`)
+  - [x] Persistance des descripteurs dans `workload.db` (ADR-064, choix de Killian du
+        2026-10-29) : faits propres à l'unité, tampon du code d'analyse, schéma 2 qui
+        lit le schéma 1, circuit dans `rfx_analysis_step` ; drapeaux et confiance
+        reclassés quand une unité décrite est observée (un descripteur relu restait
+        sinon « jamais observé »). Test de bout en bout par un vrai fichier
+  - [ ] Acceptance de C-08 (attend C-10 à C-13 en jeu, profil `heavy`)
 - [~] C-11 Data Flow Analyzer — T-200..T-205 (R-380..R-382, FM-20), ADR-055. Avant
       C-10, qui a besoin de ses ensembles d'accès (demande de Killian du 2026-10-17,
       « ok go la suite »)

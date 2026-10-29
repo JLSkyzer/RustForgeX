@@ -43,7 +43,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use rfx_model::{Fingerprint, WorkId, WorkloadDynamics};
+use rfx_model::{Fingerprint, PersistedAnalysis, WorkId, WorkloadDynamics};
 
 use crate::db::WorkloadDb;
 use crate::exec::{Executor, Fork, InlineFork, ThreadExecutor};
@@ -90,6 +90,15 @@ pub struct DynamicsUpdate {
     pub dynamics: WorkloadDynamics,
 }
 
+/// Faits d'analyse d'une unite de travail, nouveaux ou recalcules (ADR-064).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisUpdate {
+    /// Unite de travail.
+    pub id: WorkId,
+    /// Ses faits ; `None` les efface (descripteur perime, a recalculer).
+    pub analysis: Option<PersistedAnalysis>,
+}
+
 /// Ce que le runtime confie au fil a chaque cycle.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SyncBatch {
@@ -97,6 +106,8 @@ pub struct SyncBatch {
     pub new_records: Vec<WorkloadRecord>,
     /// Dynamiques qui ont change depuis le lot precedent.
     pub updates: Vec<DynamicsUpdate>,
+    /// Faits d'analyse qui ont change depuis le lot precedent (ADR-064).
+    pub analyses: Vec<AnalysisUpdate>,
     /// Nouveau plafond d'octets, si le budget memoire l'a change.
     pub max_bytes: Option<usize>,
 }
@@ -105,7 +116,10 @@ impl SyncBatch {
     /// `true` si le lot n'apporte rien.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.new_records.is_empty() && self.updates.is_empty() && self.max_bytes.is_none()
+        self.new_records.is_empty()
+            && self.updates.is_empty()
+            && self.analyses.is_empty()
+            && self.max_bytes.is_none()
     }
 }
 
@@ -221,6 +235,8 @@ struct State {
     last_persist_ms: AtomicU64,
     disabled: AtomicBool,
     last_error: Mutex<Option<String>>,
+    /// Analyses relues au demarrage, a remettre une fois au runtime (ADR-064).
+    restored: Mutex<Option<Vec<(WorkId, PersistedAnalysis)>>>,
 }
 
 impl State {
@@ -464,6 +480,18 @@ impl DbService {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+
+    /// Analyses relues au demarrage, rendues une seule fois (ADR-064) ; `None` tant que
+    /// la relecture n'est pas terminee, ou une fois rendues.
+    #[must_use]
+    pub fn take_restored(&self) -> Option<Vec<(WorkId, PersistedAnalysis)>> {
+        self.inner
+            .state
+            .restored
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
 }
 
 impl Drop for DbService {
@@ -603,13 +631,26 @@ fn load_db(fs: &dyn FileSystem, config: &DbConfig, state: &State, fork: &dyn For
         }
     };
     state.publish(&db);
+    let restored: Vec<(WorkId, PersistedAnalysis)> = db
+        .iter()
+        .filter_map(|record| {
+            record
+                .analysis
+                .clone()
+                .map(|analysis| (record.id, analysis))
+        })
+        .collect();
+    *state
+        .restored
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(restored);
     state.load.store(load.code(), Ordering::Release);
     db
 }
 
 /// Applique un lot. Renvoie `true` si la base a change.
 fn apply(db: &mut WorkloadDb, batch: SyncBatch) -> bool {
-    let changed = !batch.new_records.is_empty() || !batch.updates.is_empty();
+    let mut changed = !batch.new_records.is_empty() || !batch.updates.is_empty();
     for record in batch.new_records {
         db.observe(record);
     }
@@ -625,6 +666,16 @@ fn apply(db: &mut WorkloadDb, batch: SyncBatch) -> bool {
             });
         }
         record.dynamics = update.dynamics;
+    }
+    // Une unite evincee ou inconnue de la base n'a pas d'enregistrement ou ranger ses
+    // faits : ils sont perdus, l'unite sera analysee de nouveau.
+    for update in batch.analyses {
+        if let Some(record) = db.get_mut(update.id) {
+            if record.analysis != update.analysis {
+                record.analysis = update.analysis;
+                changed = true;
+            }
+        }
     }
     changed
 }

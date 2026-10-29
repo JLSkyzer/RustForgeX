@@ -26,7 +26,7 @@ pub mod status;
 pub mod top;
 pub mod workid;
 
-pub use analysis::{AnalysisStatus, HierarchyEntry};
+pub use analysis::{AnalysisStatus, HierarchyEntry, PersistedAnalysis};
 pub use card::{AnalysisCard, WorkloadCard};
 pub use classification::{
     AccessSet, ClassificationFlags, Confidence, DependencySet, DeterminismFacts, Domain, Domains,

@@ -44,7 +44,13 @@ use crate::record::WorkloadRecord;
 pub const MAGIC: [u8; 8] = *b"RFX-WDB\0";
 
 /// Version du schema des enregistrements. Changee a chaque ajout de champ (ADR-048).
-pub const SCHEMA_VERSION: u32 = 1;
+/// Schema 2 : faits d'analyse (ADR-064).
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Plus ancien schema encore lu. Un schema 1 est connu : ses enregistrements n'ont pas
+/// d'analyse, champ absent, et se lisent tels quels (ADR-064). Plus ancien ou plus
+/// recent, le fichier est mis de cote (R-223).
+pub const MIN_SCHEMA_VERSION: u32 = 1;
 
 /// Enregistrements par bloc.
 pub const CHUNK_RECORDS: usize = 1_024;
@@ -176,7 +182,7 @@ fn read_header(cursor: &mut Cursor<'_>) -> Result<Fingerprint, DecodeError> {
         return Err(DecodeError::BadMagic);
     }
     let schema = cursor.u32()?;
-    if schema != SCHEMA_VERSION {
+    if !(MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&schema) {
         return Err(DecodeError::UnknownSchema(schema));
     }
     let fp_len = cursor.u32()? as usize;
@@ -478,6 +484,59 @@ mod tests {
             decode(&future),
             Err(DecodeError::UnknownSchema(SCHEMA_VERSION + 1))
         );
+    }
+
+    /// ADR-064 : un fichier de schema 1 est connu, il se lit entier ; ses enregistrements
+    /// n'ont pas d'analyse. Un schema plus ancien que le plus ancien lu est refuse.
+    #[test]
+    fn a_schema_1_file_is_read_whole_without_analyses() {
+        let written = records(30);
+        assert!(written.iter().all(|r| r.analysis.is_none()));
+        // Sans analyse, le champ n'est pas ecrit : le contenu est celui qu'ecrivait le
+        // schema 1, seul l'en-tete differe.
+        let mut v1 = encode(&environment(), &written).unwrap();
+        v1[8..12].copy_from_slice(&1_u32.to_le_bytes());
+
+        let decoded = decode(&v1).unwrap();
+        assert_eq!(decoded.records, written);
+        assert!(decoded.fingerprint.same_environment(&environment()));
+
+        let mut older = v1.clone();
+        older[8..12].copy_from_slice(&(MIN_SCHEMA_VERSION - 1).to_le_bytes());
+        assert_eq!(
+            decode(&older),
+            Err(DecodeError::UnknownSchema(MIN_SCHEMA_VERSION - 1))
+        );
+    }
+
+    /// Une analyse ecrite se relit a l'identique.
+    #[test]
+    fn an_analysis_round_trips() {
+        let mut written = records(3);
+        written[1].analysis = Some(rfx_model::PersistedAnalysis {
+            stamp: 42,
+            bytecode_hash: Some(7),
+            nodes: 12,
+            resolved_calls: 9,
+            unresolved_calls: 1,
+            graph_truncated: false,
+            reflection: false,
+            recursive_root: true,
+            rounds: 2,
+            calls: vec!["a/B.c()V".to_owned()],
+            depth: 3,
+            truncated: false,
+            external_locks: Some(Vec::new()),
+            reads: rfx_model::AccessSet::default(),
+            writes: rfx_model::AccessSet::default(),
+            side_effects: rfx_model::SideEffectSet::default(),
+            locks: false,
+            thread: rfx_model::ThreadFacts::default(),
+            determinism: rfx_model::DeterminismFacts::default(),
+            may_be_dispatched: true,
+        });
+        let bytes = encode(&environment(), &written).unwrap();
+        assert_eq!(decode(&bytes).unwrap().records, written);
     }
 
     /// Une table de blocs incoherente est refusee, meme quand la somme est juste : la

@@ -7,15 +7,14 @@
 //!
 //! DM-03 decrit un descripteur complet : identite, empreinte, dynamiques, mais aussi les
 //! faits d'analyse (acces memoire, effets de bord, dependances, fils, determinisme) et la
-//! gouvernance (cycle de vie, strategie). Les analyseurs qui produisent ces faits
-//! (C-10, C-11, C-12) et le moteur de decision n'existent pas encore. Un champ qui n'a
-//! aucun producteur serait une fiction : l'enregistrement ne porte donc que ce qui est
-//! mesure ou connu. Chaque ajout changera [`crate::file::SCHEMA_VERSION`], et un fichier
-//! d'un ancien schema sera mis de cote et le cache reconstruit (R-223).
+//! gouvernance (cycle de vie, strategie). Un champ qui n'a aucun producteur serait une
+//! fiction : l'enregistrement ne porte que ce qui est mesure ou connu. Les faits
+//! d'analyse propres a l'unite y sont depuis le schema 2 (ADR-064) ; la gouvernance
+//! attend le moteur de decision. Chaque ajout change [`crate::file::SCHEMA_VERSION`].
 
 use std::collections::VecDeque;
 
-use rfx_model::{Fingerprint, Heat, WorkDescriptor, WorkId, WorkloadDynamics};
+use rfx_model::{Fingerprint, Heat, PersistedAnalysis, WorkDescriptor, WorkId, WorkloadDynamics};
 use serde::{Deserialize, Serialize};
 
 /// Evenements gardes par unite de travail (PARTIE 5.9).
@@ -158,6 +157,10 @@ pub struct WorkloadRecord {
     pub dynamics: WorkloadDynamics,
     /// Historique borne.
     pub history: History,
+    /// Faits d'analyse propres a l'unite (C-08, ADR-064) ; absents tant qu'elle n'est
+    /// pas decrite, et dans un fichier de schema 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<PersistedAnalysis>,
 }
 
 impl WorkloadRecord {
@@ -171,6 +174,7 @@ impl WorkloadRecord {
             fingerprint,
             dynamics: WorkloadDynamics::default(),
             history: History::default(),
+            analysis: None,
         }
     }
 
@@ -185,7 +189,20 @@ impl WorkloadRecord {
             + d.method_name.capacity()
             + d.method_descriptor.capacity()
             + self.history.events.capacity() * size_of::<HistoryEvent>()
+            + self.analysis.as_ref().map_or(0, analysis_bytes)
     }
+}
+
+/// Memoire estimee d'une analyse : la structure et ses chaines.
+fn analysis_bytes(analysis: &PersistedAnalysis) -> usize {
+    let strings = |list: &[String]| -> usize {
+        list.iter()
+            .map(|s| s.capacity() + size_of::<String>())
+            .sum()
+    };
+    size_of::<PersistedAnalysis>()
+        + strings(&analysis.calls)
+        + analysis.external_locks.as_deref().map_or(0, strings)
 }
 
 #[cfg(test)]

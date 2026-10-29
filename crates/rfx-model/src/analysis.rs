@@ -64,6 +64,14 @@ pub struct AnalysisStatus {
     /// Recalculs sur changement du bytecode de la methode racine (R-350).
     #[serde(default)]
     pub recomputes: u64,
+    /// Descripteurs relus de `workload.db` au demarrage (ADR-064,
+    /// `rfx.analysis.restored`).
+    #[serde(default)]
+    pub descriptors_restored: u64,
+    /// Analyses relues mais ecartees : produites par un autre code d'analyse (ADR-064,
+    /// `rfx.analysis.restore_rejected`).
+    #[serde(default)]
+    pub restore_rejected: u64,
     /// Temps passe dans les pas d'analyse, en nanosecondes, horloge monotone du fil
     /// d'analyse (`rfx.analysis.cpu_ms`) : une borne haute du temps processeur.
     #[serde(default)]
@@ -95,6 +103,56 @@ pub struct AnalysisStatus {
     /// Descripteurs portant chaque source de non-determinisme en ce moment, indexes par
     /// le discriminant de `NonDetSource` (C-13, `rfx.det.nondet_sources`).
     pub det_sources: [u64; 9],
+}
+
+/// Ce qu'on garde, d'une partie a l'autre, du descripteur d'une unite de travail
+/// (C-08, DM-03, ADR-064) : les faits qui ne dependent que d'elle.
+///
+/// Les dependances de C-10 (`data_deps`, `order_deps`) dependent des autres unites
+/// decrites ; drapeaux et confiance s'en deduisent (R-351). Rien de cela n'est garde :
+/// tout est recalcule apres la relecture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedAnalysis {
+    /// Tampon du code d'analyse qui a produit ces faits : un autre tampon les ecarte.
+    pub stamp: u64,
+    /// Hachage du code de la methode racine, s'il etait lisible (R-350).
+    pub bytecode_hash: Option<u64>,
+    /// Noeuds du graphe d'appel (C-07).
+    pub nodes: u32,
+    /// Sites d'appel resolus.
+    pub resolved_calls: u32,
+    /// Sites d'appel non resolus.
+    pub unresolved_calls: u32,
+    /// Une borne a arrete l'exploration du graphe (R-340).
+    pub graph_truncated: bool,
+    /// Un appel reflexif a ete rencontre.
+    pub reflection: bool,
+    /// La racine appartient a un cycle d'appels.
+    pub recursive_root: bool,
+    /// Tours de construction.
+    pub rounds: u32,
+    /// Appels sortants resolus de la racine (DM-08).
+    pub calls: Vec<String>,
+    /// Profondeur d'analyse atteinte (DM-08).
+    pub depth: u16,
+    /// Analyse arretee par une borne ou par le budget (DM-08, FM-16).
+    pub truncated: bool,
+    /// Verrous externes ; `None` : inconnus (DM-08).
+    pub external_locks: Option<Vec<String>>,
+    /// Lectures (DM-06, C-11).
+    pub reads: crate::AccessSet,
+    /// Ecritures (DM-06, C-11).
+    pub writes: crate::AccessSet,
+    /// Effets de bord (DM-07, C-11).
+    pub side_effects: crate::SideEffectSet,
+    /// Un verrou est pris sur un objet non local (C-11).
+    pub locks: bool,
+    /// Contraintes de fil (DM-09, C-12).
+    pub thread: crate::ThreadFacts,
+    /// Determinisme (DM-10, C-13).
+    pub determinism: crate::DeterminismFacts,
+    /// La racine peut etre un rappel qu'un repartiteur decide d'appeler (ADR-060).
+    pub may_be_dispatched: bool,
 }
 
 #[cfg(test)]

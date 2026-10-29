@@ -214,6 +214,8 @@ un gain (ADR-051).
 | `rfx.analysis.unknown` | gauge | unités | Descripteurs `UNKNOWN` : un fait manque, traité comme le pire cas (P-02). Tant que C-10 à C-13 n'existent pas, tous le sont (ADR-054) — *conditionnelle* : hiérarchie déclarée |
 | `rfx.analysis.descriptor_changes` | counter | — | Changements significatifs d'un descripteur (drapeaux, ou confiance combinée de 0,1), destinés à C-15 — *conditionnelle* : hiérarchie déclarée |
 | `rfx.analysis.recomputes` | counter | — | Recalculs sur changement du bytecode de la méthode racine (R-350) — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.restored` | counter | — | Descripteurs relus de `workload.db` au démarrage, sans nouvelle analyse (ADR-064) — *conditionnelle* : hiérarchie déclarée |
+| `rfx.analysis.restore_rejected` | counter | — | Analyses relues mais écartées, produites par un autre code d'analyse : leur tampon diffère (ADR-064) — *conditionnelle* : hiérarchie déclarée |
 
 ### `rfx.dataflow` — analyse de flux de données (C-11)
 

@@ -340,6 +340,17 @@ pub unsafe extern "C" fn rfx_analysis_step(handle: u64, out_state: *mut u32) -> 
         if out_state.is_null() {
             return ErrorCode::InvalidArgument.ffi_code();
         }
+        // Une fois la base relue, ses descripteurs sont repris avant tout graphe
+        // (ADR-064) : une unite deja decrite n'est pas analysee de nouveau.
+        let restored = match runtime::with(handle, |rt| rt.db_take_restored()) {
+            Ok(restored) => restored,
+            Err(e) => return e.ffi_code(),
+        };
+        if let Some(restored) = restored {
+            if let Err(e) = with_analysis(handle, |analysis| analysis.restore(restored)) {
+                return e.ffi_code();
+            }
+        }
         let needs_roots = match with_analysis(handle, |analysis| analysis.needs_roots()) {
             Ok(needs) => needs,
             Err(e) => return e.ffi_code(),
@@ -354,12 +365,20 @@ pub unsafe extern "C" fn rfx_analysis_step(handle: u64, out_state: *mut u32) -> 
         };
         let stepped = with_analysis(handle, |analysis| {
             let state = analysis.step(&hot);
-            (state, analysis.status(), analysis.estimated_bytes())
+            (
+                state,
+                analysis.status(),
+                analysis.estimated_bytes(),
+                analysis.take_unsaved(),
+            )
         });
-        let (state, status, bytes) = match stepped {
+        let (state, status, bytes, unsaved) = match stepped {
             Ok(stepped) => stepped,
             Err(e) => return e.ffi_code(),
         };
+        if let Err(e) = runtime::with(handle, |rt| rt.db_note_analyses(unsaved)) {
+            return e.ffi_code();
+        }
         let accepted = match runtime::with(handle, |rt| rt.publish_analysis(status, bytes)) {
             Ok(accepted) => accepted,
             Err(e) => return e.ffi_code(),

@@ -16,9 +16,9 @@ use rfx_cache::file::{self, DecodeError};
 use rfx_cache::service::THREAD_NAME;
 use rfx_cache::store::backup_path;
 use rfx_cache::{
-    load, DbConfig, DbService, DynamicsUpdate, Executor, FileInfo, FileSystem, Fork, HistoryKind,
-    LoadOutcome, LoadState, Refused, RotationPolicy, StdFileSystem, SyncBatch, Work, WorkloadDb,
-    WorkloadRecord,
+    load, AnalysisUpdate, DbConfig, DbService, DynamicsUpdate, Executor, FileInfo, FileSystem,
+    Fork, HistoryKind, LoadOutcome, LoadState, Refused, RotationPolicy, StdFileSystem, SyncBatch,
+    Work, WorkloadDb, WorkloadRecord,
 };
 use rfx_model::{Fingerprint, Heat, WorkDescriptor, WorkId};
 
@@ -653,13 +653,14 @@ fn a_refusing_executor_defers_the_work_to_closing() {
 }
 
 /// Executeur qui lance chaque travail sur un fil neuf : des taches de vidage peuvent se
-/// chevaucher, comme sur un pool.
+/// chevaucher, comme sur un pool. Compte les taches lancees et terminees.
 #[derive(Debug)]
-struct Spawning(AtomicUsize);
+struct Spawning(AtomicUsize, Arc<AtomicUsize>);
 
 impl Executor for Spawning {
     fn execute(&self, work: Work) -> Result<(), Work> {
         self.0.fetch_add(1, Ordering::Relaxed);
+        let finished = Arc::clone(&self.1);
         std::thread::spawn(move || {
             struct Serial;
             impl Fork for Serial {
@@ -669,6 +670,7 @@ impl Executor for Spawning {
                 fn join(&self) {}
             }
             work(&Serial);
+            finished.fetch_add(1, Ordering::Release);
         });
         Ok(())
     }
@@ -679,7 +681,7 @@ impl Executor for Spawning {
 #[test]
 fn batches_are_applied_in_order_on_a_concurrent_executor() {
     let fs = Arc::new(MemoryFs::default());
-    let executor = Arc::new(Spawning(AtomicUsize::new(0)));
+    let executor = Arc::new(Spawning(AtomicUsize::new(0), Arc::new(AtomicUsize::new(0))));
     let service = DbService::start_on(fs.clone(), config(), executor.clone());
     let first = record(0);
     let id = first.id;
@@ -695,6 +697,16 @@ fn batches_are_applied_in_order_on_a_concurrent_executor() {
         while service.sync(batch.clone()).is_err() {
             std::thread::yield_now();
         }
+        // Au milieu, la file est videe et l'on attend que toute tache se soit retiree :
+        // la suite en demande forcement une autre. Sans cela, une seule tache pouvait
+        // servir les quarante lots quand le vidage allait assez vite, et le test ne
+        // verifiait plus ce qu'il annonce.
+        if calls == 20 {
+            assert!(service.flush(GUARD));
+            while executor.1.load(Ordering::Acquire) < executor.0.load(Ordering::Relaxed) {
+                std::thread::yield_now();
+            }
+        }
     }
     assert!(service.flush(GUARD));
     let stored = fs.decoded();
@@ -707,4 +719,85 @@ fn batches_are_applied_in_order_on_a_concurrent_executor() {
         executor.0.load(Ordering::Relaxed) >= 2,
         "plusieurs taches de vidage"
     );
+}
+
+fn analysis(stamp: u64) -> rfx_model::PersistedAnalysis {
+    rfx_model::PersistedAnalysis {
+        stamp,
+        bytecode_hash: Some(stamp + 1),
+        nodes: 4,
+        resolved_calls: 3,
+        unresolved_calls: 0,
+        graph_truncated: false,
+        reflection: false,
+        recursive_root: false,
+        rounds: 1,
+        calls: vec!["net/example/Thing.helper()V".to_owned()],
+        depth: 1,
+        truncated: false,
+        external_locks: Some(Vec::new()),
+        reads: rfx_model::AccessSet::default(),
+        writes: rfx_model::AccessSet::default(),
+        side_effects: rfx_model::SideEffectSet::default(),
+        locks: false,
+        thread: rfx_model::ThreadFacts::default(),
+        determinism: rfx_model::DeterminismFacts::default(),
+        may_be_dispatched: false,
+    }
+}
+
+/// ADR-064 : les faits d'analyse confies sont ecrits avec leur enregistrement, relus a
+/// la partie suivante et rendus une seule fois ; ceux d'une unite inconnue de la base
+/// sont ignores, et `None` efface.
+#[test]
+fn analyses_are_written_reloaded_and_handed_back_once() {
+    let fs = Arc::new(MemoryFs::default());
+    let records: Vec<WorkloadRecord> = (0..3).map(record).collect();
+    let ids: Vec<WorkId> = records.iter().map(|r| r.id).collect();
+    {
+        let service = start(&fs);
+        service.sync(news(records)).unwrap();
+        service
+            .sync(SyncBatch {
+                analyses: vec![
+                    AnalysisUpdate {
+                        id: ids[0],
+                        analysis: Some(analysis(10)),
+                    },
+                    AnalysisUpdate {
+                        id: ids[1],
+                        analysis: Some(analysis(20)),
+                    },
+                    AnalysisUpdate {
+                        id: WorkId(0xdead),
+                        analysis: Some(analysis(30)),
+                    },
+                ],
+                ..SyncBatch::default()
+            })
+            .unwrap();
+        service
+            .sync(SyncBatch {
+                analyses: vec![AnalysisUpdate {
+                    id: ids[1],
+                    analysis: None,
+                }],
+                ..SyncBatch::default()
+            })
+            .unwrap();
+        assert!(service.close(GUARD));
+    }
+    let on_disk = fs.decoded();
+    assert_eq!(on_disk.len(), 3, "l'unite inconnue n'a rien cree");
+    assert_eq!(
+        on_disk.iter().filter(|r| r.analysis.is_some()).count(),
+        1,
+        "la seconde analyse a ete effacee"
+    );
+
+    let service = start(&fs);
+    assert!(service.flush(GUARD));
+    let restored = service.take_restored().expect("relecture terminee");
+    assert_eq!(restored, vec![(ids[0], analysis(10))]);
+    assert_eq!(service.take_restored(), None, "rendues une seule fois");
 }

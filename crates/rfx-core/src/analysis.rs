@@ -46,9 +46,30 @@ use rfx_analyzer::{
 use rfx_bytecode::ClassFile;
 use rfx_model::{
     AccessSet, AnalysisStatus, ClassificationFlags, Confidence, DependencySet, DeterminismFacts,
-    Domain, Domains, Heat, HierarchyEntry, NonDetSource, Precision, RuntimeConfig, Side,
-    SideEffectSet, ThreadFacts, Tri, WorkId,
+    Domain, Domains, Heat, HierarchyEntry, NonDetSource, PersistedAnalysis, Precision,
+    RuntimeConfig, Side, SideEffectSet, ThreadFacts, Tri, WorkId,
 };
+
+/// Tampon du code d'analyse (ADR-064) : hachage du source qui produit les faits d'un
+/// descripteur, calcule par `build.rs`. Une analyse persistee d'un autre tampon est
+/// ecartee a la relecture.
+pub const ANALYSIS_STAMP: u64 = parse_stamp(env!("RFX_ANALYSIS_STAMP"));
+
+/// Lit l'entier decimal ecrit par `build.rs`. Un caractere qui n'est pas un chiffre
+/// arrete la compilation.
+const fn parse_stamp(text: &str) -> u64 {
+    let bytes = text.as_bytes();
+    let mut value = 0_u64;
+    let mut i = 0;
+    while i < bytes.len() {
+        assert!(bytes[i].is_ascii_digit(), "tampon d'analyse invalide");
+        value = value
+            .wrapping_mul(10)
+            .wrapping_add((bytes[i] - b'0') as u64);
+        i += 1;
+    }
+    value
+}
 
 /// Tours de construction au plus par graphe ; au-dela, ce qui manque reste non resolu
 /// et le descripteur est tronque (FM-16).
@@ -203,6 +224,8 @@ pub struct Analysis {
     queued: HashSet<WorkId>,
     descriptors: HashMap<WorkId, Descriptor>,
     descriptor_bytes: u64,
+    /// Descripteurs calcules depuis la derniere remise a la base (ADR-064).
+    unsaved: HashSet<WorkId>,
     job: Option<Job>,
     requests: Vec<String>,
     bytecode_bytes: u64,
@@ -238,6 +261,7 @@ impl Analysis {
             queued: HashSet::new(),
             descriptors: HashMap::new(),
             descriptor_bytes: 0,
+            unsaved: HashSet::new(),
             job: None,
             requests: Vec::new(),
             bytecode_bytes: 0,
@@ -402,11 +426,24 @@ impl Analysis {
     /// Ajoute a la file les unites chaudes sans descripteur ou a recalculer, les plus
     /// rentables a analyser d'abord : `chaleur x (1 - confiance) / cout estime`.
     fn enqueue(&mut self, hot: &[HotWorkload]) {
+        let mut reobserved = Vec::new();
         for workload in hot {
-            self.observed.insert(
+            let previous = self.observed.insert(
                 workload.work_id,
                 (workload.heat, workload.observation_quality),
             );
+            // Une unite decrite vue pour la premiere fois, ou dont la chaleur change :
+            // ses drapeaux et sa confiance dependent de l'observation. Sans cela, un
+            // descripteur relu de la base (ADR-064) garderait ceux d'une unite jamais
+            // observee tant qu'aucun graphe ne se termine.
+            if self.descriptors.contains_key(&workload.work_id)
+                && previous.is_none_or(|(heat, _)| heat != workload.heat)
+            {
+                reobserved.push(workload.work_id);
+            }
+        }
+        if !reobserved.is_empty() {
+            self.reclassify(&reobserved);
         }
         let mut candidates: Vec<(f32, WorkId)> = hot
             .iter()
@@ -703,6 +740,34 @@ impl Analysis {
         }
         self.descriptor_bytes = self.descriptor_bytes.saturating_add(bytes);
         self.descriptors.insert(work_id, descriptor);
+        self.unsaved.insert(work_id);
+        self.recount();
+    }
+
+    /// Recalcule drapeaux et confiance de ces unites, avec leurs observations du moment.
+    fn reclassify(&mut self, ids: &[WorkId]) {
+        let (observed, methods) = (&self.observed, &self.methods);
+        let mut changes = 0_u64;
+        for id in ids {
+            let Some(descriptor) = self.descriptors.get_mut(id) else {
+                continue;
+            };
+            let facts = facts_of(
+                descriptor,
+                observed.get(id),
+                methods.get(id).map(|root| root.side),
+            );
+            let flags = classify(&facts);
+            changes += u64::from(flags != descriptor.flags);
+            descriptor.flags = flags;
+            descriptor.confidence = confidence(&facts);
+        }
+        self.status.descriptor_changes = self.status.descriptor_changes.saturating_add(changes);
+        self.recount();
+    }
+
+    /// Comptes des descripteurs publies dans le statut.
+    fn recount(&mut self) {
         let unknown = self
             .descriptors
             .values()
@@ -716,6 +781,56 @@ impl Analysis {
         self.status.descriptors = self.descriptors.len() as u64;
         self.status.descriptors_unknown = unknown as u64;
         self.status.dataflow_exact = exact as u64;
+    }
+
+    /// Reprend les descripteurs relus de `workload.db` (ADR-064). Une analyse d'un
+    /// autre tampon est ecartee ; une unite deja decrite garde son descripteur, plus
+    /// recent. Dependances, drapeaux et confiance sont recalcules sur l'ensemble.
+    /// Rend le nombre de descripteurs repris.
+    pub fn restore(&mut self, analyses: Vec<(WorkId, PersistedAnalysis)>) -> usize {
+        if !self.enabled {
+            return 0;
+        }
+        let mut restored = 0;
+        for (work_id, analysis) in analyses {
+            if analysis.stamp != ANALYSIS_STAMP {
+                self.status.restore_rejected = self.status.restore_rejected.saturating_add(1);
+                continue;
+            }
+            if self.descriptors.contains_key(&work_id) {
+                continue;
+            }
+            let descriptor = Descriptor::from_persisted(analysis);
+            self.descriptor_bytes = self
+                .descriptor_bytes
+                .saturating_add(descriptor_bytes(&descriptor));
+            self.descriptors.insert(work_id, descriptor);
+            restored += 1;
+        }
+        self.status.descriptors_restored = self
+            .status
+            .descriptors_restored
+            .saturating_add(restored as u64);
+        if restored > 0 {
+            self.refresh_dependencies();
+            self.recount();
+        }
+        restored
+    }
+
+    /// Les descripteurs calcules depuis le dernier appel, a confier a la base
+    /// (ADR-064). Un descripteur perime n'est pas rendu : il sera recalcule.
+    pub fn take_unsaved(&mut self) -> Vec<(WorkId, PersistedAnalysis)> {
+        let mut ids: Vec<WorkId> = self.unsaved.drain().collect();
+        ids.sort_unstable();
+        ids.into_iter()
+            .filter_map(|id| {
+                self.descriptors
+                    .get(&id)
+                    .filter(|d| !d.stale)
+                    .map(|d| (id, d.persisted()))
+            })
+            .collect()
     }
 
     /// Classes voulues par le dernier pas qui a rendu [`StepState::NeedsClasses`].
@@ -816,6 +931,73 @@ fn descriptor_bytes(descriptor: &Descriptor) -> u64 {
 }
 
 impl Descriptor {
+    /// Les faits propres a l'unite, a persister (ADR-064).
+    #[must_use]
+    pub fn persisted(&self) -> PersistedAnalysis {
+        let s = &self.summary;
+        PersistedAnalysis {
+            stamp: ANALYSIS_STAMP,
+            bytecode_hash: self.bytecode_hash,
+            nodes: s.nodes,
+            resolved_calls: s.resolved_calls,
+            unresolved_calls: s.unresolved_calls,
+            graph_truncated: s.truncated,
+            reflection: s.reflection,
+            recursive_root: s.recursive_root,
+            rounds: s.rounds,
+            calls: self.deps.calls.clone(),
+            depth: self.deps.depth,
+            truncated: self.deps.truncated,
+            external_locks: self.deps.external_locks.clone(),
+            reads: self.reads,
+            writes: self.writes,
+            side_effects: self.side_effects,
+            locks: self.locks,
+            thread: self.thread,
+            determinism: self.determinism,
+            may_be_dispatched: self.may_be_dispatched,
+        }
+    }
+
+    /// Descripteur relu : les faits persistes, sans dependances ni drapeaux, que
+    /// [`Analysis::restore`] recalcule.
+    #[must_use]
+    pub fn from_persisted(p: PersistedAnalysis) -> Self {
+        Self {
+            summary: GraphSummary {
+                nodes: p.nodes,
+                resolved_calls: p.resolved_calls,
+                unresolved_calls: p.unresolved_calls,
+                truncated: p.graph_truncated,
+                reflection: p.reflection,
+                recursive_root: p.recursive_root,
+                build_ns: 0,
+                rounds: p.rounds,
+            },
+            deps: DependencySet {
+                calls: p.calls,
+                unresolved_calls: p.unresolved_calls,
+                data_deps: None,
+                order_deps: None,
+                external_locks: p.external_locks,
+                depth: p.depth,
+                truncated: p.truncated,
+            },
+            reads: p.reads,
+            writes: p.writes,
+            side_effects: p.side_effects,
+            locks: p.locks,
+            dependency: DependencyCounts::default(),
+            thread: p.thread,
+            determinism: p.determinism,
+            may_be_dispatched: p.may_be_dispatched,
+            flags: ClassificationFlags::EMPTY,
+            confidence: Confidence::new(0.0, 0.0, 0.0),
+            bytecode_hash: p.bytecode_hash,
+            stale: false,
+        }
+    }
+
     /// Bloc `ANALYSIS` de la fiche de l'unite (`/rfx why`, ADR-063).
     #[must_use]
     pub fn card(&self) -> rfx_model::AnalysisCard {
@@ -1154,6 +1336,92 @@ pub(crate) mod tests {
         assert!(card.confidence_x1000 > 0);
     }
 
+    /// ADR-064 : un descripteur rendu a la base, puis repris par une nouvelle analyse,
+    /// redonne les memes faits, et les memes dependances, drapeaux et confiance une fois
+    /// recalcules ; il n'est ni reanalyse ni rendu de nouveau.
+    #[test]
+    fn a_persisted_descriptor_is_restored_identical_and_not_reanalysed() {
+        let classes = fixtures();
+        let config = RuntimeConfig::default();
+        let pure = WorkId(15);
+        let root = MethodRef::new("fixtures/Chance", "pure", "(II)I");
+        let mut first = Analysis::new(&config);
+        first.note(pure, root.clone(), Side::Server);
+        first.declare(hierarchy(&classes));
+        assert_eq!(
+            drive(&mut first, &[hot(pure)], &classes),
+            StepState::Finished
+        );
+        let saved = first.take_unsaved();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].1.stamp, ANALYSIS_STAMP);
+        assert!(first.take_unsaved().is_empty(), "rendu une seule fois");
+
+        let mut second = Analysis::new(&config);
+        second.note(pure, root, Side::Server);
+        assert_eq!(second.restore(saved), 1);
+        let (before, after) = (
+            first.descriptor(pure).unwrap(),
+            second.descriptor(pure).unwrap(),
+        );
+        assert_eq!(after.persisted(), before.persisted());
+        assert_eq!(after.deps, before.deps);
+        // Drapeaux et confiance se recalculent avec les observations de la partie en
+        // cours : aucune encore, donc pas `HOT`. Ils valent ceux des memes faits sans
+        // observation.
+        let unobserved = facts_of(before, None, Some(Side::Server));
+        assert_eq!(after.flags, classify(&unobserved));
+        assert!(!after.flags.contains(ClassificationFlags::HOT));
+        assert!(before.flags.contains(ClassificationFlags::HOT));
+        assert!((after.confidence.combined - confidence(&unobserved).combined).abs() < 1e-6);
+        assert_eq!(second.status().descriptors, 1);
+        assert_eq!(second.status().descriptors_restored, 1);
+        assert!(second.take_unsaved().is_empty(), "repris, pas recalcule");
+
+        second.declare(hierarchy(&classes));
+        assert_eq!(
+            drive(&mut second, &[hot(pure)], &classes),
+            StepState::Idle,
+            "deja decrit : rien a analyser"
+        );
+        // Observee chaude a cette partie, l'unite reprend ses drapeaux d'observation,
+        // sans qu'aucun graphe ne se termine.
+        let after = second.descriptor(pure).unwrap();
+        assert_eq!(after.flags, before.flags);
+        assert!(after.flags.contains(ClassificationFlags::HOT));
+        assert!((after.confidence.combined - before.confidence.combined).abs() < 1e-6);
+    }
+
+    /// ADR-064 : une analyse produite par un autre code d'analyse est ecartee, et une
+    /// unite deja decrite garde son descripteur.
+    #[test]
+    fn a_foreign_stamp_is_rejected_and_a_fresh_descriptor_kept() {
+        let classes = fixtures();
+        let config = RuntimeConfig::default();
+        let pure = WorkId(15);
+        let mut analysis = Analysis::new(&config);
+        analysis.note(
+            pure,
+            MethodRef::new("fixtures/Chance", "pure", "(II)I"),
+            Side::Server,
+        );
+        analysis.declare(hierarchy(&classes));
+        drive(&mut analysis, &[hot(pure)], &classes);
+        let fresh = analysis.descriptor(pure).unwrap().persisted();
+
+        let mut foreign = fresh.clone();
+        foreign.stamp = ANALYSIS_STAMP.wrapping_add(1);
+        let mut older = fresh.clone();
+        older.nodes += 99;
+        assert_eq!(
+            analysis.restore(vec![(WorkId(99), foreign), (pure, older)]),
+            0
+        );
+        assert_eq!(analysis.status().restore_rejected, 1);
+        assert!(analysis.descriptor(WorkId(99)).is_none());
+        assert_eq!(analysis.descriptor(pure).unwrap().persisted(), fresh);
+    }
+
     /// ADR-059 : une classe qu'un greffon de lancement de Forge reecrit (ici, une
     /// descendante d'`Event` selon la hierarchie declaree) est fournie comme absente ;
     /// une classe ordinaire est fournie telle quelle.
@@ -1392,6 +1660,34 @@ pub(crate) mod tests {
         let status = analysis.status();
         assert_eq!((status.recomputes, status.completed), (1, 2));
         assert_eq!(status.descriptors, 1);
+    }
+
+    /// ADR-064 : un descripteur perime avant d'etre confie a la base n'est pas ecrit ;
+    /// son recalcul le sera.
+    #[test]
+    fn a_stale_descriptor_is_not_handed_to_the_database() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let id = WorkId(11);
+        analysis.note(
+            id,
+            MethodRef::new("fixtures/Calls", "helper", "(I)I"),
+            Side::Common,
+        );
+        analysis.declare(hierarchy(&classes));
+        drive(&mut analysis, &[hot(id)], &classes);
+        let changed = calls_with_changed_helper(&classes["fixtures/Calls"]);
+        analysis.provide("fixtures/Calls", Some(&changed));
+        assert!(analysis.descriptor(id).unwrap().stale);
+        assert!(analysis.take_unsaved().is_empty(), "perime : rien a ecrire");
+
+        assert_eq!(analysis.step(&[hot(id)]), StepState::Finished);
+        let saved = analysis.take_unsaved();
+        assert_eq!(saved.len(), 1, "le recalcul est ecrit");
+        assert_eq!(
+            saved[0].1.bytecode_hash,
+            analysis.descriptor(id).unwrap().bytecode_hash
+        );
     }
 
     /// Les unites les plus rentables a analyser passent d'abord : chaleur, puis

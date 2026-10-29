@@ -36,6 +36,7 @@ pub use fs::{FileInfo, FileSystem, StdFileSystem};
 pub use record::{History, HistoryEvent, HistoryKind, WorkloadRecord, HISTORY_CAPACITY};
 pub use rotation::{RotationPolicy, RotationReport};
 pub use service::{
-    DbConfig, DbService, DbStats, DynamicsUpdate, LoadState, Refused, Rejected, SyncBatch,
+    AnalysisUpdate, DbConfig, DbService, DbStats, DynamicsUpdate, LoadState, Refused, Rejected,
+    SyncBatch,
 };
 pub use store::{load, load_with, LoadOutcome};
