@@ -951,7 +951,10 @@ demandent une mesure ; les autres sont des tests de justesse.
         (`cargo bench -p rfx-bench --bench scheduler`, 2026-10-16, trois exécutions,
         machine chargée à 42-68 % par Firefox, Spotify, Discord, fond animé)
   - [ ] Publier `rfx.taskgraph.*` dans la télémétrie quand un graphe sera construit en jeu
-  - [ ] Miri sur `rfx-taskgraph` (PARTIE 19.1)
+  - [x] Miri sur `rfx-taskgraph` et `rfx-model` (PARTIE 19.1, 2026-10-30, nightly
+        1.101.0) : 12 tests de `rfx-taskgraph` et 47 de `rfx-model`, aucun comportement
+        indéfini. Sous Miri, `tests/graph.rs` prend 445 s (une graine au lieu de vingt,
+        `cfg!(miri)`) et `tests/transform.rs` 66 min : à ne lancer qu'en tâche de fond
 - [x] C-17 : dépendance `crossbeam-deque` décidée (ADR-044), inscrite au SBOM
 - [~] C-17 Scheduler — T-260..T-267 (INV-06, INV-08, R-740). Crate `rfx-scheduler` :
   - [x] Pool, files par priorité, vol de travail, endormissement sans réveil perdu,
