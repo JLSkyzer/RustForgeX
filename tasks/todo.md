@@ -1236,7 +1236,12 @@ T-390..T-392, T-460..T-461.
         avec leurs motifs, « non appliquée (M3) ». Le verdict ne voit que la réflexion
         tant que règles utilisateur, quarantaines et transformateurs concurrents ne sont
         pas branchés (sans effet en M3 : le plafond TL2 vaut `FORCE_SERIAL`)
-  - [ ] Décision tenue par unité, `E-2201`, `rfx.decision.*`, `rfx.risk.*`
+  - [x] `rfx.decision.*`, `rfx.risk.*`, `rfx.compat.verdicts` (2026-10-30) : décompte
+        sur toutes les unités décrites, refait à chaque publication de l'analyse, sur son
+        fil (`try_lock`, jamais attendu) ; même calcul que la fiche (`explain::evaluate`).
+        Séries publiées non nulles seulement, documentées dans `BENCHMARKS.md`
+  - [ ] Décision tenue par unité (stabilité R-412 en vrai), `E-2201`
+  - [ ] `rfx.compat.quarantines`, `rfx.compat.conflicting_transformers`
   - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles

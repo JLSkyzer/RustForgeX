@@ -10,11 +10,12 @@
 //! racine declaree absente) ; les quarantaines ne sont pas encore branchees.
 
 use rfx_decision::{
-    assess, decide, verdict, Blast, CompatInputs, DecisionInputs, DetectedProperties, RiskInputs,
-    Selector, UserRule, Verdict,
+    assess, decide, verdict, Blast, CompatInputs, CompatVerdict, Decision, DecisionInputs,
+    DetectedProperties, RiskAssessment, RiskInputs, RiskReason, Selector, UserRule, Verdict,
 };
 use rfx_model::{
-    DecisionCard, Fingerprint, RejectedCard, RuntimeConfig, RuntimeMode, TopEntry, WorkDescriptor,
+    DecisionCard, DecisionStatus, Fingerprint, RejectedCard, RuntimeConfig, RuntimeMode, TopEntry,
+    WorkDescriptor,
 };
 
 use crate::analysis::Descriptor;
@@ -73,6 +74,18 @@ fn blast_name(blast: Blast) -> &'static str {
     }
 }
 
+/// Risque, verdict et decision d'une unite : ce que la fiche explique et ce que les
+/// metriques comptent, calcules une seule facon.
+#[derive(Debug, Clone)]
+pub struct Evaluation {
+    /// Risque (C-14).
+    pub risk: RiskAssessment,
+    /// Verdict de compatibilite (C-33).
+    pub compat: CompatVerdict,
+    /// Decision (C-15).
+    pub decision: Decision,
+}
+
 /// Bloc `DECISION` d'une unite decrite.
 #[must_use]
 pub fn decision_card(
@@ -80,6 +93,24 @@ pub fn decision_card(
     measured: Option<&TopEntry>,
     context: &Context<'_>,
 ) -> DecisionCard {
+    let Evaluation {
+        risk,
+        compat,
+        decision,
+    } = evaluate(descriptor, measured, context);
+    let mode = context.mode;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // borne a >= 0
+    let gain = decision.expected_gain_ns.max(0.0).round() as u64;
+    card_of(mode, gain, &risk, compat, &decision)
+}
+
+/// Evalue une unite decrite : risque, verdict, decision.
+#[must_use]
+pub fn evaluate(
+    descriptor: &Descriptor,
+    measured: Option<&TopEntry>,
+    context: &Context<'_>,
+) -> Evaluation {
     let d = descriptor;
     let (mode, logical_cores) = (context.mode, context.logical_cores);
     let risk = assess(&RiskInputs {
@@ -132,8 +163,55 @@ pub fn decision_card(
         cpu_ns_p50: p50,
         measured_speedups: &[],
     });
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // borne a >= 0
-    let gain = decision.expected_gain_ns.max(0.0).round() as u64;
+    Evaluation {
+        risk,
+        compat,
+        decision,
+    }
+}
+
+/// Decompte des evaluations de toutes les unites decrites (`rfx.decision.*`,
+/// `rfx.risk.*`, `rfx.compat.*`). Chaque tableau est indexe par l'ordre de declaration
+/// de son enumeration.
+#[must_use]
+pub fn summarize(evaluations: impl IntoIterator<Item = Evaluation>) -> DecisionStatus {
+    let mut status = DecisionStatus::default();
+    for e in evaluations {
+        status.evaluated += 1;
+        status.strategies[e.decision.strategy as usize] += 1;
+        for rejected in &e.decision.rejected {
+            for reason in &rejected.reasons {
+                status.rejected[*reason as usize] += 1;
+            }
+        }
+        for reason in &e.risk.reasons {
+            if let Some(i) = RiskReason::ALL.iter().position(|r| r == reason) {
+                status.risk_rules[i] += 1;
+            }
+        }
+        status.verdicts[e.compat.verdict as usize] += 1;
+        status.blasts[e.risk.max_blast_radius as usize] += 1;
+        let c = e.risk.correctness_risk;
+        let bucket = CORRECTNESS_BOUNDS
+            .iter()
+            .position(|bound| c <= *bound)
+            .unwrap_or(CORRECTNESS_BOUNDS.len() - 1);
+        status.correctness[bucket] += 1;
+    }
+    status
+}
+
+/// Bornes hautes des tranches de risque de correction : celles des modes (0,05 ; 0,15 ;
+/// 0,30), puis 0,70 et 1.
+const CORRECTNESS_BOUNDS: [f32; 5] = [0.05, 0.15, 0.30, 0.70, 1.0];
+
+fn card_of(
+    mode: RuntimeMode,
+    gain: u64,
+    risk: &RiskAssessment,
+    compat: CompatVerdict,
+    decision: &Decision,
+) -> DecisionCard {
     DecisionCard {
         mode: format!("{mode:?}"),
         strategy: decision.strategy.name().to_owned(),

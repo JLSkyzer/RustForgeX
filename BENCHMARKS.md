@@ -217,6 +217,22 @@ un gain (ADR-051).
 | `rfx.analysis.restored` | counter | — | Descripteurs relus de `workload.db` au démarrage, sans nouvelle analyse (ADR-064) — *conditionnelle* : hiérarchie déclarée |
 | `rfx.analysis.restore_rejected` | counter | — | Analyses relues mais écartées, produites par un autre code d'analyse : leur tampon diffère (ADR-064) — *conditionnelle* : hiérarchie déclarée |
 
+### `rfx.decision`, `rfx.risk`, `rfx.compat` — décisions calculées, non appliquées (C-14, C-15, C-33)
+
+Recomptées sur toutes les unités décrites à chaque publication de l'analyse, sur son
+fil, jamais dans le tick (ADR-068). Au jalon M3, aucune n'est appliquée au jeu. Les
+séries à libellé ne sont publiées que non nulles ; leurs libellés sont bornés par des
+énumérations.
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.decision.evaluated` | gauge | unités | Unités décrites dont la décision est calculée |
+| `rfx.decision.count{strategy=…}` | gauge | unités | Unités par stratégie retenue (`JAVA_ONLY`, `JAVA_BATCH`…, DM-13) |
+| `rfx.decision.rejected{reason=…}` | gauge | rejets | Genres candidats rejetés pour ce motif (DM-15) |
+| `rfx.risk.blocked_by_rule{rule=…}` | gauge | unités | Unités où cette règle de risque (`R1`..`R10`) pose un plancher |
+| `rfx.risk.distribution{le=…}` | gauge | unités | Unités par tranche de risque de correction, borne haute incluse (`0.05`, `0.15`, `0.30`, `0.70`, `1.00`) |
+| `rfx.compat.verdicts{verdict=…}` | gauge | unités | Unités par verdict de compatibilité (`ALLOW`… `DISABLE`) |
+
 ### `rfx.dataflow` — analyse de flux de données (C-11)
 
 | métrique | type | unité | sémantique |

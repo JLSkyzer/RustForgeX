@@ -851,6 +851,11 @@ impl Analysis {
         self.descriptors.get(&work_id)
     }
 
+    /// Toutes les unites decrites, dans un ordre quelconque.
+    pub fn described(&self) -> impl Iterator<Item = (WorkId, &Descriptor)> {
+        self.descriptors.iter().map(|(id, d)| (*id, d))
+    }
+
     /// `true` si la classe de la methode racine a ete declaree absente : un autre
     /// transformateur la vise (mixin, access transformer, coremod), Forge la reecrit, ou
     /// elle est illisible. C'est la propriete « transformateur concurrent » de C-33

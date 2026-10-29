@@ -92,6 +92,7 @@ public final class Telemetry {
         appendScheduler(set, mapOf(nativeStatus, "scheduler"));
         appendDb(set, mapOf(nativeStatus, "db"));
         appendCallGraph(set, mapOf(nativeStatus, "analysis"));
+        appendDecision(set, mapOf(nativeStatus, "decision"));
         appendInstrumentation(set, instrumentation);
         appendDiscovery(set, discovery);
         appendEvents(set, events);
@@ -359,6 +360,72 @@ public final class Telemetry {
         appendDependencies(set, analysis);
         appendThreads(set, analysis);
         appendDeterminism(set, analysis);
+    }
+
+    /** Stratégies, dans l'ordre de {@code StrategyKind} (DM-13). */
+    private static final String[] STRATEGIES = {
+        "JAVA_ONLY", "JAVA_BATCH", "JAVA_PARALLEL", "RUST_OFFLOAD", "RUST_BATCH",
+        "RUST_PARALLEL", "RUST_TRANSFORMED", "RUST_NATIVE", "REJECT",
+    };
+
+    /** Motifs de rejet, dans l'ordre de {@code RejectReason} (DM-15). */
+    private static final String[] REJECT_REASONS = {
+        "UnknownSideEffect", "UnsafeSharedState", "OrderDependency", "ThreadAffinity",
+        "NonDeterministicBehavior", "HighTransferCost", "HighSynchronizationCost",
+        "UnresolvedJniDependency", "UnmodeledNativeCall", "InsufficientConfidence",
+        "BudgetExceeded", "CompatibilityRule", "ValidationFailed", "RegressionDetected",
+        "HardwareUnsuitable", "CacheInvalidated", "UserDisabled",
+    };
+
+    /** Règles de risque, R1 à R10 (C-14). */
+    private static final String[] RISK_RULES = {
+        "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10",
+    };
+
+    /** Verdicts de compatibilité, dans l'ordre de {@code Verdict} (C-33). */
+    private static final String[] VERDICTS = {
+        "ALLOW", "FORCE_PARALLEL", "FORCE_BATCH", "FORCE_SERIAL", "FORCE_JAVA", "DISABLE",
+    };
+
+    /** Bornes hautes des tranches de risque de correction. */
+    private static final String[] CORRECTNESS_BUCKETS = {"0.05", "0.15", "0.30", "0.70", "1.00"};
+
+    /**
+     * Décisions calculées sur les unités décrites, non appliquées (C-14, C-15, C-33,
+     * ADR-068). Une série par libellé non nul seulement : la cardinalité reste bornée par
+     * les énumérations, et une série à zéro n'apprendrait rien.
+     */
+    private static void appendDecision(MetricSet set, Map<String, Object> decision) {
+        if (decision == null) {
+            return;
+        }
+        set.add(Metric.gauge("rfx.decision.evaluated", longOf(decision, "evaluated"), "unités",
+                "Unités décrites dont la décision est calculée, non appliquée (M3)."));
+        appendLabelled(set, decision.get("strategies"), STRATEGIES, "rfx.decision.count",
+                "strategy", "unités", "Unités par stratégie retenue.");
+        appendLabelled(set, decision.get("rejected"), REJECT_REASONS, "rfx.decision.rejected",
+                "reason", "rejets", "Genres candidats rejetés pour ce motif (DM-15).");
+        appendLabelled(set, decision.get("risk_rules"), RISK_RULES, "rfx.risk.blocked_by_rule",
+                "rule", "unités", "Unités où cette règle de risque pose un plancher.");
+        appendLabelled(set, decision.get("correctness"), CORRECTNESS_BUCKETS,
+                "rfx.risk.distribution", "le", "unités",
+                "Unités par tranche de risque de correction (borne haute incluse).");
+        appendLabelled(set, decision.get("verdicts"), VERDICTS, "rfx.compat.verdicts",
+                "verdict", "unités", "Unités par verdict de compatibilité.");
+    }
+
+    private static void appendLabelled(MetricSet set, Object values, String[] labels,
+            String name, String label, String unit, String description) {
+        if (!(values instanceof List<?> counts) || counts.size() != labels.length) {
+            return;
+        }
+        for (int i = 0; i < labels.length; i++) {
+            long count = counts.get(i) instanceof Long number ? number : 0L;
+            if (count > 0) {
+                set.add(Metric.gauge(name + "{" + label + "=" + labels[i] + "}", count, unit,
+                        description));
+            }
+        }
     }
 
     /** Sources de non-déterminisme, dans l'ordre de leur discriminant (DM-10). */

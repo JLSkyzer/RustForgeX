@@ -257,6 +257,33 @@ pub struct RuntimeStatus {
     /// Analyse statique (C-07). Absent d'un blob ancien : zero.
     #[serde(default)]
     pub analysis: crate::AnalysisStatus,
+    /// Decisions calculees, non appliquees (C-14, C-15, C-33). Absent d'un blob ancien :
+    /// zero.
+    #[serde(default)]
+    pub decision: DecisionStatus,
+}
+
+/// Decompte des decisions calculees sur les unites decrites (`rfx.decision.*`,
+/// `rfx.risk.*`, `rfx.compat.*`, ADR-068). Chaque tableau est indexe par l'ordre de
+/// declaration de son enumeration : `StrategyKind`, `RejectReason`, regles R1..R10,
+/// `Verdict`, `Blast`, puis tranches de risque de correction (bornes 0,05 ; 0,15 ;
+/// 0,30 ; 0,70 ; 1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionStatus {
+    /// Unites evaluees.
+    pub evaluated: u64,
+    /// Unites par strategie retenue.
+    pub strategies: [u64; 9],
+    /// Motifs de rejet, sur tous les genres candidats rejetes.
+    pub rejected: [u64; 17],
+    /// Unites ou chaque regle de risque a pose un plancher.
+    pub risk_rules: [u64; 10],
+    /// Unites par verdict de compatibilite.
+    pub verdicts: [u64; 6],
+    /// Unites par blast radius.
+    pub blasts: [u64; 4],
+    /// Unites par tranche de risque de correction.
+    pub correctness: [u64; 5],
 }
 
 #[cfg(test)]
@@ -310,8 +337,14 @@ mod tests {
                 graphs: 4,
                 ..crate::AnalysisStatus::default()
             },
+            decision: DecisionStatus {
+                evaluated: 3,
+                strategies: [3, 0, 0, 0, 0, 0, 0, 0, 0],
+                ..DecisionStatus::default()
+            },
         };
         let bytes = crate::to_cbor(&s).expect("encodage");
+        crate::assert_java_readable(&bytes).expect("lisible par Java");
         let back: RuntimeStatus = crate::from_cbor(&bytes).expect("decodage");
         assert_eq!(s, back);
     }

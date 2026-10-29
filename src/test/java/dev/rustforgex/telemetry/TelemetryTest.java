@@ -543,4 +543,45 @@ class TelemetryTest {
         assertTrue(json.contains("\\n"));
         assertNotNull(json);
     }
+
+    private static List<Long> counts(int size, int index, long value) {
+        List<Long> counts = new java.util.ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            counts.add(i == index ? value : 0L);
+        }
+        return counts;
+    }
+
+    /**
+     * ADR-068 : le décompte des décisions calculées devient des séries, une par libellé
+     * non nul ; un tableau de taille inattendue est ignoré plutôt que mal étiqueté.
+     */
+    @Test
+    @DisplayName("Les décisions calculées deviennent des séries bornées, non nulles")
+    void computedDecisionsBecomeBoundedSeries() {
+        Map<String, Object> decision = new LinkedHashMap<>();
+        decision.put("evaluated", 4L);
+        decision.put("strategies", counts(9, 0, 4L));
+        decision.put("rejected", counts(17, 9, 3L));
+        decision.put("risk_rules", counts(10, 0, 2L));
+        decision.put("verdicts", counts(6, 3, 1L));
+        decision.put("blasts", counts(4, 3, 4L));
+        decision.put("correctness", counts(5, 4, 4L));
+        Map<String, Object> root = status();
+        root.put("decision", decision);
+
+        MetricSet set = Telemetry.collect(root, null, null, null);
+
+        assertEquals(4, set.get("rfx.decision.evaluated").value());
+        assertEquals(4, set.get("rfx.decision.count{strategy=JAVA_ONLY}").value());
+        assertNull(set.get("rfx.decision.count{strategy=JAVA_BATCH}"), "zéro : non publiée");
+        assertEquals(3, set.get("rfx.decision.rejected{reason=InsufficientConfidence}").value());
+        assertEquals(2, set.get("rfx.risk.blocked_by_rule{rule=R1}").value());
+        assertEquals(4, set.get("rfx.risk.distribution{le=1.00}").value());
+        assertEquals(1, set.get("rfx.compat.verdicts{verdict=FORCE_SERIAL}").value());
+
+        decision.put("verdicts", counts(5, 0, 1L));
+        MetricSet malformed = Telemetry.collect(root, null, null, null);
+        assertNull(malformed.get("rfx.compat.verdicts{verdict=ALLOW}"), "taille inattendue");
+    }
 }

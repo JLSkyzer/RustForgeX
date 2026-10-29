@@ -58,6 +58,7 @@ fn status() -> RuntimeStatus {
             unresolved_calls: 3_000,
             ..rfx_model::AnalysisStatus::default()
         },
+        decision: rfx_model::DecisionStatus::default(),
     }
 }
 

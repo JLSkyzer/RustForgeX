@@ -97,6 +97,8 @@ pub struct Runtime {
     user_rules: Vec<rfx_decision::UserRule>,
     /// Dernier etat publie par l'analyse.
     analysis_status: AnalysisStatus,
+    /// Decompte des decisions calculees, refait a chaque publication de l'analyse.
+    decision_status: rfx_model::DecisionStatus,
     /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
     analysis_reserved: u64,
 }
@@ -163,6 +165,7 @@ impl Runtime {
             identities: std::collections::HashMap::new(),
             user_rules,
             analysis_status,
+            decision_status: rfx_model::DecisionStatus::default(),
             analysis_reserved: 0,
         }
     }
@@ -276,6 +279,7 @@ impl Runtime {
     /// Rend `false` si le budget la refuse : l'analyse doit alors s'arreter.
     pub fn publish_analysis(&mut self, status: AnalysisStatus, bytes: u64) -> bool {
         self.analysis_status = status;
+        self.refresh_decisions();
         self.budget.release(Pool::Runtime, self.analysis_reserved);
         self.analysis_reserved = 0;
         if bytes == 0 {
@@ -286,6 +290,36 @@ impl Runtime {
         }
         self.analysis_reserved = bytes;
         true
+    }
+
+    /// Recompte les decisions calculees sur toutes les unites decrites (ADR-068), hors
+    /// du tick, sur le fil d'analyse qui publie. Si l'analyse est occupee, le decompte
+    /// precedent reste : rien n'est attendu.
+    fn refresh_decisions(&mut self) {
+        let analysis = match self.analysis.try_lock() {
+            Ok(analysis) => analysis,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        let store = self.profiler.store();
+        let evaluations: Vec<crate::explain::Evaluation> = analysis
+            .described()
+            .map(|(id, descriptor)| {
+                crate::explain::evaluate(
+                    descriptor,
+                    store.entry_of(id).as_ref(),
+                    &crate::explain::Context {
+                        mode: self.config.mode,
+                        logical_cores: self.hardware.logical_cores,
+                        identity: self.identities.get(&id),
+                        user_rules: &self.user_rules,
+                        foreign_transformer: analysis.root_bytecode_unknown(id),
+                    },
+                )
+            })
+            .collect();
+        drop(analysis);
+        self.decision_status = crate::explain::summarize(evaluations);
     }
 
     /// Ouvre la base des unites de travail (C-09). Le fichier est relu en arriere-plan :
@@ -727,6 +761,7 @@ impl Runtime {
             scheduler: self.scheduler_status(),
             db: self.db.status(),
             analysis: self.analysis_status,
+            decision: self.decision_status,
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {
@@ -1183,6 +1218,18 @@ mod tests {
             .iter()
             .any(|component| component.id == "C-08" && component.active));
         assert_eq!(published.analysis.descriptors, 1, "C-08 : un descripteur");
+        // ADR-068 : la publication recompte les decisions calculees ; sans mesure de
+        // speedup, l'unite reste JAVA_ONLY, et chacun de ses compteurs est rempli.
+        let decision = published.decision;
+        assert_eq!(decision.evaluated, 1);
+        assert_eq!(
+            decision.strategies[rfx_model::StrategyKind::JavaOnly as usize],
+            1
+        );
+        assert_eq!(decision.verdicts.iter().sum::<u64>(), 1);
+        assert_eq!(decision.blasts.iter().sum::<u64>(), 1);
+        assert_eq!(decision.correctness.iter().sum::<u64>(), 1);
+        assert!(decision.risk_rules.iter().sum::<u64>() >= 1);
 
         // Un budget trop petit pour cette memoire est refuse.
         let mut tight = Runtime::new(RuntimeConfig {
