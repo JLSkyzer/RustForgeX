@@ -9,6 +9,7 @@
   "rustforgex.status.panics": "Panics      : %s",
   "rustforgex.status.ticks": "Ticks       : %s (déséquilibrés : %s)",
   "rustforgex.status.tick_anomalies": "Anomalies   : %s transitions refusées, %s hooks hors délai",
+  "rustforgex.status.tick_hooks": "Hors délai  : begin %s, phase %s, end %s ; pire accroche %s µs (%s)",
   "rustforgex.status.probes": "Sondes      : %s enregistrements lus, %s perdus",
   "rustforgex.status.native_memory": "Mémoire nat.: %s Kio utilisés sur %s Mio",
   "rustforgex.status.instrumentation": "Instrument. : armée, %s classes vues, %s méthodes sondées",

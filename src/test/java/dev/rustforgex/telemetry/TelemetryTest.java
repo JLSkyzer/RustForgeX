@@ -32,6 +32,11 @@ class TelemetryTest {
         tick.put("unbalanced", 0L);
         tick.put("invalid_transitions", 0L);
         tick.put("hook_budget_exceeded", 3L);
+        tick.put("hook_exceeded_begin", 0L);
+        tick.put("hook_exceeded_phase", 1L);
+        tick.put("hook_exceeded_end", 2L);
+        tick.put("worst_hook_ns", 812_000L);
+        tick.put("worst_hook", "end");
 
         Map<String, Object> profiler = new LinkedHashMap<>();
         profiler.put("workloads_tracked", 2_600L);
@@ -55,6 +60,11 @@ class TelemetryTest {
         assertEquals(1_200, set.get("rfx.tick.count").value());
         assertEquals(Metric.Type.COUNTER, set.get("rfx.tick.count").type());
         assertEquals(3, set.get("rfx.tick.hook_budget_exceeded").value());
+        assertEquals(2, set.get("rfx.tick.hook_budget_exceeded{hook=end}").value());
+        assertEquals(1, set.get("rfx.tick.hook_budget_exceeded{hook=phase}").value());
+        assertEquals(0, set.get("rfx.tick.hook_budget_exceeded{hook=begin}").value());
+        assertEquals(812_000, set.get("rfx.tick.worst_hook_ns").value());
+        assertEquals("ns", set.get("rfx.tick.worst_hook_ns").unit());
         assertEquals(6.5, set.get("rfx.profiler.mspt_pct").value(), 1e-9);
         assertEquals("%", set.get("rfx.profiler.mspt_pct").unit());
     }

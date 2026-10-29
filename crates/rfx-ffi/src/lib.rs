@@ -632,11 +632,15 @@ pub unsafe extern "C" fn rfx_workload_explain(
 /// `rfx_tick_*` ne doit jamais retenir le thread autoritatif au-dela de
 /// `tick.max_hook_ns`. La mesure est prise ici, au plus pres de l'appel, et le
 /// depassement est compte dans la fenetre de tick.
-fn timed_tick_op(handle: u64, op: impl FnOnce(&mut rfx_core::Runtime) -> i32) -> i32 {
+fn timed_tick_op(
+    handle: u64,
+    kind: rfx_core::HookKind,
+    op: impl FnOnce(&mut rfx_core::Runtime) -> i32,
+) -> i32 {
     let started = Instant::now();
     let outcome = runtime::with(handle, |rt| {
         let code = op(rt);
-        rt.record_hook(started.elapsed());
+        rt.record_hook(kind, started.elapsed());
         code
     });
     match outcome {
@@ -666,7 +670,7 @@ pub extern "C" fn rfx_tick_begin(handle: u64, tick: u64, side: i32) -> i32 {
         let Some(side) = side_from_code(side) else {
             return ErrorCode::InvalidArgument.ffi_code();
         };
-        timed_tick_op(handle, |rt| {
+        timed_tick_op(handle, rfx_core::HookKind::Begin, |rt| {
             rt.tick_begin(tick, side, Instant::now());
             OK
         })
@@ -684,7 +688,7 @@ pub extern "C" fn rfx_phase(handle: u64, phase: i32) -> i32 {
         let Some(phase) = TickPhase::from_code(phase) else {
             return ErrorCode::InvalidArgument.ffi_code();
         };
-        timed_tick_op(handle, |rt| {
+        timed_tick_op(handle, rfx_core::HookKind::Phase, |rt| {
             rt.tick_phase(phase);
             OK
         })
@@ -704,7 +708,7 @@ pub extern "C" fn rfx_phase(handle: u64, phase: i32) -> i32 {
 pub unsafe extern "C" fn rfx_tick_end(handle: u64, out_flags: *mut u64) -> i32 {
     guard_with_handle(handle, || {
         let mut flags = 0_u64;
-        let code = timed_tick_op(handle, |rt| {
+        let code = timed_tick_op(handle, rfx_core::HookKind::End, |rt| {
             rt.tick_end(Instant::now());
             flags = u64::from(rt.tick_window().metrics().hook_budget_exceeded > 0);
             OK

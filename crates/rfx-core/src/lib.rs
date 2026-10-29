@@ -21,4 +21,4 @@ pub mod tick;
 pub use error::{ErrorCode, Severity, OK};
 pub use runtime::{Runtime, ABI_VERSION};
 pub use state::RuntimeState;
-pub use tick::{TickMetrics, TickPhase, TickWindow, WindowState};
+pub use tick::{HookKind, TickMetrics, TickPhase, TickWindow, WindowState};

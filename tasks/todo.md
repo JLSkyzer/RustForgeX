@@ -525,9 +525,15 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       une pause GC tombe pendant la mesure — `record_hook` mesure du temps écoulé, donc
       attribue les pauses GC à nos accroches. La campagne a compté 1 564 ticks
       contaminés par le GC sur 12 000, ce qui rend la seconde explication très plausible
-- [~] Rendre ce compteur diagnosticable : retenir la pire durée observée et quelle
-      accroche l'a produite. Un compteur qu'on ne sait pas interpréter ne sert à rien —
-      c'est la même leçon que `CLASSES_SEEN` incrémenté du mauvais côté du retour
+- [x] Rendre ce compteur diagnosticable (2026-10-29) : dépassements comptés par
+      accroche (`rfx.tick.hook_budget_exceeded{hook=begin|phase|end}`), pire durée et
+      accroche qui l'a produite (`rfx.tick.worst_hook_ns`, ligne de `/rfx status`).
+      Un `tick_end` lent concentre les dépassements sur `end` ; une pause GC les
+      répartit au prorata des appels (quatre `phase` par tick). Première observation,
+      serveur de banc sans joueur, 859 ticks : **2 dépassements, tous deux sur `end`**,
+      pire durée 2,22 ms. Trop peu pour trancher ; à relire sur une campagne
+- [ ] Trancher la cause des dépassements sur une campagne (`medium` ou `heavy`) avec
+      ces compteurs ; si `end` domine, mesurer `adapt_probe_levels` dans `tick_end`
 
 ### Étape H bis — Ramener le coût du sondage sous le budget
 

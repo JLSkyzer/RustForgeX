@@ -476,8 +476,8 @@ impl Runtime {
     ///
     /// Renvoie `false` si la deadline est depassee. Le depassement est compte, jamais
     /// transforme en erreur : c'est le signal qui fera reduire l'activite du runtime.
-    pub fn record_hook(&mut self, duration: std::time::Duration) -> bool {
-        self.tick_window.record_hook(duration)
+    pub fn record_hook(&mut self, kind: crate::HookKind, duration: std::time::Duration) -> bool {
+        self.tick_window.record_hook(kind, duration)
     }
 
     /// Fenetre de tick courante, pour inspection.
@@ -690,6 +690,13 @@ impl Runtime {
                     unbalanced: m.unbalanced,
                     invalid_transitions: m.invalid_transitions,
                     hook_budget_exceeded: m.hook_budget_exceeded,
+                    hook_exceeded_begin: m.hook_exceeded_begin,
+                    hook_exceeded_phase: m.hook_exceeded_phase,
+                    hook_exceeded_end: m.hook_exceeded_end,
+                    worst_hook_ns: m.worst_hook_ns,
+                    worst_hook: m
+                        .worst_hook
+                        .map_or_else(String::new, |k| k.name().to_owned()),
                     last_window_ns: m.last_window_ns,
                 }
             },

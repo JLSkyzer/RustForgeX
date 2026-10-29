@@ -9,6 +9,7 @@
   "rustforgex.status.panics": "Panics      : %s",
   "rustforgex.status.ticks": "Ticks       : %s (unbalanced: %s)",
   "rustforgex.status.tick_anomalies": "Anomalies   : %s refused transitions, %s hooks over deadline",
+  "rustforgex.status.tick_hooks": "Over deadline : begin %s, phase %s, end %s; worst hook %s µs (%s)",
   "rustforgex.status.probes": "Probes      : %s records read, %s lost",
   "rustforgex.status.native_memory": "Native mem. : %s KiB used of %s MiB",
   "rustforgex.status.instrumentation": "Instrument. : armed, %s classes seen, %s methods probed",

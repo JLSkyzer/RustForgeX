@@ -20,6 +20,34 @@ use rfx_model::Side;
 /// Duree maximale par defaut d'un hook de tick (`tick.max_hook_ns`, R-707).
 pub const DEFAULT_MAX_HOOK_NS: u64 = 500_000;
 
+/// Accroche du cycle de tick dont la duree est mesuree (R-707).
+///
+/// Distinguer les accroches est ce qui rend `hook_budget_exceeded` interpretable : un
+/// `tick_end` qui traine concentre les depassements sur [`HookKind::End`], alors
+/// qu'une pause du ramasse-miettes, comptee dans le temps ecoule de toute accroche
+/// qu'elle interrompt, les repartit au prorata des appels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookKind {
+    /// `rfx_tick_begin`.
+    Begin,
+    /// `rfx_phase`, quatre fois par tick.
+    Phase,
+    /// `rfx_tick_end`.
+    End,
+}
+
+impl HookKind {
+    /// Nom stable, publie dans le statut.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Begin => "begin",
+            Self::Phase => "phase",
+            Self::End => "end",
+        }
+    }
+}
+
 /// Phase du tick, telle que Java la declare (IF-02).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TickPhase {
@@ -115,6 +143,16 @@ pub struct TickMetrics {
     pub invalid_transitions: u64,
     /// Hooks ayant depasse la deadline (R-707).
     pub hook_budget_exceeded: u64,
+    /// Depassements de `rfx_tick_begin`.
+    pub hook_exceeded_begin: u64,
+    /// Depassements de `rfx_phase`.
+    pub hook_exceeded_phase: u64,
+    /// Depassements de `rfx_tick_end`.
+    pub hook_exceeded_end: u64,
+    /// Pire duree d'accroche observee depuis le demarrage, en nanosecondes.
+    pub worst_hook_ns: u64,
+    /// Accroche qui a produit la pire duree ; `None` avant la premiere mesure.
+    pub worst_hook: Option<HookKind>,
     /// Duree cumulee passee dans la fenetre, en nanosecondes.
     pub total_window_ns: u64,
     /// Duree de la derniere fenetre fermee, en nanosecondes.
@@ -223,14 +261,26 @@ impl TickWindow {
     /// Comptabilise la duree d'un hook et signale un depassement de deadline.
     ///
     /// Renvoie `true` si le hook a tenu dans son budget (R-707). Un depassement est
-    /// compte : c'est le signal qui fera reduire l'activite du runtime, pas une
-    /// erreur.
-    pub fn record_hook(&mut self, duration: Duration) -> bool {
-        if duration > self.max_hook {
-            self.metrics.hook_budget_exceeded = self.metrics.hook_budget_exceeded.saturating_add(1);
-            return false;
+    /// compte, par accroche : c'est le signal qui fera reduire l'activite du runtime,
+    /// pas une erreur. La pire duree est retenue avec l'accroche qui l'a produite.
+    pub fn record_hook(&mut self, kind: HookKind, duration: Duration) -> bool {
+        let nanos = u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
+        if self.metrics.worst_hook.is_none() || nanos > self.metrics.worst_hook_ns {
+            self.metrics.worst_hook_ns = nanos;
+            self.metrics.worst_hook = Some(kind);
         }
-        true
+        if duration <= self.max_hook {
+            return true;
+        }
+        let m = &mut self.metrics;
+        m.hook_budget_exceeded = m.hook_budget_exceeded.saturating_add(1);
+        let by_kind = match kind {
+            HookKind::Begin => &mut m.hook_exceeded_begin,
+            HookKind::Phase => &mut m.hook_exceeded_phase,
+            HookKind::End => &mut m.hook_exceeded_end,
+        };
+        *by_kind = by_kind.saturating_add(1);
+        false
     }
 
     /// Etat courant de la fenetre.
@@ -373,18 +423,59 @@ mod tests {
     fn a_hook_over_budget_is_reported() {
         let mut w = TickWindow::new(DEFAULT_MAX_HOOK_NS);
 
-        assert!(w.record_hook(Duration::from_nanos(1_000)));
+        assert!(w.record_hook(HookKind::Phase, Duration::from_nanos(1_000)));
         assert_eq!(w.metrics().hook_budget_exceeded, 0);
 
-        assert!(w.record_hook(Duration::from_nanos(DEFAULT_MAX_HOOK_NS)));
+        assert!(w.record_hook(HookKind::Phase, Duration::from_nanos(DEFAULT_MAX_HOOK_NS)));
         assert_eq!(
             w.metrics().hook_budget_exceeded,
             0,
             "la deadline elle-meme tient"
         );
 
-        assert!(!w.record_hook(Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 1)));
+        assert!(!w.record_hook(
+            HookKind::Phase,
+            Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 1)
+        ));
         assert_eq!(w.metrics().hook_budget_exceeded, 1);
+    }
+
+    /// Un depassement est attribue a son accroche, et la pire duree a la sienne :
+    /// c'est ce qui separe un `tick_end` lent d'une pause du ramasse-miettes.
+    #[test]
+    fn exceedances_and_the_worst_duration_name_their_hook() {
+        let mut w = TickWindow::new(DEFAULT_MAX_HOOK_NS);
+        assert_eq!(w.metrics().worst_hook, None);
+
+        w.record_hook(HookKind::Begin, Duration::from_nanos(10));
+        assert_eq!(w.metrics().worst_hook, Some(HookKind::Begin));
+        assert_eq!(w.metrics().worst_hook_ns, 10);
+
+        w.record_hook(HookKind::End, Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 7));
+        w.record_hook(HookKind::End, Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 3));
+        w.record_hook(
+            HookKind::Phase,
+            Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 5),
+        );
+        w.record_hook(
+            HookKind::Begin,
+            Duration::from_nanos(DEFAULT_MAX_HOOK_NS + 1),
+        );
+
+        let m = w.metrics();
+        assert_eq!(m.hook_budget_exceeded, 4);
+        assert_eq!(m.hook_exceeded_begin, 1);
+        assert_eq!(m.hook_exceeded_phase, 1);
+        assert_eq!(m.hook_exceeded_end, 2);
+        assert_eq!(m.worst_hook, Some(HookKind::End));
+        assert_eq!(m.worst_hook_ns, DEFAULT_MAX_HOOK_NS + 7);
+
+        w.record_hook(HookKind::Phase, Duration::from_nanos(1));
+        assert_eq!(
+            w.metrics().worst_hook,
+            Some(HookKind::End),
+            "une duree plus courte ne remplace pas la pire"
+        );
     }
 
     #[test]

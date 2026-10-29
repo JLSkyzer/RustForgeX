@@ -114,6 +114,19 @@ public final class StatusReport {
                         longValue(tick, "invalid_transitions"),
                         longValue(tick, "hook_budget_exceeded")));
             }
+            // Ce qui rend le compteur interprétable : quelle accroche dépasse, et de
+            // combien au pire (un tick_end lent ou une pause du ramasse-miettes).
+            if (longValue(tick, "hook_budget_exceeded") > 0) {
+                Object worst = tick.get("worst_hook");
+                lines.add(Component.translatable(KEY_PREFIX + "tick_hooks",
+                        longValue(tick, "hook_exceeded_begin"),
+                        longValue(tick, "hook_exceeded_phase"),
+                        longValue(tick, "hook_exceeded_end"),
+                        Component.literal(String.format(java.util.Locale.ROOT, "%.1f",
+                                longValue(tick, "worst_hook_ns") / 1_000.0)),
+                        Component.literal(worst instanceof String name && !name.isEmpty()
+                                ? name : "?")));
+            }
         }
 
         appendInstrumentation(lines, instrumentation);

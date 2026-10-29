@@ -186,6 +186,19 @@ public final class Telemetry {
         set.add(Metric.counter("rfx.tick.hook_budget_exceeded",
                 longOf(tick, "hook_budget_exceeded"),
                 "Accroches ayant dépassé leur budget de temps (INV-14)."));
+        // Par accroche : un tick_end lent concentre les dépassements sur `end`, une
+        // pause du ramasse-miettes les répartit au prorata des appels.
+        for (String hook : new String[] {"begin", "phase", "end"}) {
+            set.add(Metric.counter("rfx.tick.hook_budget_exceeded{hook=" + hook + "}",
+                    longOf(tick, "hook_exceeded_" + hook),
+                    "Dépassements du budget de temps par cette accroche du cycle de tick."));
+        }
+        // Avant la première accroche mesurée, il n'y a pas de pire durée : rien n'est
+        // publié plutôt qu'un zéro qui aurait l'air mesuré.
+        boolean measured = tick.get("worst_hook") instanceof String hook && !hook.isEmpty();
+        set.addIfMeasured(measured, () -> Metric.gauge(
+                "rfx.tick.worst_hook_ns", longOf(tick, "worst_hook_ns"), "ns",
+                "Pire durée d'une accroche du cycle de tick depuis le démarrage."));
     }
 
     private static void appendProbes(MetricSet set, Map<String, Object> probes) {

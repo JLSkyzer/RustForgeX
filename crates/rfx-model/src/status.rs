@@ -35,7 +35,7 @@ pub struct ProbeCoverage {
 ///
 /// Definis ici plutot que dans `rfx-core` parce que `rfx-model` est la couche la plus
 /// basse : le sens des dependances interdit l'inverse (INV-13).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TickStatus {
     /// Ticks ouverts depuis le demarrage.
     pub ticks: u64,
@@ -45,6 +45,22 @@ pub struct TickStatus {
     pub invalid_transitions: u64,
     /// Hooks ayant depasse la deadline (R-707).
     pub hook_budget_exceeded: u64,
+    /// Depassements de `rfx_tick_begin`. Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub hook_exceeded_begin: u64,
+    /// Depassements de `rfx_phase`. Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub hook_exceeded_phase: u64,
+    /// Depassements de `rfx_tick_end`. Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub hook_exceeded_end: u64,
+    /// Pire duree d'accroche observee, en nanosecondes. Absent d'un blob ancien : zero.
+    #[serde(default)]
+    pub worst_hook_ns: u64,
+    /// Accroche de la pire duree : `begin`, `phase`, `end`, ou vide avant la premiere
+    /// mesure.
+    #[serde(default)]
+    pub worst_hook: String,
     /// Duree de la derniere fenetre fermee, en nanosecondes.
     pub last_window_ns: u64,
 }

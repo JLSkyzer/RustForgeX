@@ -44,6 +44,10 @@ marquées « conditionnelle ».
 | `rfx.tick.unbalanced` | counter | — | Fenêtres ouvertes sans fermeture correspondante |
 | `rfx.tick.invalid_transitions` | counter | — | Transitions refusées par SM-01 |
 | `rfx.tick.hook_budget_exceeded` | counter | — | Accroches ayant dépassé leur budget (INV-14) |
+| `rfx.tick.hook_budget_exceeded{hook=begin}` | counter | — | Dépassements de `rfx_tick_begin` |
+| `rfx.tick.hook_budget_exceeded{hook=phase}` | counter | — | Dépassements de `rfx_phase` (quatre appels par tick) |
+| `rfx.tick.hook_budget_exceeded{hook=end}` | counter | — | Dépassements de `rfx_tick_end` : un `tick_end` lent les concentre ici, une pause du ramasse-miettes les répartit au prorata des appels |
+| `rfx.tick.worst_hook_ns` | gauge | ns | Pire durée d'une accroche depuis le démarrage ; absente avant la première mesure |
 
 ### `rfx.probes` — transport des enregistrements (C-31, IF-03)
 

@@ -338,6 +338,35 @@ class StatusReportTest {
                 argumentsOf(noisy, "rustforgex.status.profiler_anomalies"));
     }
 
+    /** Ce qui rend {@code hook_budget_exceeded} interprétable : quelle accroche, et le pire. */
+    @Test
+    @DisplayName("Les dépassements d'accroche disent laquelle, et la pire durée")
+    void hookExceedancesNameTheirHook() {
+        Map<String, Object> tick = new LinkedHashMap<>();
+        tick.put("ticks", 4_039L);
+        tick.put("unbalanced", 0L);
+        tick.put("invalid_transitions", 0L);
+        tick.put("hook_budget_exceeded", 0L);
+        Map<String, Object> status = nativeStatus(true, true);
+        status.put("tick", tick);
+        List<String> quiet = keysOf(StatusReport.compose(
+                readyReport(), Configuration.defaults(), status, false));
+        assertFalse(quiet.contains("rustforgex.status.tick_hooks"), quiet.toString());
+
+        tick.put("hook_budget_exceeded", 123L);
+        tick.put("hook_exceeded_begin", 20L);
+        tick.put("hook_exceeded_phase", 80L);
+        tick.put("hook_exceeded_end", 23L);
+        tick.put("worst_hook_ns", 2_345_600L);
+        tick.put("worst_hook", "phase");
+        List<Component> noisy = StatusReport.compose(
+                readyReport(), Configuration.defaults(), status, false);
+        assertArrayEqualsAsStrings(
+                new Object[] {20L, 80L, 23L, Component.literal("2345.6"),
+                    Component.literal("phase")},
+                argumentsOf(noisy, "rustforgex.status.tick_hooks"));
+    }
+
     @Test
     @DisplayName("Le mode dégradé est signalé avec sa cause")
     void degradedStatus() {

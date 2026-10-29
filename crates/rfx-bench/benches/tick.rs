@@ -18,14 +18,18 @@
 use std::time::Instant;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rfx_core::{TickPhase, TickWindow};
+use rfx_core::{HookKind, TickPhase, TickWindow};
 use rfx_model::Side;
 
 /// Une operation de tick telle que `timed_tick_op` l'execute dans `rfx-ffi`.
-fn timed(window: &mut TickWindow, op: impl FnOnce(&mut TickWindow) -> bool) -> bool {
+fn timed(
+    window: &mut TickWindow,
+    kind: HookKind,
+    op: impl FnOnce(&mut TickWindow) -> bool,
+) -> bool {
     let started = Instant::now();
     let accepted = op(window);
-    window.record_hook(started.elapsed()) && accepted
+    window.record_hook(kind, started.elapsed()) && accepted
 }
 
 fn bench_cycle(c: &mut Criterion) {
@@ -35,7 +39,7 @@ fn bench_cycle(c: &mut Criterion) {
     group.bench_function("cycle", |b| {
         b.iter(|| {
             tick += 1;
-            let mut ok = timed(&mut window, |w| {
+            let mut ok = timed(&mut window, HookKind::Begin, |w| {
                 w.begin(black_box(tick), Side::Server, Instant::now());
                 true
             });
@@ -45,9 +49,9 @@ fn bench_cycle(c: &mut Criterion) {
                 TickPhase::Drain,
                 TickPhase::Post,
             ] {
-                ok &= timed(&mut window, |w| w.phase(black_box(phase)));
+                ok &= timed(&mut window, HookKind::Phase, |w| w.phase(black_box(phase)));
             }
-            ok &= timed(&mut window, |w| w.end(Instant::now()));
+            ok &= timed(&mut window, HookKind::End, |w| w.end(Instant::now()));
             black_box(ok)
         });
     });
