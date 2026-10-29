@@ -1217,7 +1217,11 @@ T-390..T-392, T-460..T-461.
         Sélecteur mal formé écarté seul (divergence à R-590, ADR-067). `disable` ne
         coupe pas encore l'observation. Documenté dans `CONFIGURATION.md`
   - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`
-  - [ ] Propriétés détectées depuis l'analyse (cibles de transformateurs, réflexion)
+  - [x] Propriétés détectées depuis l'analyse : réflexion du graphe, et transformateur
+        concurrent (R-552) lu comme « classe racine déclarée absente » — cible de mixin,
+        d'access transformer, de coremod, classe réécrite par Forge ou illisible : le
+        bytecode final est inconnu, `FORCE_SERIAL` au sens prudent. Version de classe
+        non supportée : pas encore détectée
   - [ ] `rfx.compat.*`
 - [~] C-15 Decision Engine — T-240..T-245 (ADR-068)
   - [x] Moteur pur dans `rfx-decision` : filtre dur avec motifs DM-15 (huit genres),

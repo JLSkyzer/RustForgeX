@@ -647,6 +647,7 @@ impl Runtime {
                             logical_cores: self.hardware.logical_cores,
                             identity: self.identities.get(&work_id),
                             user_rules: &self.user_rules,
+                            foreign_transformer: analysis.root_bytecode_unknown(work_id),
                         },
                     ),
                 )

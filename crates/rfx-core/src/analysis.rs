@@ -851,6 +851,17 @@ impl Analysis {
         self.descriptors.get(&work_id)
     }
 
+    /// `true` si la classe de la methode racine a ete declaree absente : un autre
+    /// transformateur la vise (mixin, access transformer, coremod), Forge la reecrit, ou
+    /// elle est illisible. C'est la propriete « transformateur concurrent » de C-33
+    /// (R-552), au sens prudent : le bytecode final est inconnu.
+    #[must_use]
+    pub fn root_bytecode_unknown(&self, work_id: WorkId) -> bool {
+        self.methods
+            .get(&work_id)
+            .is_some_and(|root| self.index.is_absent(&root.method.owner))
+    }
+
     /// Etat publie (`rfx.callgraph.*`, `rfx.analysis.*`).
     #[must_use]
     pub fn status(&self) -> AnalysisStatus {

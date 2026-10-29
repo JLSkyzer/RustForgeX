@@ -6,9 +6,8 @@
 //! Le risque (C-14), le verdict de compatibilite (C-33) et la decision (C-15) sont
 //! calcules a la demande, a partir du descripteur et de la mesure de l'unite, et
 //! expliques ; rien n'est applique (M3). Le verdict de C-33 lit les regles de
-//! l'utilisateur (`[overrides]`) et la reflexion ; les quarantaines et les
-//! transformateurs concurrents ne sont pas encore branches. En M3, cela ne change aucune
-//! issue, le plafond TL2 du jalon valant deja `FORCE_SERIAL`.
+//! l'utilisateur (`[overrides]`), la reflexion et le transformateur concurrent (classe
+//! racine declaree absente) ; les quarantaines ne sont pas encore branchees.
 
 use rfx_decision::{
     assess, decide, verdict, Blast, CompatInputs, DecisionInputs, DetectedProperties, RiskInputs,
@@ -31,6 +30,9 @@ pub struct Context<'a> {
     pub identity: Option<&'a WorkDescriptor>,
     /// Regles de l'utilisateur (`[overrides]`).
     pub user_rules: &'a [UserRule],
+    /// La classe racine est visee par un autre transformateur, ou son bytecode final
+    /// est inconnu (R-552).
+    pub foreign_transformer: bool,
 }
 
 /// Les regles de `[overrides]` (PARTIE 28.2). Un selecteur mal forme est ignore : Java
@@ -110,6 +112,7 @@ pub fn decision_card(
         quarantines: &[],
         detected: DetectedProperties {
             reflection: d.summary.reflection,
+            foreign_transformer: context.foreign_transformer,
             ..DetectedProperties::default()
         },
         learned: None,
@@ -255,7 +258,43 @@ mod tests {
             logical_cores: 8,
             identity,
             user_rules,
+            foreign_transformer: false,
         }
+    }
+
+    /// R-552 : une racine dont la classe est declaree absente (cible d'un autre
+    /// transformateur, ou bytecode final inconnu) impose `FORCE_SERIAL`, source
+    /// detectee ; une racine fournie ne l'impose pas.
+    #[test]
+    fn a_root_class_declared_absent_forces_serial() {
+        let classes = fixtures();
+        let mut analysis = Analysis::new(&RuntimeConfig::default());
+        let pure = WorkId(15);
+        analysis.note(
+            pure,
+            MethodRef::new("fixtures/Chance", "pure", "(II)I"),
+            Side::Server,
+        );
+        analysis.declare(hierarchy(&classes));
+        drive(&mut analysis, &[hot(pure)], &classes);
+        assert!(!analysis.root_bytecode_unknown(pure), "classe fournie");
+        assert!(
+            !analysis.root_bytecode_unknown(WorkId(99)),
+            "unite inconnue"
+        );
+
+        analysis.provide("fixtures/Chance", None);
+        assert!(analysis.root_bytecode_unknown(pure));
+        let card = decision_card(
+            analysis.descriptor(pure).unwrap(),
+            None,
+            &Context {
+                foreign_transformer: analysis.root_bytecode_unknown(pure),
+                ..context(RuntimeMode::Balanced, None, &[])
+            },
+        );
+        assert_eq!(card.compat_verdict, "FORCE_SERIAL");
+        assert_eq!(card.compat_source, "Detected");
     }
 
     /// Une unite dont l'analyse a epuise son budget est `UNKNOWN` : risque de

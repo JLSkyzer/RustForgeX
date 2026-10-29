@@ -147,6 +147,13 @@ impl ClassIndex {
         self.requests.borrow_mut().remove(name);
     }
 
+    /// `true` si la classe a ete declaree absente : son bytecode final est inconnu
+    /// (cible d'un autre transformateur, classe reecrite par Forge, ou illisible).
+    #[must_use]
+    pub fn is_absent(&self, name: &str) -> bool {
+        self.absent.contains(name)
+    }
+
     /// Ajoute (ou remplace) une classe et son bytecode.
     pub fn insert(&mut self, class: ClassFile) {
         if let Some(previous) = self.classes.get(&class.name) {
