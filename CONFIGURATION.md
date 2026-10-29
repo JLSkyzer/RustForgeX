@@ -140,12 +140,40 @@ La ligne de journal de l'armement indique les deux chiffres, quelle que soit l'o
 combien de classes sont passées avant l'armement, et combien avant même la construction
 du mod — ces dernières étant hors d'atteinte dans les deux cas.
 
+### Section `overrides` (C-33, ADR-067)
+
+Le seul endroit où un nom de mod peut figurer (R-550) : le moteur de RF-X n'en connaît
+aucun, il compare ceux que vous écrivez ici à ceux des unités de travail.
+
+| Option | Défaut | Effet |
+|---|---|---|
+| `force_java` | `[]` | ces mods ou méthodes restent en Java tel quel (TL0) |
+| `disable` | `[]` | jamais transformés ; leur observation n'est **pas encore** coupée |
+| `force_serial` | `[]` | jamais parallélisés (TL2 au plus) |
+
+Chaque valeur est un tableau sur une ligne. Un sélecteur vise un mod par son
+identifiant, ou une méthode :
+
+```toml
+[overrides]
+force_java   = ["examplemod", "othermod:net.example.Machine#tick"]
+force_serial = []
+```
+
+Un sélecteur mal formé est écarté seul, avec un message dans le journal ; les autres
+restent appliqués : une restriction de sûreté ne disparaît pas à cause d'une faute de
+frappe voisine. Une valeur qui n'est pas un tableau est rejetée en entier, et la liste
+reste vide. Redémarrage requis.
+
+Au jalon M3, aucune décision n'est appliquée au jeu : ces règles changent la décision
+calculée et expliquée par `/rfx why` (bloc `DECISION`, verdict de compatibilité de
+source `User`).
+
 ### Les autres sections de la PARTIE 28.2
 
 La configuration normative du cahier des charges décrit aussi les sections
 `analysis`, `decision`, `scheduler`, `snapshot`, `commit`, `validation`,
-`shadow`, `cache`, `mirror`, `ir`, `network`, `learning`, `diagnostics`, `ui` et
-`overrides`.
+`shadow`, `cache`, `mirror`, `ir`, `network`, `learning`, `diagnostics` et `ui`.
 
 La section `cache` n'expose que `enabled` et `max_memory_mb` : `max_disk_mb` n'a pas
 de rôle propre tant que `workload.db` est le seul fichier du cache — sa taille suit la

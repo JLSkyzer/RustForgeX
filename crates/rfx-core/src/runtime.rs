@@ -90,6 +90,11 @@ pub struct Runtime {
     analysis: Arc<Mutex<Analysis>>,
     /// Methodes sondees depuis le dernier pas d'analyse, a lui confier.
     analysis_staging: Vec<StagedRoot>,
+    /// Identite des unites sondees, pour les selecteurs de `[overrides]` (ADR-067).
+    /// Bornee comme le registre du profileur : une entree par sonde accordee.
+    identities: std::collections::HashMap<rfx_model::WorkId, WorkDescriptor>,
+    /// Regles de l'utilisateur, lues de `[overrides]` au demarrage (C-33).
+    user_rules: Vec<rfx_decision::UserRule>,
     /// Dernier etat publie par l'analyse.
     analysis_status: AnalysisStatus,
     /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
@@ -100,6 +105,7 @@ impl Runtime {
     /// Construit le runtime a partir d'une configuration deja validee.
     #[must_use]
     pub fn new(config: RuntimeConfig) -> Self {
+        let user_rules = crate::explain::user_rules(&config);
         let max_native_mb = config.max_native_mb;
         // Le profiler etait construit sur ses defauts, ce qui rendait muettes deux
         // options que l'utilisateur croyait pouvoir regler. Elles sont desormais lues.
@@ -154,6 +160,8 @@ impl Runtime {
             db,
             analysis,
             analysis_staging: Vec::new(),
+            identities: std::collections::HashMap::new(),
+            user_rules,
             analysis_status,
             analysis_reserved: 0,
         }
@@ -220,6 +228,7 @@ impl Runtime {
         let probe_id = self.profiler.register(work_id);
         if probe_id.is_some() {
             self.db.note(descriptor);
+            self.identities.insert(work_id, descriptor.clone());
             if self.analysis_status.enabled
                 && self.analysis_staging.len() < self.config.profiler_max_workloads as usize
             {
@@ -633,8 +642,12 @@ impl Runtime {
                     crate::explain::decision_card(
                         d,
                         measured.as_ref(),
-                        self.config.mode,
-                        self.hardware.logical_cores,
+                        &crate::explain::Context {
+                            mode: self.config.mode,
+                            logical_cores: self.hardware.logical_cores,
+                            identity: self.identities.get(&work_id),
+                            user_rules: &self.user_rules,
+                        },
                     ),
                 )
             })

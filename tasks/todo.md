@@ -1211,7 +1211,11 @@ T-390..T-392, T-460..T-461.
         restrictif au sein d'une source ; sélecteurs `modid` / `modid:Classe#methode` ;
         quarantaine datée levée au changement d'empreinte ; test statique sans nom de mod.
         4 mutants sur 4 tués (la réflexion seule n'était pas testée, ajouté)
-  - [ ] Section `[overrides]` de la configuration (Java, natif, `CONFIGURATION.md`)
+  - [x] Section `[overrides]` (2026-10-30) : tableaux de sélecteurs lus par C-37
+        (`OptionConfig.SELECTORS`, `Selectors`), transmis dans `RuntimeConfig`,
+        appliqués par `explain` aux unités sondées dont le runtime garde l'identité.
+        Sélecteur mal formé écarté seul (divergence à R-590, ADR-067). `disable` ne
+        coupe pas encore l'observation. Documenté dans `CONFIGURATION.md`
   - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`
   - [ ] Propriétés détectées depuis l'analyse (cibles de transformateurs, réflexion)
   - [ ] `rfx.compat.*`

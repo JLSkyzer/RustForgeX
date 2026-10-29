@@ -5,17 +5,51 @@
 //!
 //! Le risque (C-14), le verdict de compatibilite (C-33) et la decision (C-15) sont
 //! calcules a la demande, a partir du descripteur et de la mesure de l'unite, et
-//! expliques ; rien n'est applique (M3). Les sources de C-33 qui ne sont pas encore
-//! branchees (regles de l'utilisateur, quarantaines, transformateurs concurrents) sont
-//! absentes : le verdict ne voit que la reflexion. En M3, cela ne change aucune issue,
-//! le plafond TL2 du jalon valant deja `FORCE_SERIAL`.
+//! expliques ; rien n'est applique (M3). Le verdict de C-33 lit les regles de
+//! l'utilisateur (`[overrides]`) et la reflexion ; les quarantaines et les
+//! transformateurs concurrents ne sont pas encore branches. En M3, cela ne change aucune
+//! issue, le plafond TL2 du jalon valant deja `FORCE_SERIAL`.
 
 use rfx_decision::{
     assess, decide, verdict, Blast, CompatInputs, DecisionInputs, DetectedProperties, RiskInputs,
+    Selector, UserRule, Verdict,
 };
-use rfx_model::{DecisionCard, Fingerprint, RejectedCard, RuntimeMode, TopEntry, WorkDescriptor};
+use rfx_model::{
+    DecisionCard, Fingerprint, RejectedCard, RuntimeConfig, RuntimeMode, TopEntry, WorkDescriptor,
+};
 
 use crate::analysis::Descriptor;
+
+/// Ce que le runtime apporte a une decision, en plus de l'unite.
+#[derive(Debug, Clone, Copy)]
+pub struct Context<'a> {
+    /// Mode du runtime.
+    pub mode: RuntimeMode,
+    /// Coeurs logiques de la machine (C-45).
+    pub logical_cores: u16,
+    /// Identite de l'unite (proprietaire, classe, methode), si elle est sondee.
+    pub identity: Option<&'a WorkDescriptor>,
+    /// Regles de l'utilisateur (`[overrides]`).
+    pub user_rules: &'a [UserRule],
+}
+
+/// Les regles de `[overrides]` (PARTIE 28.2). Un selecteur mal forme est ignore : Java
+/// l'a deja signale au chargement de la configuration.
+#[must_use]
+pub fn user_rules(config: &RuntimeConfig) -> Vec<UserRule> {
+    [
+        (&config.overrides_force_java, Verdict::ForceJava),
+        (&config.overrides_disable, Verdict::Disable),
+        (&config.overrides_force_serial, Verdict::ForceSerial),
+    ]
+    .into_iter()
+    .flat_map(|(selectors, verdict)| {
+        selectors.iter().filter_map(move |text| {
+            Selector::parse(text).map(|selector| UserRule { verdict, selector })
+        })
+    })
+    .collect()
+}
 
 /// Une probabilite en milliemes, pour le lecteur CBOR de Java qui ne lit pas les reels.
 fn per_mille(probability: f32) -> u32 {
@@ -42,10 +76,10 @@ fn blast_name(blast: Blast) -> &'static str {
 pub fn decision_card(
     descriptor: &Descriptor,
     measured: Option<&TopEntry>,
-    mode: RuntimeMode,
-    logical_cores: u16,
+    context: &Context<'_>,
 ) -> DecisionCard {
     let d = descriptor;
+    let (mode, logical_cores) = (context.mode, context.logical_cores);
     let risk = assess(&RiskInputs {
         flags: d.flags,
         reads: d.reads,
@@ -61,12 +95,18 @@ pub fn decision_card(
         rollbacks: 0,
         validation_mismatches: 0,
     });
-    // Sans regle utilisateur ni quarantaine, l'identite et l'empreinte ne sont pas lues.
-    let (identity, fingerprint) = (WorkDescriptor::default(), Fingerprint::default());
+    // Une unite sans identite connue ne peut etre visee par aucun selecteur. Sans
+    // quarantaine, l'empreinte n'est pas lue.
+    let unknown = WorkDescriptor::default();
+    let fingerprint = Fingerprint::default();
     let compat = verdict(&CompatInputs {
-        descriptor: &identity,
+        descriptor: context.identity.unwrap_or(&unknown),
         fingerprint: &fingerprint,
-        user: &[],
+        user: if context.identity.is_some() {
+            context.user_rules
+        } else {
+            &[]
+        },
         quarantines: &[],
         detected: DetectedProperties {
             reflection: d.summary.reflection,
@@ -160,8 +200,7 @@ mod tests {
         let card = decision_card(
             analysis.descriptor(pure).unwrap(),
             None,
-            RuntimeMode::Balanced,
-            8,
+            &context(RuntimeMode::Balanced, None, &[]),
         );
         assert_eq!(card.strategy, "JAVA_ONLY");
         assert_eq!(card.level, 0);
@@ -171,6 +210,52 @@ mod tests {
         assert!(!card.requires_validation);
         assert!(card.rejected.iter().all(|r| !r.reasons.is_empty()));
         assert!(card.correctness_x1000 < 1_000, "{card:?}");
+
+        // ADR-067 : une regle de [overrides] vise l'unite par son proprietaire ; sans
+        // identite connue, aucune regle ne peut s'y appliquer.
+        let config = RuntimeConfig {
+            overrides_force_java: vec!["fixtures".to_owned(), "mal:forme".to_owned()],
+            ..RuntimeConfig::default()
+        };
+        let rules = user_rules(&config);
+        assert_eq!(rules.len(), 1, "le selecteur mal forme est ignore");
+        let identity = WorkDescriptor {
+            owner_id: "fixtures".to_owned(),
+            class_internal_name: "fixtures/Chance".to_owned(),
+            method_name: "pure".to_owned(),
+            method_descriptor: "(II)I".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let forced = decision_card(
+            analysis.descriptor(pure).unwrap(),
+            None,
+            &context(RuntimeMode::Balanced, Some(&identity), &rules),
+        );
+        assert_eq!(forced.compat_verdict, "FORCE_JAVA");
+        assert_eq!(forced.compat_source, "User");
+        assert!(forced
+            .rejected
+            .iter()
+            .any(|r| r.reasons.contains(&"CompatibilityRule".to_owned())));
+        let anonymous = decision_card(
+            analysis.descriptor(pure).unwrap(),
+            None,
+            &context(RuntimeMode::Balanced, None, &rules),
+        );
+        assert_eq!(anonymous.compat_verdict, "ALLOW");
+    }
+
+    fn context<'a>(
+        mode: RuntimeMode,
+        identity: Option<&'a WorkDescriptor>,
+        user_rules: &'a [UserRule],
+    ) -> Context<'a> {
+        Context {
+            mode,
+            logical_cores: 8,
+            identity,
+            user_rules,
+        }
     }
 
     /// Une unite dont l'analyse a epuise son budget est `UNKNOWN` : risque de
@@ -189,7 +274,11 @@ mod tests {
         for _ in 0..MAX_ROUNDS {
             analysis.step(&[hot(id)]);
         }
-        let card = decision_card(analysis.descriptor(id).unwrap(), None, RuntimeMode::Safe, 8);
+        let card = decision_card(
+            analysis.descriptor(id).unwrap(),
+            None,
+            &context(RuntimeMode::Safe, None, &[]),
+        );
         assert_eq!(card.strategy, "JAVA_ONLY");
         assert_eq!(card.correctness_x1000, 1_000);
         assert!(card.risk_rules.contains(&"R1".to_owned()), "{card:?}");

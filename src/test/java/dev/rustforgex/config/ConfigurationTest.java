@@ -56,6 +56,8 @@ class ConfigurationTest {
                         o.path() + " : le défaut n'est pas une valeur admise");
                 case BOOLEAN -> assertTrue(o.defaultValue() instanceof Boolean,
                         o.path() + " : défaut non booléen");
+                case SELECTORS -> assertEquals(List.of(), o.defaultValue(),
+                        o.path() + " : une liste de sélecteurs est vide par défaut");
             }
         }
     }
@@ -314,5 +316,89 @@ class ConfigurationTest {
 
         assertEquals("balanced", c.mode(), "les défauts doivent s'appliquer");
         assertFalse(c.warnings().isEmpty(), "l'échec doit être signalé");
+    }
+
+    @Test
+    @DisplayName("PARTIE 28.2 : [overrides] se lit en tableaux de sélecteurs, vides par défaut")
+    void overridesAreReadAsSelectorLists(@TempDir Path root) throws Exception {
+        assertEquals(List.of(), Configuration.defaults().getSelectors("overrides.force_java"));
+        Path file = root.resolve("rustforgex.toml");
+        Files.writeString(file, """
+                [overrides]
+                force_java   = ["examplemod", "othermod:net.example.Machine#tick"]
+                disable      = []
+                force_serial = [ "thirdmod" ]
+                """);
+
+        Configuration c = Configuration.load(file, NO_OVERRIDE);
+
+        assertTrue(c.warnings().isEmpty(), c.warnings().toString());
+        assertEquals(List.of("examplemod", "othermod:net.example.Machine#tick"),
+                c.getSelectors("overrides.force_java"));
+        assertEquals(List.of(), c.getSelectors("overrides.disable"));
+        assertEquals(List.of("thirdmod"), c.getSelectors("overrides.force_serial"));
+    }
+
+    /**
+     * ADR-067 : un sélecteur mal formé est écarté seul, avec un message ; une restriction
+     * de sûreté ne disparaît pas à cause d'une faute de frappe voisine.
+     */
+    @Test
+    @DisplayName("Un sélecteur mal formé est écarté seul, les autres sont gardés")
+    void aMalformedSelectorIsDroppedAlone(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rustforgex.toml");
+        Files.writeString(file, """
+                [overrides]
+                force_java = ["examplemod", "broken:NoMethod", "", "othermod"]
+                """);
+
+        Configuration c = Configuration.load(file, NO_OVERRIDE);
+
+        assertEquals(List.of("examplemod", "othermod"), c.getSelectors("overrides.force_java"));
+        assertEquals(2, c.warnings().size(), c.warnings().toString());
+        assertTrue(c.warnings().get(0).contains("broken:NoMethod"), c.warnings().get(0));
+    }
+
+    @Test
+    @DisplayName("Une valeur qui n'est pas un tableau est rejetée, la liste reste vide")
+    void aNonArrayOverrideIsRejected(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rustforgex.toml");
+        Files.writeString(file, """
+                [overrides]
+                force_serial = "examplemod"
+                """);
+
+        Configuration c = Configuration.load(file, NO_OVERRIDE);
+
+        assertEquals(List.of(), c.getSelectors("overrides.force_serial"));
+        assertEquals(1, c.warnings().size(), c.warnings().toString());
+        assertTrue(c.warnings().get(0).contains("overrides.force_serial"), c.warnings().get(0));
+    }
+
+    @Test
+    @DisplayName("Les sélecteurs sont réécrits dans le fichier et transmis au natif")
+    void overridesAreRenderedAndSentToTheNative(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rustforgex.toml");
+        Files.writeString(file, """
+                [overrides]
+                force_java = ["examplemod", "othermod:net.example.Machine#tick"]
+                """);
+        Configuration c = Configuration.load(file, NO_OVERRIDE);
+
+        String rendered = Configuration.renderToml(c);
+        assertTrue(rendered.contains(
+                "force_java = [\"examplemod\", \"othermod:net.example.Machine#tick\"]"), rendered);
+        Path again = root.resolve("again.toml");
+        Files.writeString(again, rendered);
+        assertEquals(c.getSelectors("overrides.force_java"),
+                Configuration.load(again, NO_OVERRIDE).getSelectors("overrides.force_java"),
+                "le fichier rendu se relit à l'identique");
+
+        Object decoded = dev.rustforgex.bridge.CborReader.decode(c.toNativeCbor());
+        assertTrue(decoded instanceof java.util.Map<?, ?>);
+        java.util.Map<?, ?> table = (java.util.Map<?, ?>) decoded;
+        assertEquals(List.of("examplemod", "othermod:net.example.Machine#tick"),
+                table.get("overrides_force_java"));
+        assertEquals(List.of(), table.get("overrides_disable"));
     }
 }

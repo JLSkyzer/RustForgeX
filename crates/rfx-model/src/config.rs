@@ -125,6 +125,16 @@ pub struct RuntimeConfig {
     /// `analysis.max_nodes_per_workload` : noeuds au plus par graphe (R-340).
     #[serde(default = "default_analysis_max_nodes")]
     pub analysis_max_nodes: u32,
+    /// `overrides.force_java` : selecteurs laisses en Java (PARTIE 28.2, ADR-067). Le
+    /// seul endroit ou un nom de mod peut figurer ; le moteur ne fait que comparer.
+    #[serde(default)]
+    pub overrides_force_java: Vec<String>,
+    /// `overrides.disable` : selecteurs jamais transformes.
+    #[serde(default)]
+    pub overrides_disable: Vec<String>,
+    /// `overrides.force_serial` : selecteurs jamais parallelises.
+    #[serde(default)]
+    pub overrides_force_serial: Vec<String>,
 }
 
 /// Plafond d'unites de travail par defaut (PARTIE 5.5).
@@ -197,6 +207,9 @@ impl Default for RuntimeConfig {
             analysis_enabled: default_analysis_enabled(),
             analysis_max_call_depth: default_analysis_max_call_depth(),
             analysis_max_nodes: default_analysis_max_nodes(),
+            overrides_force_java: Vec::new(),
+            overrides_disable: Vec::new(),
+            overrides_force_serial: Vec::new(),
         }
     }
 }

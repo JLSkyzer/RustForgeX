@@ -120,7 +120,16 @@ public final class Configuration {
                     "Armer le sondage dès la construction du mod plutôt qu'au setup "
                             + "commun. Multiplie par cinq la surface observée — et par "
                             + "cinq le coût, mesuré à 105 ns par sonde armée et par tick "
-                            + "(ADR-026). Hors budget par défaut", false));
+                            + "(ADR-026). Hors budget par défaut", false),
+            // PARTIE 28.2 : le seul endroit où un nom de mod peut figurer (R-550). Le
+            // moteur compare ces noms à ceux des unités, il n'en connaît aucun.
+            OptionConfig.selectorsOption("overrides", "force_java",
+                    "Mods ou méthodes que RF-X laisse en Java tel quel (TL0)"),
+            OptionConfig.selectorsOption("overrides", "disable",
+                    "Mods ou méthodes que RF-X ne transforme jamais ; leur observation "
+                            + "n'est pas encore coupée"),
+            OptionConfig.selectorsOption("overrides", "force_serial",
+                    "Mods ou méthodes jamais parallélisés (TL2 au plus)"));
 
     private final Map<String, Object> values;
     private final List<String> warnings;
@@ -259,6 +268,28 @@ public final class Configuration {
                 }
                 return Optional.of(unquoted);
             }
+            case SELECTORS -> {
+                Optional<List<String>> items = Selectors.parseArray(value);
+                if (items.isEmpty()) {
+                    warnings.add(rejection(o, value, origin,
+                            "attendu un tableau de chaînes sur une ligne, par exemple "
+                                    + o.readableRange()));
+                    return Optional.empty();
+                }
+                // Un sélecteur mal formé est écarté seul : une restriction de sûreté ne
+                // doit pas disparaître à cause d'une faute de frappe voisine (ADR-067).
+                List<String> kept = new ArrayList<>();
+                for (String item : items.get()) {
+                    if (Selectors.valid(item)) {
+                        kept.add(item.trim());
+                    } else {
+                        warnings.add("Sélecteur ignoré pour « " + o.path() + " » (" + origin
+                                + ") : « " + item + " » — attendu modid ou "
+                                + "modid:paquet.Classe#methode. Les autres sont gardés.");
+                    }
+                }
+                return Optional.of(List.copyOf(kept));
+            }
             default -> {
                 return Optional.empty();
             }
@@ -334,7 +365,32 @@ public final class Configuration {
     }
 
     private static String format(Object value) {
+        if (value instanceof List<?> list) {
+            List<String> quoted = new ArrayList<>();
+            for (Object item : list) {
+                quoted.add('"' + String.valueOf(item) + '"');
+            }
+            return "[" + String.join(", ", quoted) + "]";
+        }
         return value instanceof String text ? '"' + text + '"' : String.valueOf(value);
+    }
+
+    /**
+     * @param path chemin complet d'une liste de sélecteurs, par exemple
+     *     {@code overrides.force_java}
+     * @return les sélecteurs retenus, éventuellement aucun
+     * @throws IllegalArgumentException si l'option n'existe pas ou n'est pas une liste
+     */
+    public List<String> getSelectors(String path) {
+        Object value = values.get(path);
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalArgumentException("Option de liste inconnue : " + path);
+        }
+        List<String> selectors = new ArrayList<>();
+        for (Object item : list) {
+            selectors.add(String.valueOf(item));
+        }
+        return List.copyOf(selectors);
     }
 
     /**
@@ -430,6 +486,9 @@ public final class Configuration {
         table.put("analysis_enabled", getBoolean("analysis.enabled"));
         table.put("analysis_max_call_depth", getLong("analysis.max_call_depth"));
         table.put("analysis_max_nodes", getLong("analysis.max_nodes_per_workload"));
+        table.put("overrides_force_java", getSelectors("overrides.force_java"));
+        table.put("overrides_disable", getSelectors("overrides.disable"));
+        table.put("overrides_force_serial", getSelectors("overrides.force_serial"));
         return Cbor.encode(table);
     }
 

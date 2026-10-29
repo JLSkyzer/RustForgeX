@@ -38,7 +38,12 @@ public record OptionConfig(
         /** Entier signé, borné par {@link OptionConfig#min} et {@link OptionConfig#max}. */
         INTEGER,
         /** Chaîne, éventuellement restreinte à {@link OptionConfig#allowedValues}. */
-        TEXT
+        TEXT,
+        /**
+         * Liste de sélecteurs de {@code [overrides]}, sur une ligne :
+         * {@code ["modid", "modid:paquet.Classe#methode"]} (PARTIE 28.2, ADR-067).
+         */
+        SELECTORS
     }
 
     /** @return le chemin complet de l'option, par exemple {@code general.mode}. */
@@ -116,12 +121,27 @@ public record OptionConfig(
                 hotReloadable);
     }
 
+    /**
+     * Construit une liste de sélecteurs de {@code [overrides]}, vide par défaut. Elle
+     * exige un redémarrage : les décisions la lisent au démarrage du runtime.
+     *
+     * @param section section du fichier
+     * @param key nom de l'option
+     * @param description description reprise en commentaire
+     * @return l'option décrite
+     */
+    public static OptionConfig selectorsOption(String section, String key, String description) {
+        return new OptionConfig(
+                section, key, ValueType.SELECTORS, List.of(), 0, 0, List.of(), description, false);
+    }
+
     /** @return la plage admise, sous forme lisible, ou une chaîne vide s'il n'y en a pas. */
     public String readableRange() {
         return switch (type) {
             case BOOLEAN -> "true | false";
             case INTEGER -> min + " .. " + max;
             case TEXT -> allowedValues.isEmpty() ? "" : String.join(" | ", allowedValues);
+            case SELECTORS -> "[\"modid\", \"modid:paquet.Classe#methode\"]";
         };
     }
 }
