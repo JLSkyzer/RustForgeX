@@ -1014,9 +1014,9 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] Fil `RFX-IO`, file de 4 sans attente, écriture atomique, rotation par âge puis
         taille ; disque plein → persistance désactivée, jeu inchangé (T-184, T-500 à
         T-502, sur un système de fichiers simulé et un vrai répertoire)
-  - [ ] **Écarts à IF-12 à valider par Killian** (ADR-048, décision 7) : `hot()` en
-        `Vec`, `evict` par plafonds, `persist` par le fil d'écriture, `LoadOutcome`,
-        instantané complet plutôt qu'« append-only + index »
+  - [x] Écarts à IF-12 (ADR-048, décision 7) **validés par Killian le 2026-10-29** :
+        `hot()` en `Vec`, `evict` par plafonds, `persist` par le fil d'écriture,
+        `LoadOutcome`, instantané complet plutôt qu'« append-only + index »
   - [x] Brancher dans `rfx-core` (ADR-049, demande de Killian du 2026-10-16) :
     - [x] `rfx-cache` : la base vit sur `RFX-IO` (relecture au démarrage sans attente,
           lots de nouveautés et de dynamiques, écriture si quelque chose a changé ;
@@ -1201,7 +1201,11 @@ Les ADR issus de décisions de l'agent continuent à partir d'`ADR-015` (cf. ADR
 - ~~**Licence définitive** (ADR-010)~~ — **décidée le 2026-10-03 : Apache 2.0** (ADR-010),
   avec `NOTICE` pour l'attribution. Ancienne note : `LICENSE` était « tous droits réservés »,
   cohérent avec `mod_license`. Hors périmètre de décision de l'agent (contrat 5).
-- **Remote git** : le dépôt est local, aucun remote configuré, aucun push effectué.
+- ~~**Remote git**~~ — remote `origin` sur GitHub (`JLSkyzer/RustForgeX`), CI à chaque
+  poussée.
+- ~~Écarts à IF-12, persistance des descripteurs, voie de C-11, Miri~~ — **décidés le
+  2026-10-29** : écarts validés ; descripteurs persistés dans `workload.db` avec
+  migration ; fermeture conditionnelle des interfaces ; Miri installé.
 
 ---
 
