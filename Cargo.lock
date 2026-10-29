@@ -420,6 +420,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfx-decision"
+version = "0.1.0"
+dependencies = [
+ "rfx-model",
+]
+
+[[package]]
 name = "rfx-ffi"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,20 @@
+[package]
+name = "rfx-decision"
+description = "C-14 (Risk Engine) : risque d'une unite de travail, pur et monotone ; C-15 viendra"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfx-model = { workspace = true }
+
+[lints.rust]
+missing_docs = "deny"
+# Fonctions pures sur des faits : aucun bloc `unsafe`.
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

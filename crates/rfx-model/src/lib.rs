@@ -23,6 +23,7 @@ pub mod hardware;
 pub mod maturity;
 pub mod persistence;
 pub mod status;
+pub mod strategy;
 pub mod top;
 pub mod workid;
 
@@ -42,6 +43,7 @@ pub use status::{
     ComponentStatus, ProbeCoverage, ProbeStatus, ProfilerStatus, RuntimeStatus, SchedulerStatus,
     TickStatus,
 };
+pub use strategy::TransformationLevel;
 pub use top::{assert_java_readable, CostSource, TopEntry, TopWorkloads};
 pub use workid::{Side, WorkDescriptor, WorkId};
 

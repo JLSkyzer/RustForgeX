@@ -1190,7 +1190,18 @@ T-390..T-392, T-460..T-461.
 
 - [ ] Lire les fiches de C-14, C-15, C-32, C-33, C-43 (PARTIE 5) et leurs IF/DM/INV,
       puis ce qui reste de C-11 (T-200..T-205) et de C-13 (T-220..T-223), avant tout code
-- [ ] Plan de M3 : ordre des composants, ADR d'entrée, ce qui demande Killian
+- [ ] Plan de M3 : ordre des composants, ADR d'entrée, ce qui demande Killian.
+      Ordre retenu : C-14 (pur, sans dépendance), puis C-33 (règles de compatibilité,
+      que le filtre de C-15 lit), C-15 limité à TL0..TL2, C-43 (`/rfx why` complet),
+      C-32, et ce qui reste de C-11 et C-13
+- [x] C-14 Risk Engine — T-230..T-232 (ADR-066) : crate `rfx-decision`, quatre
+      composantes, R1..R10 cumulées, R10 toujours plancher (seule lecture monotone),
+      blast radius défini prudemment ; `TransformationLevel` (DM-13, partiel) dans
+      `rfx-model`. Table de vérité et monotonie sur les 2 048 combinaisons de onze faits.
+      4 mutants sur 4 tués, dont la lecture « R10 seulement sinon », qui survivait
+      d'abord : la confiance basse du test ne dépassait aucun plancher
+  - [ ] Brancher : risque de chaque descripteur, `rfx.risk.*`, bloc `DECISION` de
+        `/rfx why` (avec C-15)
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
 

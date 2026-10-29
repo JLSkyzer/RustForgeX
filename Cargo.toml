@@ -9,6 +9,7 @@ members = [
     "crates/rfx-cache",
     "crates/rfx-bytecode",
     "crates/rfx-analyzer",
+    "crates/rfx-decision",
     "crates/rfx-core",
     "crates/rfx-ffi",
     "crates/rfx-bench",
@@ -28,6 +29,7 @@ rfx-core = { path = "crates/rfx-core" }
 rfx-memory = { path = "crates/rfx-memory" }
 rfx-profiler = { path = "crates/rfx-profiler" }
 rfx-taskgraph = { path = "crates/rfx-taskgraph" }
+rfx-decision = { path = "crates/rfx-decision" }
 rfx-scheduler = { path = "crates/rfx-scheduler" }
 rfx-cache = { path = "crates/rfx-cache" }
 rfx-bytecode = { path = "crates/rfx-bytecode" }
