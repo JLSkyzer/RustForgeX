@@ -274,11 +274,7 @@ public final class RfxCommands {
                             REPORT_PREFIX + "failed", Component.literal(cause.toString())));
                 }
             };
-            if (source.getServer() == null) {
-                answer.run();
-            } else {
-                source.getServer().execute(answer);
-            }
+            onServer(source, answer);
         });
     }
 
@@ -315,11 +311,28 @@ public final class RfxCommands {
      */
     private static void showDiscovery(CommandSourceStack source, int count) {
         RfxRuntime runtime = RfxRuntime.instance();
-        List<Component> lines = DiscoveryReport.lines(
-                runtime == null ? null : runtime.unknownFrames(count));
+        if (runtime == null) {
+            for (Component line : DiscoveryReport.lines(null)) {
+                source.sendSuccess(() -> line, false);
+            }
+            return;
+        }
+        // Le classement se calcule hors du fil du serveur (R-601) ; les lignes y
+        // reviennent, car un message ne s'envoie que depuis le fil du serveur.
+        runtime.unknownFramesAsync(count).whenComplete((census, error) -> onServer(source,
+                () -> {
+                    for (Component line : DiscoveryReport.lines(error == null ? census : null)) {
+                        source.sendSuccess(() -> line, false);
+                    }
+                }));
+    }
 
-        for (Component line : lines) {
-            source.sendSuccess(() -> line, false);
+    /** Exécute une réponse sur le fil du serveur, ou sur place sans serveur (tests). */
+    private static void onServer(CommandSourceStack source, Runnable answer) {
+        if (source.getServer() == null) {
+            answer.run();
+        } else {
+            source.getServer().execute(answer);
         }
     }
 

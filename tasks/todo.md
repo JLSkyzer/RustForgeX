@@ -489,8 +489,13 @@ d'`eventbus 6.2.33` et non depuis une supposition.
       20 exécutions) pour l'identifiant `0`, unité **non suivie et non décrite** :
       `why` médiane 0,34-0,36 ms, maximum 1,1 ms ; `workload` maximum 1,5 ms. Reste à
       mesurer sur une unité réellement décrite, en session de jeu
-- [ ] T-421 : premier `/rfx discover` à 5,2 ms puis 4,1 ms (2026-10-29, deux passes),
-      au-delà puis en deçà du budget de 5 ms — marge nulle, déjà mince auparavant
+- [x] T-421 : premier `/rfx discover` à 5,2 ms puis 4,1 ms (2026-10-29). Cause mesurée :
+      tri complet de la table, `label()` reconstruit à chaque comparaison ; table pleine
+      (8 192), 10 à 18 ms à chaud, 57 ms à froid hors jeu. Sélection des k meilleures sur
+      un instantané des compteurs (2 à 5 fois moins), et calcul sur le fil des rapports,
+      réponse renvoyée sur le fil du serveur. Ensuite, deux passes : premier `discover`
+      à 1,3 ms, médiane 0,16-0,18 ms. Le harnais ne capture que la réponse immédiate :
+      la réponse différée suit le chemin de `/rfx report`
 - [x] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401, ADR-034) — pire
       rapport **0,117 %** sur 5 exécutions (médiane 0,085 %), serveur de banc sans joueur,
       MSPT 1,6-2,0 ms. Marge d'un facteur 1,7 seulement

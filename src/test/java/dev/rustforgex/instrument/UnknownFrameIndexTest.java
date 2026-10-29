@@ -155,4 +155,41 @@ class UnknownFrameIndexTest {
                     internal + " devrait être acceptée par UnknownFrameIndex");
         }
     }
+
+    /**
+     * La sélection des meilleures rend exactement ce que rendait le tri complet par
+     * libellé : mêmes entrées, même ordre, y compris à égalité d'échantillons et quand
+     * un nom de classe est le préfixe d'un autre.
+     */
+    @Test
+    @DisplayName("Le classement est celui du tri complet par libellé, table pleine comprise")
+    void theRankingMatchesAFullSortByLabel() {
+        java.util.Random random = new java.util.Random(42L);
+        UnknownFrameIndex index = new UnknownFrameIndex();
+        String[] classes = {"net.ex.A", "net.ex.Ab", "net.ex.A$1", "net.ex.B", "net.ex.Ba"};
+        for (int i = 0; i < UnknownFrameIndex.CAPACITY; i++) {
+            StackTraceElement frame = frame(classes[random.nextInt(classes.length)] + i % 7,
+                    "m" + random.nextInt(50));
+            int samples = 1 + random.nextInt(4);
+            for (int s = 0; s < samples; s++) {
+                index.record(frame);
+            }
+        }
+
+        List<UnknownFrameIndex.Sighting> all = index.top(UnknownFrameIndex.CAPACITY);
+        assertEquals(index.distinct(), all.size());
+        List<String> expected = all.stream()
+                .sorted(java.util.Comparator
+                        .comparingLong(UnknownFrameIndex.Sighting::samples).reversed()
+                        .thenComparing(UnknownFrameIndex.Sighting::label))
+                .map(s -> s.label() + "=" + s.samples())
+                .toList();
+        for (int limit : new int[] {1, 2, 15, 100, UnknownFrameIndex.CAPACITY}) {
+            List<String> actual = index.top(limit).stream()
+                    .map(s -> s.label() + "=" + s.samples())
+                    .toList();
+            assertEquals(expected.subList(0, Math.min(limit, expected.size())), actual,
+                    "limite " + limit);
+        }
+    }
 }

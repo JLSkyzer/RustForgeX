@@ -525,6 +525,22 @@ public final class RfxRuntime {
     }
 
     /**
+     * {@link #unknownFrames} hors du fil du serveur, sur le fil des rapports (R-601).
+     *
+     * <p>Le classement parcourt jusqu'à {@link UnknownFrameIndex#CAPACITY} entrées : table
+     * pleine, le premier appel coûtait 2 à 10 ms avant que le JIT ne s'en mêle, et un
+     * {@code /rfx discover} est trop rare pour que ce code soit jamais compilé. Le
+     * recensement se lit sans verrou ; la commande renvoie son message sur le fil du
+     * serveur.
+     *
+     * @param limit nombre maximal de lignes
+     * @return le recensement, éventuellement {@code null} s'il n'a pas démarré
+     */
+    public CompletableFuture<DiscoveryReport.Census> unknownFramesAsync(int limit) {
+        return CompletableFuture.supplyAsync(() -> unknownFrames(limit), REPORT_WRITER);
+    }
+
+    /**
      * Vide le recensement des trames inconnues.
      *
      * @return {@code false} si l'échantillonneur n'a jamais démarré

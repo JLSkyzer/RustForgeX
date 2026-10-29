@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -190,13 +191,52 @@ public final class UnknownFrameIndex {
         if (limit <= 0) {
             return List.of();
         }
-        List<Sighting> all = new ArrayList<>(byFrame.values());
-        // À égalité d'échantillons, l'ordre alphabétique : un classement qui change
-        // d'ordre d'un appel à l'autre sans que rien n'ait bougé fait douter du reste.
-        all.sort(Comparator.comparingLong(Sighting::samples).reversed()
-                .thenComparing(Sighting::label));
-        return List.copyOf(all.subList(0, Math.min(limit, all.size())));
+        // Sélection des `limit` meilleures dans un tas dont la tête est la pire retenue,
+        // plutôt qu'un tri complet : table pleine, trier 8 192 entrées en reconstruisant
+        // `label()` à chaque comparaison prenait 10 à 18 ms à chaud, 57 ms à froid, sur
+        // le fil du serveur (R-601 : 5 ms). Les compteurs sont lus une fois : le fil
+        // d'échantillonnage les incrémente pendant ce temps, et un comparateur qui lit
+        // des valeurs mouvantes viole son contrat.
+        PriorityQueue<Ranked> kept = new PriorityQueue<>(limit + 1, BEST_FIRST.reversed());
+        for (Sighting sighting : byFrame.values()) {
+            long samples = sighting.samples();
+            Ranked worst = kept.peek();
+            if (kept.size() < limit) {
+                kept.add(new Ranked(sighting, samples));
+            } else if (samples >= worst.samples()) {
+                Ranked candidate = new Ranked(sighting, samples);
+                if (BEST_FIRST.compare(candidate, worst) < 0) {
+                    kept.poll();
+                    kept.add(candidate);
+                }
+            }
+        }
+        List<Ranked> best = new ArrayList<>(kept);
+        best.sort(BEST_FIRST);
+        List<Sighting> out = new ArrayList<>(best.size());
+        for (Ranked ranked : best) {
+            out.add(ranked.sighting());
+        }
+        return List.copyOf(out);
     }
+
+    /** Une entrée et son compteur, lu une seule fois pour tout le classement. */
+    private record Ranked(Sighting sighting, long samples) {
+    }
+
+    /**
+     * La plus vue d'abord ; à égalité, l'ordre alphabétique de {@code classe#methode} :
+     * un classement qui change d'ordre d'un appel à l'autre sans que rien n'ait bougé
+     * fait douter du reste.
+     *
+     * <p>Comparer la classe puis la méthode donne l'ordre du libellé sans le construire :
+     * aucun caractère d'un nom de classe n'est inférieur à {@code '#'}, si bien qu'une
+     * classe préfixe d'une autre passe avant elle dans les deux cas.
+     */
+    private static final Comparator<Ranked> BEST_FIRST =
+            Comparator.comparingLong(Ranked::samples).reversed()
+                    .thenComparing(ranked -> ranked.sighting().className())
+                    .thenComparing(ranked -> ranked.sighting().methodName());
 
     /** @return le nombre d'échantillons consignés, toutes méthodes confondues */
     public long recorded() {
