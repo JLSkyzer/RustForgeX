@@ -216,11 +216,20 @@ pub struct WorkloadReport {
     pub write_domains: BTreeMap<String, u64>,
     /// Unites ayant au moins une cause d'inconnu, par cause.
     pub unknown_causes: BTreeMap<String, u64>,
+    /// Unites par combinaison exacte de causes d'inconnu.
+    pub unknown_cause_sets: BTreeMap<String, u64>,
+    /// Pour chaque unite dont la seule cause est un site non resolu : ses sites, par
+    /// genre (sites des methodes analysees seulement).
+    pub unresolved_only_units: Vec<String>,
     /// Aretes non resolues des graphes, par raison (C-07).
     pub unresolved_edges: BTreeMap<String, u64>,
     /// Sites non resolus des methodes analysees, par `raison | receveur | code` : ce
     /// qui pese, pour choisir comment reduire l'inconnu.
     pub unresolved_sites: BTreeMap<String, u64>,
+    /// Cibles sans code, par `nature | classe.methode(descripteur)` : nombre d'unites
+    /// ou elles apparaissent. Ce qu'il faudrait connaitre pour lever la cause
+    /// `external_methods`.
+    pub external_targets: BTreeMap<String, u64>,
     /// Methodes analysees par unite.
     pub analysed_methods: Quantiles,
     /// Duree de la composition des effets par unite, en millisecondes, analyse des
@@ -257,7 +266,12 @@ pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) 
                     .or_default() += 1;
             }
         }
-        diagnose_unresolved(&graph, &index, limits, &mut report.unresolved_sites);
+        let mut unit_sites = BTreeMap::new();
+        diagnose_unresolved(&graph, &index, limits, &mut unit_sites);
+        for (key, count) in &unit_sites {
+            *report.unresolved_sites.entry(key.clone()).or_default() += count;
+        }
+        diagnose_external(&graph, &index, &mut report.external_targets);
         let begun = Instant::now();
         let effects = workload_effects(&graph, &index, &table, limits);
         millis.push(begun.elapsed().as_secs_f64() * 1e3);
@@ -270,6 +284,7 @@ pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) 
             *report.write_domains.entry(domain).or_default() += 1;
         }
         let causes = effects.causes;
+        let mut causes_of_unit: Vec<&str> = Vec::new();
         for (name, present) in [
             ("unresolved_sites", causes.unresolved_sites > 0),
             ("unexplored_sites", causes.unexplored_sites > 0),
@@ -280,12 +295,71 @@ pub fn workloads(corpus: &Corpus, roots: &[MethodRef], limits: &DataflowLimits) 
         ] {
             if present {
                 *report.unknown_causes.entry(name.to_owned()).or_default() += 1;
+                causes_of_unit.push(name);
             }
+        }
+        // La combinaison dit ce que lever une cause rapporterait : une unite qui en a
+        // plusieurs reste inconnue tant qu'une seule demeure.
+        if !causes_of_unit.is_empty() {
+            *report
+                .unknown_cause_sets
+                .entry(causes_of_unit.join(" + "))
+                .or_default() += 1;
+        }
+        // Les unites dont la seule cause est un site non resolu : combien de sites, et
+        // de quel genre. C'est ce qui dit si une resolution donnee en libererait.
+        if causes_of_unit == ["unresolved_sites"] {
+            let total: u64 = unit_sites.values().sum();
+            let mut kinds: Vec<String> = unit_sites
+                .iter()
+                .map(|(key, count)| format!("{count}x {key}"))
+                .collect();
+            // Ce que designent les sites non resolus, tels qu'ecrits.
+            for edge in graph.edges() {
+                if let EdgeKind::VirtualUnresolved(reason) = edge.kind {
+                    let from = &graph.nodes()[edge.from].method;
+                    let to = edge.reference.as_ref().map_or_else(
+                        || "invokedynamic".to_owned(),
+                        |r| format!("{}.{}{}", r.owner, r.name, r.descriptor),
+                    );
+                    kinds.push(format!("[{reason:?}] {}.{} -> {to}", from.owner, from.name));
+                }
+            }
+            report
+                .unresolved_only_units
+                .push(format!("{total} sites : {}", kinds.join(" ; ")));
         }
     }
     report.analysed_methods = Quantiles::of(analysed);
     report.effects_ms = Quantiles::of(millis);
     report
+}
+
+/// Range chaque cible sans code d'un graphe selon sa nature : classe absente du
+/// corpus, methode absente de sa classe, native, abstraite. Une cible comptee une fois
+/// par unite. `Object.<init>()V`, connu sans effet, est ecarte comme le fait C-11.
+fn diagnose_external(graph: &CallGraph, index: &ClassIndex, targets: &mut BTreeMap<String, u64>) {
+    let mut seen = std::collections::BTreeSet::new();
+    for node in graph.nodes() {
+        let m = &node.method;
+        if m.owner == "java/lang/Object" && m.name == "<init>" && m.descriptor == "()V" {
+            continue;
+        }
+        let nature = match index.class(&m.owner) {
+            None => "classe absente",
+            Some(class) => match class.method(&m.name, &m.descriptor) {
+                None => "methode absente",
+                Some(method) if method.code.is_some() => continue,
+                Some(method) if method.access & rfx_bytecode::access::NATIVE != 0 => "native",
+                Some(method) if method.is_abstract() => "abstraite",
+                Some(_) => "sans code",
+            },
+        };
+        seen.insert(format!("{nature} | {}.{}{}", m.owner, m.name, m.descriptor));
+    }
+    for key in seen {
+        *targets.entry(key).or_default() += 1;
+    }
 }
 
 /// Range chaque site non resolu d'une methode analysee selon sa raison, son receveur

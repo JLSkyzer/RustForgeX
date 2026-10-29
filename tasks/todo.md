@@ -1111,7 +1111,12 @@ demandent une mesure ; les autres sont des tests de justesse.
         — 9 mutants sur 9 tués ; 19 unités `EXACT` sur 200 méthodes de référence
   - [ ] Réduire l'inconnu, par ordre de poids mesuré : appels par interface (12 746
         arêtes sur 200 graphes), bornes du graphe (98 tronqués), cibles sans code.
-        Chaque signature connue est une affirmation à prouver (ADR à écrire)
+        Chaque signature connue est une affirmation à prouver (ADR à écrire).
+        Mesure par unité (ADR-055, 2026-10-29) : les cibles sans code (174 natives du
+        JDK) ne sont la seule cause d'**aucune** unité, écartées ; `clone()` de tableau
+        rapporterait 5 unités en écritures seulement, non retenu. **Reste un choix de
+        conception pour Killian** : fermeture conditionnelle des interfaces, types
+        atteignables, ou cibles observées sous vérification dynamique (R-382)
   - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*` — reste à observer en jeu sous charge (aucune unité chaude
         dans un serveur sans joueur)
