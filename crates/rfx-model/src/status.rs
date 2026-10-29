@@ -284,6 +284,13 @@ pub struct DecisionStatus {
     pub blasts: [u64; 4],
     /// Unites par tranche de risque de correction.
     pub correctness: [u64; 5],
+    /// Changements de strategie tenue depuis le demarrage (R-412).
+    #[serde(default)]
+    pub changes: u64,
+    /// Unites verrouillees sur `JAVA_ONLY` pour oscillation en ce moment (FM-21,
+    /// `E-2201`).
+    #[serde(default)]
+    pub locked: u64,
 }
 
 #[cfg(test)]

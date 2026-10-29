@@ -567,12 +567,16 @@ class TelemetryTest {
         decision.put("verdicts", counts(6, 3, 1L));
         decision.put("blasts", counts(4, 3, 4L));
         decision.put("correctness", counts(5, 4, 4L));
+        decision.put("changes", 7L);
+        decision.put("locked", 1L);
         Map<String, Object> root = status();
         root.put("decision", decision);
 
         MetricSet set = Telemetry.collect(root, null, null, null);
 
         assertEquals(4, set.get("rfx.decision.evaluated").value());
+        assertEquals(7, set.get("rfx.decision.changes").value());
+        assertEquals(1, set.get("rfx.decision.oscillations").value());
         assertEquals(4, set.get("rfx.decision.count{strategy=JAVA_ONLY}").value());
         assertNull(set.get("rfx.decision.count{strategy=JAVA_BATCH}"), "zéro : non publiée");
         assertEquals(3, set.get("rfx.decision.rejected{reason=InsufficientConfidence}").value());

@@ -1240,7 +1240,11 @@ T-390..T-392, T-460..T-461.
         sur toutes les unités décrites, refait à chaque publication de l'analyse, sur son
         fil (`try_lock`, jamais attendu) ; même calcul que la fiche (`explain::evaluate`).
         Séries publiées non nulles seulement, documentées dans `BENCHMARKS.md`
-  - [ ] Décision tenue par unité (stabilité R-412 en vrai), `E-2201`
+  - [x] Décision tenue par unité (2026-10-30) : `rfx_decision::advance` (pure, testée)
+        fait avancer une `Tenure` — stratégie tenue, adoption, fenêtre de 12 000 ticks,
+        verrouillage FM-21 levé à la fin de la fenêtre ; le runtime en tient une par unité
+        décrite. `rfx.decision.changes`, `rfx.decision.oscillations`. `E-2201` n'est pas
+        encore journalisé côté Java : le compteur le porte
   - [ ] `rfx.compat.quarantines`, `rfx.compat.conflicting_transformers`
   - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
         l'application des décisions

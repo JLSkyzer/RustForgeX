@@ -344,10 +344,138 @@ pub fn stabilize(
     (proposed, Stability::Changed)
 }
 
+/// Ce qu'une unite tient d'une evaluation a l'autre : sa strategie et la fenetre
+/// d'oscillation en cours (FM-21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tenure {
+    /// Strategie tenue, depuis quand, et changements dans la fenetre.
+    pub held: Held,
+    /// Debut de la fenetre d'oscillation, en ticks.
+    pub window_start: u64,
+}
+
+/// Fait avancer la tenue d'une unite a une nouvelle decision (R-412, FM-21). La
+/// strategie tenue reste faisable si la decision ne l'a pas rejetee. Passee la fenetre
+/// de 12 000 ticks, les changements sont oublies, et un verrouillage leve.
+#[must_use]
+pub fn advance(
+    previous: Option<Tenure>,
+    decision: &Decision,
+    now_tick: u64,
+) -> (Tenure, Stability) {
+    let previous = previous.map(|mut t| {
+        if now_tick.saturating_sub(t.window_start) > OSCILLATION_WINDOW_TICKS {
+            t.held.changes_in_window = 0;
+            t.window_start = now_tick;
+        }
+        t
+    });
+    let feasible = previous.is_some_and(|t| {
+        !decision
+            .rejected
+            .iter()
+            .any(|r| r.strategy == t.held.strategy)
+    });
+    let (strategy, stability) = stabilize(
+        previous.map(|t| t.held),
+        decision.strategy,
+        now_tick,
+        feasible,
+    );
+    let tenure = match (previous, stability) {
+        (Some(t), Stability::Kept) => t,
+        (Some(t), Stability::Locked) => Tenure {
+            held: Held { strategy, ..t.held },
+            ..t
+        },
+        (Some(t), Stability::Changed) => Tenure {
+            held: Held {
+                strategy,
+                since_tick: now_tick,
+                changes_in_window: t.held.changes_in_window.saturating_add(1),
+            },
+            window_start: t.window_start,
+        },
+        (None, _) => Tenure {
+            held: Held {
+                strategy,
+                since_tick: now_tick,
+                changes_in_window: 0,
+            },
+            window_start: now_tick,
+        },
+    };
+    (tenure, stability)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compat::{Source, Verdict};
+
+    fn decision_of(strategy: StrategyKind, rejected: &[StrategyKind]) -> Decision {
+        Decision {
+            strategy,
+            level: strategy.level().unwrap(),
+            score_ns: 0.0,
+            expected_gain_ns: 0.0,
+            rejected: rejected
+                .iter()
+                .map(|s| Rejected {
+                    strategy: *s,
+                    reasons: vec![RejectReason::UnsafeSharedState],
+                })
+                .collect(),
+            scored: Vec::new(),
+            requires_validation: false,
+            revisit_after_ticks: 600,
+        }
+    }
+
+    /// FM-21 : quatre changements dans la fenetre verrouillent sur JAVA_ONLY ; la
+    /// fenetre ecoulee, le verrou se leve. Une premiere decision n'est pas un changement.
+    #[test]
+    fn a_tenure_counts_changes_and_locks_then_unlocks() {
+        let batch = decision_of(StrategyKind::JavaBatch, &[]);
+        let java = decision_of(StrategyKind::JavaOnly, &[]);
+        let (mut tenure, first) = advance(None, &batch, 0);
+        assert_eq!(first, Stability::Changed);
+        assert_eq!(tenure.held.changes_in_window, 0);
+        let mut tick = 0;
+        for i in 0..=MAX_CHANGES_IN_WINDOW {
+            tick += MIN_HOLD_TICKS;
+            let next = if i % 2 == 0 { &java } else { &batch };
+            let (t, s) = advance(Some(tenure), next, tick);
+            assert_eq!(s, Stability::Changed, "changement {i}");
+            tenure = t;
+        }
+        assert_eq!(tenure.held.changes_in_window, MAX_CHANGES_IN_WINDOW + 1);
+        let (locked, s) = advance(Some(tenure), &batch, tick + MIN_HOLD_TICKS);
+        assert_eq!(s, Stability::Locked);
+        assert_eq!(locked.held.strategy, StrategyKind::JavaOnly);
+        let later = tenure.window_start + OSCILLATION_WINDOW_TICKS + 1;
+        let (free, s) = advance(Some(locked), &batch, later);
+        assert_eq!(s, Stability::Changed, "fenetre ecoulee : le verrou se leve");
+        assert_eq!(free.held.strategy, StrategyKind::JavaBatch);
+        assert_eq!(free.held.changes_in_window, 1);
+    }
+
+    /// R-412 : une strategie tenue reste avant 600 ticks, sauf si la decision la rejette.
+    #[test]
+    fn a_tenure_keeps_its_strategy_unless_it_becomes_infeasible() {
+        let (tenure, _) = advance(None, &decision_of(StrategyKind::JavaBatch, &[]), 0);
+        let (kept, s) = advance(Some(tenure), &decision_of(StrategyKind::JavaOnly, &[]), 10);
+        assert_eq!(
+            (kept.held.strategy, s),
+            (StrategyKind::JavaBatch, Stability::Kept)
+        );
+        let demoted = decision_of(StrategyKind::JavaOnly, &[StrategyKind::JavaBatch]);
+        let (after, s) = advance(Some(tenure), &demoted, 10);
+        assert_eq!(
+            (after.held.strategy, s),
+            (StrategyKind::JavaOnly, Stability::Changed)
+        );
+    }
     use crate::risk::{Blast, RiskAssessment};
 
     fn risk(correctness: f32, blast: Blast) -> RiskAssessment {

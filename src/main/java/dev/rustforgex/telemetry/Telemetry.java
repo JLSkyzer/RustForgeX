@@ -401,6 +401,10 @@ public final class Telemetry {
         }
         set.add(Metric.gauge("rfx.decision.evaluated", longOf(decision, "evaluated"), "unités",
                 "Unités décrites dont la décision est calculée, non appliquée (M3)."));
+        set.add(Metric.counter("rfx.decision.changes", longOf(decision, "changes"),
+                "Changements de stratégie tenue depuis le démarrage (R-412)."));
+        set.add(Metric.gauge("rfx.decision.oscillations", longOf(decision, "locked"), "unités",
+                "Unités verrouillées sur JAVA_ONLY pour oscillation (FM-21, E-2201)."));
         appendLabelled(set, decision.get("strategies"), STRATEGIES, "rfx.decision.count",
                 "strategy", "unités", "Unités par stratégie retenue.");
         appendLabelled(set, decision.get("rejected"), REJECT_REASONS, "rfx.decision.rejected",

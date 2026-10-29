@@ -99,6 +99,10 @@ pub struct Runtime {
     analysis_status: AnalysisStatus,
     /// Decompte des decisions calculees, refait a chaque publication de l'analyse.
     decision_status: rfx_model::DecisionStatus,
+    /// Strategie tenue par chaque unite decrite (R-412, FM-21).
+    tenures: std::collections::HashMap<rfx_model::WorkId, rfx_decision::Tenure>,
+    /// Changements de strategie tenue depuis le demarrage.
+    decision_changes: u64,
     /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
     analysis_reserved: u64,
 }
@@ -166,6 +170,8 @@ impl Runtime {
             user_rules,
             analysis_status,
             decision_status: rfx_model::DecisionStatus::default(),
+            tenures: std::collections::HashMap::new(),
+            decision_changes: 0,
             analysis_reserved: 0,
         }
     }
@@ -302,10 +308,10 @@ impl Runtime {
             Err(std::sync::TryLockError::WouldBlock) => return,
         };
         let store = self.profiler.store();
-        let evaluations: Vec<crate::explain::Evaluation> = analysis
+        let evaluations: Vec<(rfx_model::WorkId, crate::explain::Evaluation)> = analysis
             .described()
             .map(|(id, descriptor)| {
-                crate::explain::evaluate(
+                let evaluation = crate::explain::evaluate(
                     descriptor,
                     store.entry_of(id).as_ref(),
                     &crate::explain::Context {
@@ -315,11 +321,30 @@ impl Runtime {
                         user_rules: &self.user_rules,
                         foreign_transformer: analysis.root_bytecode_unknown(id),
                     },
-                )
+                );
+                (id, evaluation)
             })
             .collect();
         drop(analysis);
-        self.decision_status = crate::explain::summarize(evaluations);
+        // R-412, FM-21 : chaque unite tient sa strategie d'une evaluation a l'autre.
+        let now = self.profiler.ticks();
+        let mut locked = 0_u64;
+        for (id, evaluation) in &evaluations {
+            let previous = self.tenures.get(id).copied();
+            let (tenure, stability) = rfx_decision::advance(previous, &evaluation.decision, now);
+            match stability {
+                rfx_decision::Stability::Changed if previous.is_some() => {
+                    self.decision_changes = self.decision_changes.saturating_add(1);
+                }
+                rfx_decision::Stability::Locked => locked += 1,
+                _ => {}
+            }
+            self.tenures.insert(*id, tenure);
+        }
+        let mut status = crate::explain::summarize(evaluations.into_iter().map(|(_, e)| e));
+        status.changes = self.decision_changes;
+        status.locked = locked;
+        self.decision_status = status;
     }
 
     /// Ouvre la base des unites de travail (C-09). Le fichier est relu en arriere-plan :
@@ -1230,6 +1255,12 @@ mod tests {
         assert_eq!(decision.blasts.iter().sum::<u64>(), 1);
         assert_eq!(decision.correctness.iter().sum::<u64>(), 1);
         assert!(decision.risk_rules.iter().sum::<u64>() >= 1);
+        // R-412 : une premiere decision est une adoption, pas un changement ; une
+        // seconde publication identique ne change rien.
+        assert_eq!((decision.changes, decision.locked), (0, 0));
+        assert!(rt.publish_analysis(status, bytes));
+        assert_eq!(rt.status().decision.changes, 0);
+        assert_eq!(rt.tenures.len(), 1, "une tenue par unite decrite");
 
         // Un budget trop petit pour cette memoire est refuse.
         let mut tight = Runtime::new(RuntimeConfig {

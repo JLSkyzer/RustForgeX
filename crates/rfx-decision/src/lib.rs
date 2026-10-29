@@ -17,7 +17,7 @@ pub use compat::{
     Selector, Source, UserRule, Verdict,
 };
 pub use decision::{
-    decide, feasibility, stabilize, Decision, DecisionInputs, Held, ModePolicy, Rejected, Scored,
-    Stability,
+    advance, decide, feasibility, stabilize, Decision, DecisionInputs, Held, ModePolicy, Rejected,
+    Scored, Stability, Tenure,
 };
 pub use risk::{assess, Blast, RiskAssessment, RiskInputs, RiskReason};

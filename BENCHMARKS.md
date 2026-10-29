@@ -227,6 +227,8 @@ séries à libellé ne sont publiées que non nulles ; leurs libellés sont born
 | métrique | type | unité | sémantique |
 |---|---|---|---|
 | `rfx.decision.evaluated` | gauge | unités | Unités décrites dont la décision est calculée |
+| `rfx.decision.changes` | counter | — | Changements de stratégie tenue depuis le démarrage (R-412 : pas avant 600 ticks, sauf démotion pour sûreté) |
+| `rfx.decision.oscillations` | gauge | unités | Unités verrouillées sur `JAVA_ONLY` pour oscillation : plus de 3 changements en 12 000 ticks (FM-21, `E-2201`) |
 | `rfx.decision.count{strategy=…}` | gauge | unités | Unités par stratégie retenue (`JAVA_ONLY`, `JAVA_BATCH`…, DM-13) |
 | `rfx.decision.rejected{reason=…}` | gauge | rejets | Genres candidats rejetés pour ce motif (DM-15) |
 | `rfx.risk.blocked_by_rule{rule=…}` | gauge | unités | Unités où cette règle de risque (`R1`..`R10`) pose un plancher |
