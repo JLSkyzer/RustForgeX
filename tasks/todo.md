@@ -1202,6 +1202,16 @@ T-390..T-392, T-460..T-461.
       d'abord : la confiance basse du test ne dépassait aucun plancher
   - [ ] Brancher : risque de chaque descripteur, `rfx.risk.*`, bloc `DECISION` de
         `/rfx why` (avec C-15)
+- [~] C-33 Compatibility Engine — T-390..T-392 (ADR-067)
+  - [x] Moteur pur dans `rfx-decision` : six verdicts ordonnés par le niveau qu'ils
+        autorisent, la source la plus prioritaire qui s'exprime décide, le plus
+        restrictif au sein d'une source ; sélecteurs `modid` / `modid:Classe#methode` ;
+        quarantaine datée levée au changement d'empreinte ; test statique sans nom de mod.
+        4 mutants sur 4 tués (la réflexion seule n'était pas testée, ajouté)
+  - [ ] Section `[overrides]` de la configuration (Java, natif, `CONFIGURATION.md`)
+  - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`
+  - [ ] Propriétés détectées depuis l'analyse (cibles de transformateurs, réflexion)
+  - [ ] `rfx.compat.*`
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
 
