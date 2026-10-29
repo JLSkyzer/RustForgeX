@@ -2,6 +2,7 @@ package dev.rustforgex.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.rustforgex.RfxRuntime;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -16,8 +17,8 @@ import java.util.List;
  * Maturité : {@code STABLE}.
  *
  * <p>Seules les commandes dont le composant existe sont enregistrées : {@code status},
- * {@code mods}, {@code top}, {@code profile}, {@code discover}, {@code report} et
- * {@code panic-test}. Les autres ({@code why}, {@code workload}, {@code mode},
+ * {@code mods}, {@code top}, {@code why}, {@code workload}, {@code profile},
+ * {@code discover}, {@code report} et {@code panic-test}. Les autres ({@code mode},
  * {@code set}, {@code disable}, {@code enable}, {@code bench}, {@code validate},
  * {@code cache}) interrogent ou pilotent des composants des jalons suivants : elles
  * seront ajoutées au jalon qui les rend capables de répondre. Enregistrer dès
@@ -71,6 +72,23 @@ public final class RfxCommands {
                                         .executes(context -> {
                                             showTop(context.getSource(),
                                                     IntegerArgumentType.getInteger(context, "count"));
+                                            return 1;
+                                        })))
+                        // Fiche d'une unité (ADR-063) : compacte, ou détaillée.
+                        .then(Commands.literal("why")
+                                .then(Commands.argument("workid", StringArgumentType.word())
+                                        .executes(context -> {
+                                            explain(context.getSource(),
+                                                    StringArgumentType.getString(context, "workid"),
+                                                    false);
+                                            return 1;
+                                        })))
+                        .then(Commands.literal("workload")
+                                .then(Commands.argument("workid", StringArgumentType.word())
+                                        .executes(context -> {
+                                            explain(context.getSource(),
+                                                    StringArgumentType.getString(context, "workid"),
+                                                    true);
                                             return 1;
                                         })))
                         .then(Commands.literal("profile")
@@ -177,6 +195,7 @@ public final class RfxCommands {
                 runtime.instrumentation() == null ? null : runtime.instrumentation().registry(),
                 runtime.lastProfilingSession());
         DiscoveryReport.lines(runtime.unknownFrames(DiscoveryReport.DEFAULT_LIMIT));
+        WhyReport.lines(runtime.explainWorkload(0L), null, true);
         // panic-test ne se préchauffe pas en l'exécutant : ce serait une panic. Seules
         // ses classes sont chargées, et l'incident est construit sans être consigné.
         ContainmentCheck.lines(new ContainmentCheck.Outcome(
@@ -188,12 +207,13 @@ public final class RfxCommands {
 
     /**
      * Tous les chemins exécutables sous {@code /rfx}, chaque argument entier remplacé par
-     * son minimum — {@code "rfx status"}, {@code "rfx top 1"}… Trouvés en parcourant
-     * l'arbre enregistré : une commande ajoutée demain est éprouvée (T-420 à T-422) sans
-     * qu'on pense à l'ajouter.
+     * son minimum, chaque argument texte par l'identifiant d'unité {@code 0} —
+     * {@code "rfx status"}, {@code "rfx top 1"}, {@code "rfx why 0"}… Trouvés en
+     * parcourant l'arbre enregistré : une commande ajoutée demain est éprouvée (T-420 à
+     * T-422) sans qu'on pense à l'ajouter.
      *
-     * @throws IllegalStateException si un argument n'est pas un entier : le parcours ne
-     *     saurait pas quelle valeur lui donner
+     * @throws IllegalStateException si un argument n'est ni entier ni texte : le parcours
+     *     ne saurait pas quelle valeur lui donner
      */
     public static List<String> executablePaths(CommandDispatcher<CommandSourceStack> dispatcher) {
         List<String> paths = new java.util.ArrayList<>();
@@ -213,9 +233,13 @@ public final class RfxCommands {
             } else if (child instanceof com.mojang.brigadier.tree.ArgumentCommandNode<?, ?> argument
                     && argument.getType() instanceof IntegerArgumentType integer) {
                 walk(child, path + " " + integer.getMinimum(), out);
+            } else if (child instanceof com.mojang.brigadier.tree.ArgumentCommandNode<?, ?> argument
+                    && argument.getType() instanceof StringArgumentType) {
+                // Le seul argument texte est un identifiant d'unité : zéro en est un.
+                walk(child, path + " " + SAMPLE_WORK_ID, out);
             } else {
                 throw new IllegalStateException(
-                        "argument non entier sous /rfx : " + child.getUsageText());
+                        "argument ni entier ni texte sous /rfx : " + child.getUsageText());
             }
         }
     }
@@ -310,6 +334,33 @@ public final class RfxCommands {
         }
         source.sendSuccess(
                 () -> Component.translatable(DiscoveryReport.KEY_PREFIX + "reset"), false);
+    }
+
+    /** Identifiant d'unité donné aux arguments texte par le parcours de l'arbre. */
+    private static final String SAMPLE_WORK_ID = "0";
+
+    /**
+     * Envoie la fiche d'une unité (C-35, ADR-063). Un identifiant illisible est refusé
+     * par un message, pas par une exception : la saisie vient d'un opérateur.
+     */
+    private static void explain(CommandSourceStack source, String text, boolean detailed) {
+        Long workId = WhyReport.parseWorkId(text);
+        if (workId == null) {
+            source.sendFailure(Component.translatable(WhyReport.KEY_PREFIX + "invalid_id",
+                    Component.literal(text)));
+            return;
+        }
+        RfxRuntime runtime = RfxRuntime.instance();
+        List<Component> lines = runtime == null
+                ? List.of(Component.translatable(WhyReport.KEY_PREFIX + "unavailable"))
+                : WhyReport.lines(runtime.explainWorkload(workId),
+                        runtime.instrumentation() == null
+                                ? null : runtime.instrumentation().registry(),
+                        detailed);
+
+        for (Component line : lines) {
+            source.sendSuccess(() -> line, false);
+        }
     }
 
     /** Envoie le classement des unités les plus coûteuses (C-35). */

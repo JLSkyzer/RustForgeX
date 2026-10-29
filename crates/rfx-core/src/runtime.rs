@@ -17,7 +17,7 @@ use rfx_model::{
 use rfx_profiler::{Profiler, ProfilerConfig, TickCost};
 use rfx_scheduler::{Scheduler, SchedulerConfig};
 
-use crate::analysis::{Analysis, HotWorkload, StagedRoot, ROOTS_PER_REFILL};
+use crate::analysis::{Analysis, Descriptor, HotWorkload, StagedRoot, ROOTS_PER_REFILL};
 use crate::background::SchedulerExecutor;
 use crate::db::DbLink;
 use crate::error::ErrorCode;
@@ -600,6 +600,32 @@ impl Runtime {
     #[must_use]
     pub fn top_workloads(&self, limit: usize) -> rfx_model::TopWorkloads {
         self.profiler.top(limit)
+    }
+
+    /// Fiche d'une unite (`/rfx why`, `/rfx workload`, ADR-063) : sa mesure et ce que
+    /// l'analyse en sait. L'analyse n'est jamais attendue : si elle construit un graphe,
+    /// la fiche le dit, et la commande, qui tourne sur le fil du serveur, ne bloque pas.
+    #[must_use]
+    pub fn explain(&self, work_id: rfx_model::WorkId) -> rfx_model::WorkloadCard {
+        let (analysis, analysis_busy) = match self.analysis.try_lock() {
+            Ok(analysis) => (analysis.descriptor(work_id).map(Descriptor::card), false),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => (
+                poisoned
+                    .into_inner()
+                    .descriptor(work_id)
+                    .map(Descriptor::card),
+                false,
+            ),
+            Err(std::sync::TryLockError::WouldBlock) => (None, true),
+        };
+        rfx_model::WorkloadCard {
+            schema: rfx_model::WorkloadCard::SCHEMA,
+            work_id_hex: format!("{:016x}", work_id.0),
+            tick_ns: self.profiler.last_tick_ns(),
+            measured: self.profiler.store().entry_of(work_id),
+            analysis,
+            analysis_busy,
+        }
     }
 
     /// Construit le blob de statut publie vers Java (`/rfx status`).

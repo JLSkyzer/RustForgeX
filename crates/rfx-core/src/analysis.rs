@@ -815,6 +815,75 @@ fn descriptor_bytes(descriptor: &Descriptor) -> u64 {
             .sum::<u64>()
 }
 
+impl Descriptor {
+    /// Bloc `ANALYSIS` de la fiche de l'unite (`/rfx why`, ADR-063).
+    #[must_use]
+    pub fn card(&self) -> rfx_model::AnalysisCard {
+        let domains = |set: &AccessSet| -> Vec<String> {
+            Domain::ALL
+                .iter()
+                .filter(|d| set.domains.contains(**d))
+                .map(|d| format!("{d:?}"))
+                .collect()
+        };
+        let e = &self.side_effects;
+        let effects = [
+            (e.mutates_world, "mutates_world"),
+            (e.spawns_or_removes_entity, "spawns_or_removes_entity"),
+            (e.sends_packets, "sends_packets"),
+            (e.schedules_tasks, "schedules_tasks"),
+            (e.fires_events, "fires_events"),
+            (e.io, "io"),
+            (e.native_call, "native_call"),
+            (e.throws_observable, "throws_observable"),
+            (e.cancels_event, "cancels_event"),
+        ];
+        let sources = self.determinism.sources_of_nondeterminism;
+        rfx_model::AnalysisCard {
+            graph_nodes: self.summary.nodes,
+            resolved_calls: self.summary.resolved_calls,
+            unresolved_calls: self.summary.unresolved_calls,
+            truncated: self.deps.truncated,
+            reflection: self.summary.reflection,
+            reads: domains(&self.reads),
+            reads_precision: format!("{:?}", self.reads.precision),
+            writes: domains(&self.writes),
+            writes_precision: format!("{:?}", self.writes.precision),
+            side_effects: effects
+                .iter()
+                .filter(|(on, _)| *on)
+                .map(|(_, name)| (*name).to_owned())
+                .collect(),
+            side_effects_unknown: e.unknown,
+            data_deps: self
+                .deps
+                .data_deps
+                .as_ref()
+                .map(|deps| u32::try_from(deps.len()).unwrap_or(u32::MAX)),
+            order_deps: self
+                .deps
+                .order_deps
+                .as_ref()
+                .map(|deps| u32::try_from(deps.len()).unwrap_or(u32::MAX)),
+            external_locks_known: self.deps.external_locks.is_some(),
+            may_be_dispatched: self.may_be_dispatched,
+            main_thread_required: format!("{:?}", self.thread.main_thread_required),
+            touches_non_threadsafe_api: self.thread.touches_non_threadsafe_api,
+            deterministic: format!("{:?}", self.determinism.deterministic),
+            nondet_sources: NonDetSource::ALL
+                .iter()
+                .filter(|s| sources & (1 << **s as u16) != 0)
+                .map(|s| format!("{s:?}"))
+                .collect(),
+            order_sensitive: format!("{:?}", self.determinism.order_sensitive),
+            float_sensitive: self.determinism.float_sensitive,
+            flags: self.flags.names().into_iter().map(str::to_owned).collect(),
+            confidence_x1000: (self.confidence.combined * 1000.0).clamp(0.0, 1000.0) as u32,
+            stale: self.stale,
+        }
+    }
+}
+
 /// Faits d'un descripteur pour la classification (C-08), avec ce que le profileur
 /// observe de l'unite (C-05).
 fn facts_of(descriptor: &Descriptor, observed: Option<&(Heat, f32)>, side: Option<Side>) -> Facts {
@@ -1072,6 +1141,17 @@ pub(crate) mod tests {
             pure.flags
         );
         assert!(pure.flags.contains(ClassificationFlags::DETERMINISTIC));
+        // ADR-063 : la fiche reprend ces faits, nommes.
+        let card = pure.card();
+        assert!(card.flags.contains(&"PURE".to_owned()), "{:?}", card.flags);
+        assert!(!card.flags.contains(&"UNKNOWN".to_owned()));
+        assert_eq!(card.deterministic, "Yes");
+        assert_eq!(card.writes, Vec::<String>::new());
+        assert_eq!(card.writes_precision, "Exact");
+        assert_eq!((card.data_deps, card.order_deps), (Some(0), Some(0)));
+        assert!(card.external_locks_known && !card.may_be_dispatched);
+        assert!(card.nondet_sources.is_empty());
+        assert!(card.confidence_x1000 > 0);
     }
 
     /// ADR-059 : une classe qu'un greffon de lancement de Forge reecrit (ici, une

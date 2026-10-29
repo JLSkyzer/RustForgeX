@@ -415,6 +415,33 @@ pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_profilerTop(
     }
 }
 
+/// `RfxNative.workloadExplain(long, long)` : fiche CBOR d'une unite, ou `null` en cas
+/// d'erreur (ADR-063). Le second argument porte les 64 bits du `WorkId`.
+#[no_mangle]
+pub extern "system" fn Java_dev_rustforgex_bridge_RfxNative_workloadExplain(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    work_id: jlong,
+) -> jbyteArray {
+    let null_array: jbyteArray = std::ptr::null_mut();
+    // Les bits tels quels : Java a lu un hexadecimal non signe.
+    let work_id = work_id as u64;
+
+    // SAFETY : memes preconditions que pour `status` ci-dessus ; `read_sized_blob`
+    // n'appelle jamais avec un pointeur nul et une capacite non nulle.
+    let Some(buffer) = read_sized_blob(|out, cap, len| unsafe {
+        crate::rfx_workload_explain(handle as u64, work_id, out, cap, len)
+    }) else {
+        return null_array;
+    };
+
+    match env.byte_array_from_slice(&buffer) {
+        Ok(array) => array.into_raw(),
+        Err(_) => null_array,
+    }
+}
+
 /// `RfxNative.workloadRegister(long, byte[])` : enregistre une unite de travail.
 ///
 /// Renvoie l'identifiant de sonde, positif ou nul ; `-1` si l'unite ne sera pas

@@ -559,14 +559,43 @@ public final class RfxRuntime {
         if (!active()) {
             return null;
         }
-        byte[] blob = bridge.profilerTop(report.handle(), Math.max(limit, 0));
+        return decodeTable(bridge.profilerTop(report.handle(), Math.max(limit, 0)),
+                "Classement");
+    }
+
+    /**
+     * Fiche d'une unité de travail (C-35, {@code /rfx why}, {@code /rfx workload},
+     * ADR-063).
+     *
+     * <p>Un appel natif, puis un décodage ; à n'appeler ni dans un tick ni dans une
+     * boucle (INV-14). Le natif n'attend pas l'analyse : si elle construit un graphe à
+     * ce moment, la fiche le dit au lieu de bloquer.
+     *
+     * @param workId les 64 bits du {@code WorkId}
+     * @return la fiche décodée, ou {@code null} si elle est indisponible
+     */
+    public Map<String, Object> explainWorkload(long workId) {
+        if (!active()) {
+            return null;
+        }
+        return decodeTable(bridge.workloadExplain(report.handle(), workId), "Fiche");
+    }
+
+    /**
+     * Décode un blob CBOR rendu par le natif en table, ou {@code null}.
+     *
+     * <p>Distinguer les causes d'un résultat absent : sans cela, « indisponible »
+     * recouvre le natif muet et le blob illisible, qui n'ont ni la même cause ni le même
+     * correctif. Une invocation de {@code /rfx top} sur deux échouait sans qu'on sache
+     * par où, et deux hypothèses successives se sont révélées fausses.
+     *
+     * @param blob blob rendu par le natif, éventuellement {@code null}
+     * @param what nom de ce qui est demandé, pour le journal
+     */
+    private static Map<String, Object> decodeTable(byte[] blob, String what) {
         if (blob == null || blob.length == 0) {
-            // Distinguer les causes d'un classement absent : sans cela, « indisponible »
-            // recouvre le natif muet et le blob illisible, qui n'ont ni la même cause ni
-            // le même correctif. Une invocation sur deux échouait sans qu'on sache par
-            // où, et deux hypothèses successives se sont révélées fausses.
-            LOGGER.debug("Classement indisponible : le natif n'a rien rendu ({}).",
-                    blob == null ? "null" : "0 octet");
+            LOGGER.debug("{} indisponible : le natif n'a rien rendu ({}).",
+                    what, blob == null ? "null" : "0 octet");
             return null;
         }
         try {
@@ -574,14 +603,15 @@ public final class RfxRuntime {
             if (decoded instanceof Map<?, ?> table) {
                 return cast(table);
             }
-            LOGGER.debug("Classement indisponible : {} octets décodés en {}, pas en table.",
-                    blob.length, decoded == null ? "null" : decoded.getClass().getSimpleName());
+            LOGGER.debug("{} indisponible : {} octets décodés en {}, pas en table.",
+                    what, blob.length,
+                    decoded == null ? "null" : decoded.getClass().getSimpleName());
             return null;
         } catch (CborReader.InvalidCbor | RuntimeException e) {
-            // Un classement illisible n'est pas une panne du jeu : la commande dira
-            // qu'il est indisponible, et le tick continue.
-            LOGGER.debug("Classement indisponible : {} octets illisibles ({}).",
-                    blob.length, e.toString());
+            // Un résultat illisible n'est pas une panne du jeu : la commande dira qu'il
+            // est indisponible, et le tick continue.
+            LOGGER.debug("{} indisponible : {} octets illisibles ({}).",
+                    what, blob.length, e.toString());
             return null;
         }
     }

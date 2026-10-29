@@ -358,26 +358,18 @@ impl WorkloadStore {
             measured: measured as u64,
             entries: ranked
                 .into_iter()
-                .map(|(index, e)| TopEntry {
-                    probe_id: u32::try_from(index).unwrap_or(u32::MAX),
-                    work_id_hex: format!("{:016x}", e.work_id.0),
-                    cost_ns_per_tick: e.cost_ns_per_tick(),
-                    source: e.cost_source(),
-                    calls_per_tick_x100: (e.dynamics.calls_per_tick.value() * 100.0).max(0.0)
-                        as u64,
-                    cpu_ns_p50: e.dynamics.cpu_ns.p50(),
-                    cpu_ns_p95: e.dynamics.cpu_ns.p95(),
-                    timed_calls: e.dynamics.cpu_ns.count(),
-                    sampled_hits: e.sampled_hits,
-                    alloc_bytes_per_tick: e.dynamics.alloc_bytes.value().max(0.0) as u64,
-                    heat: e.dynamics.heat.label().to_owned(),
-                    level: e.level.label().to_owned(),
-                    observation_quality_pct: (e.dynamics.observation_quality * 100.0)
-                        .clamp(0.0, 100.0) as u32,
-                    window_ns_per_tick: e.ranking_cost_ns_per_tick(window),
-                })
+                .map(|(index, e)| top_entry(index, e, window))
                 .collect(),
         }
+    }
+
+    /// Entree du classement d'une unite vivante, pour sa fiche (`/rfx why`, ADR-063) ;
+    /// `None` si l'unite n'est pas suivie.
+    #[must_use]
+    pub fn entry_of(&self, work_id: WorkId) -> Option<TopEntry> {
+        let index = *self.by_work_id.get(&work_id)?;
+        let entry = self.entries.get(index).filter(|e| e.live)?;
+        Some(top_entry(index, entry, self.window_ticks))
     }
 
     /// Evince l'unite `COLD` la moins recemment vue.
@@ -399,6 +391,26 @@ impl WorkloadStore {
         self.entries[victim].evict();
         self.evictions = self.evictions.saturating_add(1);
         u32::try_from(victim).ok()
+    }
+}
+
+/// Entree du classement d'une unite (`/rfx top`, `/rfx why`).
+fn top_entry(index: usize, e: &WorkloadEntry, window: u64) -> TopEntry {
+    TopEntry {
+        probe_id: u32::try_from(index).unwrap_or(u32::MAX),
+        work_id_hex: format!("{:016x}", e.work_id.0),
+        cost_ns_per_tick: e.cost_ns_per_tick(),
+        source: e.cost_source(),
+        calls_per_tick_x100: (e.dynamics.calls_per_tick.value() * 100.0).max(0.0) as u64,
+        cpu_ns_p50: e.dynamics.cpu_ns.p50(),
+        cpu_ns_p95: e.dynamics.cpu_ns.p95(),
+        timed_calls: e.dynamics.cpu_ns.count(),
+        sampled_hits: e.sampled_hits,
+        alloc_bytes_per_tick: e.dynamics.alloc_bytes.value().max(0.0) as u64,
+        heat: e.dynamics.heat.label().to_owned(),
+        level: e.level.label().to_owned(),
+        observation_quality_pct: (e.dynamics.observation_quality * 100.0).clamp(0.0, 100.0) as u32,
+        window_ns_per_tick: e.ranking_cost_ns_per_tick(window),
     }
 }
 

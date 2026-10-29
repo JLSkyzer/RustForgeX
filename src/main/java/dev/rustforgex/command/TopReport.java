@@ -1,7 +1,9 @@
 package dev.rustforgex.command;
 
 import dev.rustforgex.instrument.ProbeRegistry;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -149,13 +151,31 @@ public final class TopReport {
         return Component.translatable(KEY_PREFIX + "entry",
                 rank,
                 Component.literal(owner == null ? "?" : owner),
-                Component.literal(name == null ? "sonde#" + probeId : name),
+                explainable(name == null ? "sonde#" + probeId : name, entry),
                 Component.literal(share(cost, tickNs)),
                 Component.literal(microseconds(cost)),
                 Component.literal(source(entry)),
                 Component.literal(String.format(Locale.ROOT, "%.1f",
                         longOf(entry, "calls_per_tick_x100") / 100.0)),
                 Component.literal(stringOf(entry, "heat")));
+    }
+
+    /**
+     * Le nom d'une unité, qui propose {@code /rfx why} au clic (ADR-063) : l'opérateur
+     * qui voit un coupable demande aussitôt pourquoi il n'est pas déporté.
+     *
+     * <p>La commande est proposée, pas exécutée : elle s'inscrit dans la barre de saisie.
+     */
+    private static Component explainable(String name, Map<String, Object> entry) {
+        String hex = stringOf(entry, "work_id_hex");
+        if ("?".equals(hex)) {
+            return Component.literal(name);
+        }
+        return Component.literal(name).withStyle(style -> style
+                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND,
+                        "/rfx why " + hex))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                        Component.translatable(KEY_PREFIX + "why_hint", hex))));
     }
 
     /**
@@ -180,7 +200,7 @@ public final class TopReport {
      * <p>Rendue vide tant qu'aucun tick n'a été clôturé : diviser par zéro ou choisir un
      * total plausible reviendrait à publier un chiffre que personne n'a mesuré (R-660).
      */
-    private static String share(long costNs, long tickNs) {
+    static String share(long costNs, long tickNs) {
         if (tickNs == 0) {
             return "—";
         }
@@ -199,7 +219,7 @@ public final class TopReport {
      * que d'exposer {@code Probe} et {@code Sampling} évite de faire fuir un détail de
      * l'autre côté de la frontière dans une interface joueur.
      */
-    private static String source(Map<String, Object> entry) {
+    static String source(Map<String, Object> entry) {
         String raw = stringOf(entry, "source");
         return switch (raw) {
             case "Probe" -> "sonde";
@@ -210,7 +230,7 @@ public final class TopReport {
     }
 
     /** Nanosecondes en microsecondes, avec une décimale. */
-    private static String microseconds(long nanos) {
+    static String microseconds(long nanos) {
         return String.format(Locale.ROOT, "%.1f us", nanos / 1_000.0);
     }
 

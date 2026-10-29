@@ -14,6 +14,7 @@
 #![doc(html_root_url = "https://example.invalid/rustforgex")]
 
 pub mod analysis;
+pub mod card;
 pub mod classification;
 pub mod config;
 pub mod dynamics;
@@ -26,6 +27,7 @@ pub mod top;
 pub mod workid;
 
 pub use analysis::{AnalysisStatus, HierarchyEntry};
+pub use card::{AnalysisCard, WorkloadCard};
 pub use classification::{
     AccessSet, ClassificationFlags, Confidence, DependencySet, DeterminismFacts, Domain, Domains,
     NonDetSource, Precision, SideEffectSet, ThreadFacts, ThreadRole, ThreadRoles, Tri,

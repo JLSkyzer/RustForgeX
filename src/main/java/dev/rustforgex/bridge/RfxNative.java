@@ -179,6 +179,16 @@ public final class RfxNative {
     public static native byte[] profilerTop(long handle, int limit);
 
     /**
+     * Fiche CBOR d'une unité de travail : sa mesure et ce que l'analyse en sait (C-35,
+     * ADR-063).
+     *
+     * @param handle handle du runtime
+     * @param workId les 64 bits du {@code WorkId} ; le natif les relit en non signé
+     * @return le blob CBOR, ou {@code null} en cas d'échec
+     */
+    public static native byte[] workloadExplain(long handle, long workId);
+
+    /**
      * Ouvre une session de diagnostic à la demande de l'opérateur (C-35).
      *
      * @param handle handle du runtime

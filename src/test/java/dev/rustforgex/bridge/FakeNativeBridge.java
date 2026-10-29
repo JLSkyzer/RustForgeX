@@ -108,6 +108,12 @@ public class FakeNativeBridge implements NativeBridge {
         return null;
     }
 
+    /** Aucune fiche : ni profileur ni analyse derrière ce double. */
+    @Override
+    public byte[] workloadExplain(long handle, long workId) {
+        return null;
+    }
+
     /** Aucun profileur derrière ce double : la demande est refusée, pas ignorée. */
     @Override
     public int profilerRequestDepth(long handle, int levelCode, int ticks) {

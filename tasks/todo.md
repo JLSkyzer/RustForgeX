@@ -478,13 +478,19 @@ d'`eventbus 6.2.33` et non depuis une supposition.
 - [x] **R-571 : anonymisation** — `<gameDir>` et `<home>` remplacent les racines, plus
       longue d'abord, les deux séparateurs reconnus (T-412)
 - [x] `/rfx mods` et `/rfx report`
-- [~] `/rfx why`, `/rfx top`, `/rfx workload` : demandent la liste des unités de travail
-      les plus coûteuses, que le natif n'exporte pas encore. Suppose une fonction FFI
-      de plus — travail normal, mais pas gratuit
-- [~] Fiche d'explication de la PARTIE 5.33 : **seul le bloc `MEASURED` est productible
-      à ce jalon.** `ANALYSIS` suppose C-19 à C-22 (lectures, écritures, déterminisme),
-      `DECISION` suppose C-23 à C-27. Aucun n'existe. Les remplir serait inventer
-- [~] R-570 : fiche en moins de 50 ms — non mesurable tant que la fiche n'existe pas
+- [x] `/rfx top`, `/rfx why <workid>`, `/rfx workload <workid>` (ADR-063) : entrée FFI
+      `rfx_workload_explain`, type CBOR `WorkloadCard` ; dans `/rfx top`, le nom d'une
+      unité propose `/rfx why` au clic. Identifiant saisi en hexadécimal non signé
+- [~] Fiche d'explication de la PARTIE 5.33 : `MEASURED` et `ANALYSIS` (descripteur
+      C-08 résumé, avec la liste des faits qui maintiennent une unité en `UNKNOWN`).
+      **`DECISION` dit qu'aucune décision n'est prise** : le moteur (C-23 à C-27, M3)
+      n'existe pas, le remplir serait inventer
+- [~] R-570 : fiche en moins de 50 ms — mesurée par T-421 (2026-10-29, deux passes de
+      20 exécutions) pour l'identifiant `0`, unité **non suivie et non décrite** :
+      `why` médiane 0,34-0,36 ms, maximum 1,1 ms ; `workload` maximum 1,5 ms. Reste à
+      mesurer sur une unité réellement décrite, en session de jeu
+- [ ] T-421 : premier `/rfx discover` à 5,2 ms puis 4,1 ms (2026-10-29, deux passes),
+      au-delà puis en deçà du budget de 5 ms — marge nulle, déjà mince auparavant
 - [x] R-561 : coût de la télémétrie sous 0,2 % du MSPT (T-401, ADR-034) — pire
       rapport **0,117 %** sur 5 exécutions (médiane 0,085 %), serveur de banc sans joueur,
       MSPT 1,6-2,0 ms. Marge d'un facteur 1,7 seulement

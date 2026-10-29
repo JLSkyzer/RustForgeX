@@ -577,6 +577,52 @@ pub unsafe extern "C" fn rfx_profiler_top(
     })
 }
 
+/// Fiche CBOR d'une unite de travail (`/rfx why`, `/rfx workload`, ADR-063).
+///
+/// Meme protocole que [`rfx_status`] : `cap == 0` ecrit seulement la taille dans
+/// `out_len` ; une capacite trop petite est refusee, `out_len` portant la taille utile.
+/// `work_id` porte les 64 bits du `WorkId`, saisis en hexadecimal non signe cote Java.
+///
+/// # Safety
+///
+/// `out` doit pointer sur au moins `cap` octets inscriptibles (il peut etre nul si
+/// `cap` vaut zero), et `out_len` sur un `usize` inscriptible.
+#[no_mangle]
+pub unsafe extern "C" fn rfx_workload_explain(
+    handle: u64,
+    work_id: u64,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    guard_with_handle(handle, || {
+        if out_len.is_null() || (out.is_null() && cap > 0) {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        let card = match runtime::with(handle, |rt| rt.explain(rfx_model::WorkId(work_id))) {
+            Ok(card) => card,
+            Err(e) => return e.ffi_code(),
+        };
+        let Ok(blob) = rfx_model::to_cbor(&card) else {
+            return ErrorCode::InvalidArgument.ffi_code();
+        };
+
+        // SAFETY : precondition de la fonction, non nul verifie ci-dessus.
+        unsafe { out_len.write(blob.len()) };
+        if cap == 0 {
+            return OK;
+        }
+        if cap < blob.len() {
+            return ErrorCode::InvalidArgument.ffi_code();
+        }
+        // SAFETY : `out` possede au moins `cap` octets inscriptibles et `cap` est
+        // superieur ou egal a la longueur copiee ; les zones ne se recouvrent pas,
+        // `blob` etant une allocation locale.
+        unsafe { std::ptr::copy_nonoverlapping(blob.as_ptr(), out, blob.len()) };
+        OK
+    })
+}
+
 // ---------------------------------------------------------------------------
 // IF-02 : cycle de tick
 // ---------------------------------------------------------------------------
@@ -1215,6 +1261,67 @@ mod tests {
             OK
         );
         (probe_id != RFX_PROBE_ID_NONE).then_some(probe_id)
+    }
+
+    /// ADR-063 : la fiche d'une unite traverse en CBOR lisible par Java ; une unite
+    /// suivie a son bloc de mesure, une unite inconnue n'en a pas, et aucune n'est
+    /// encore decrite par l'analyse.
+    #[test]
+    fn a_workload_card_is_read_through_the_boundary() {
+        let _g = test_lock();
+        let handle = init(&RuntimeConfig::default());
+        let probe_id = register(handle, "explainedTick").expect("sonde");
+        let descriptor = rfx_model::WorkDescriptor {
+            owner_id: "minecraft".to_owned(),
+            class_internal_name: "net/minecraft/world/entity/Mob".to_owned(),
+            method_name: "explainedTick".to_owned(),
+            method_descriptor: "()V".to_owned(),
+            call_context_hash: 0,
+            side: rfx_model::Side::Server,
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+        let read = |id: u64| -> rfx_model::WorkloadCard {
+            let blob = jni_bridge::read_sized_blob(|out, cap, len| {
+                // SAFETY : `read_sized_blob` passe un tampon nul de capacite nulle, ou un
+                // tampon local de `cap` octets inscriptibles ; `len` est une locale.
+                unsafe { rfx_workload_explain(handle, id, out, cap, len) }
+            })
+            .expect("fiche lisible");
+            rfx_model::assert_java_readable(&blob).expect("lisible par Java");
+            rfx_model::from_cbor(&blob).expect("fiche decodable")
+        };
+
+        let card = read(work_id.0);
+        assert_eq!(card.work_id_hex, format!("{:016x}", work_id.0));
+        assert_eq!(card.measured.expect("suivie").probe_id, probe_id);
+        assert!(card.analysis.is_none(), "pas encore decrite");
+        assert!(!card.analysis_busy);
+
+        let unknown = read(work_id.0 ^ 1);
+        assert!(unknown.measured.is_none());
+
+        let mut size = 0_usize;
+        assert_eq!(
+            unsafe {
+                rfx_workload_explain(
+                    handle,
+                    work_id.0,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                )
+            },
+            ErrorCode::InvalidArgument.ffi_code(),
+            "longueur de sortie nulle"
+        );
+        assert_eq!(
+            unsafe {
+                rfx_workload_explain(handle ^ 1, work_id.0, std::ptr::null_mut(), 0, &mut size)
+            },
+            ErrorCode::InvalidArgument.ffi_code(),
+            "handle invalide"
+        );
+        assert_eq!(rfx_shutdown(handle), OK);
     }
 
     /// Lit la table des niveaux, ou `None` si elle n'a pas change.

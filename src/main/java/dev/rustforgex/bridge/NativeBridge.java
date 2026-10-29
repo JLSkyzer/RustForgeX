@@ -113,6 +113,15 @@ public interface NativeBridge {
     byte[] profilerTop(long handle, int limit);
 
     /**
+     * Fiche d'une unité de travail (C-35, {@code /rfx why}, ADR-063).
+     *
+     * @param handle handle du runtime
+     * @param workId les 64 bits du {@code WorkId}, lus en hexadécimal non signé
+     * @return le blob CBOR, ou {@code null} si la fiche est indisponible
+     */
+    byte[] workloadExplain(long handle, long workId);
+
+    /**
      * Ouvre une session de diagnostic à la demande de l'opérateur (C-35).
      *
      * @param handle handle du runtime
@@ -284,6 +293,11 @@ public interface NativeBridge {
             @Override
             public byte[] profilerTop(long handle, int limit) {
                 return RfxNative.profilerTop(handle, limit);
+            }
+
+            @Override
+            public byte[] workloadExplain(long handle, long workId) {
+                return RfxNative.workloadExplain(handle, workId);
             }
 
             @Override

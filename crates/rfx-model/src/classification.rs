@@ -77,6 +77,32 @@ pub enum Domain {
     Unknown = 19,
 }
 
+impl Domain {
+    /// Tous les domaines, dans l'ordre de leur discriminant.
+    pub const ALL: [Domain; 20] = [
+        Domain::WorldBlocks,
+        Domain::WorldFluids,
+        Domain::WorldLighting,
+        Domain::ChunkData,
+        Domain::ChunkStatus,
+        Domain::EntityState,
+        Domain::EntityInventory,
+        Domain::BlockEntityState,
+        Domain::LevelGlobals,
+        Domain::Registries,
+        Domain::Capabilities,
+        Domain::ModStatics,
+        Domain::JavaStatics,
+        Domain::ThreadLocals,
+        Domain::Network,
+        Domain::FileSystem,
+        Domain::NativeExternal,
+        Domain::Random,
+        Domain::Time,
+        Domain::Unknown,
+    ];
+}
+
 /// DM-06 : ensemble de domaines, un bit par [`Domain`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -367,6 +393,41 @@ impl ClassificationFlags {
     /// Aucun drapeau.
     pub const EMPTY: Self = Self(0);
 
+    /// Chaque drapeau et son nom (`/rfx why`, ADR-063).
+    pub const NAMED: [(Self, &'static str); 21] = [
+        (Self::READ_ONLY, "READ_ONLY"),
+        (Self::PURE, "PURE"),
+        (Self::CPU_INTENSIVE, "CPU_INTENSIVE"),
+        (Self::MEMORY_INTENSIVE, "MEMORY_INTENSIVE"),
+        (Self::PARALLELIZABLE, "PARALLELIZABLE"),
+        (Self::BATCHABLE, "BATCHABLE"),
+        (Self::DETERMINISTIC, "DETERMINISTIC"),
+        (Self::THREAD_SAFE, "THREAD_SAFE"),
+        (Self::MAIN_THREAD_REQUIRED, "MAIN_THREAD_REQUIRED"),
+        (Self::ORDER_SENSITIVE, "ORDER_SENSITIVE"),
+        (Self::CACHEABLE, "CACHEABLE"),
+        (Self::RUST_CANDIDATE, "RUST_CANDIDATE"),
+        (Self::UNSAFE, "UNSAFE"),
+        (Self::UNKNOWN, "UNKNOWN"),
+        (Self::CLIENT_ONLY, "CLIENT_ONLY"),
+        (Self::SERVER_ONLY, "SERVER_ONLY"),
+        (Self::STATEFUL, "STATEFUL"),
+        (Self::SIDE_EFFECT, "SIDE_EFFECT"),
+        (Self::WRITE, "WRITE"),
+        (Self::HOT, "HOT"),
+        (Self::IR_ELIGIBLE, "IR_ELIGIBLE"),
+    ];
+
+    /// Noms des drapeaux poses, dans l'ordre de leurs bits.
+    #[must_use]
+    pub fn names(self) -> Vec<&'static str> {
+        Self::NAMED
+            .iter()
+            .filter(|(flag, _)| self.contains(*flag))
+            .map(|(_, name)| *name)
+            .collect()
+    }
+
     /// `true` si tous les drapeaux de `other` sont poses.
     #[must_use]
     pub fn contains(self, other: Self) -> bool {
@@ -526,6 +587,23 @@ mod tests {
         for (index, source) in NonDetSource::ALL.iter().enumerate() {
             assert_eq!(*source as usize, index, "ALL suit les discriminants");
         }
+        for (index, domain) in Domain::ALL.iter().enumerate() {
+            assert_eq!(
+                *domain as usize, index,
+                "Domain::ALL suit les discriminants"
+            );
+        }
+        let mut seen = 0_u32;
+        for (flag, _) in ClassificationFlags::NAMED {
+            assert_eq!(flag.0.count_ones(), 1);
+            assert_eq!(seen & flag.0, 0, "un nom par bit");
+            seen |= flag.0;
+        }
+        assert_eq!(seen, (1 << 21) - 1, "tous les drapeaux nommes");
+        assert_eq!(
+            (ClassificationFlags::PURE.set(ClassificationFlags::HOT, true)).names(),
+            vec!["PURE", "HOT"]
+        );
         let d = Domains::EMPTY.with(Domain::ModStatics).with(Domain::Random);
         assert!(d.contains(Domain::ModStatics) && d.contains(Domain::Random));
         assert!(!d.contains(Domain::WorldBlocks));
