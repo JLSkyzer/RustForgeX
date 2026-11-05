@@ -1274,6 +1274,13 @@ T-390..T-392, T-460..T-461.
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
+- [x] C-43 Explainability Engine — T-460, T-461 (ADR-070, 2026-11-05) :
+      `rfx_decision::reasons`, 37 codes stables en six familles (rejets DM-15,
+      politique, risque R1..R10, contributions, issue), une raison par contrainte
+      bloquante, trois contributions par signe, l'issue toujours dite. Fiche
+      `DecisionCard.reasons`, `/rfx why` regroupe par code ; textes `en_us` et `fr_fr`
+      vérifiés par test. T-460 sur 1 620 décisions, T-461 par instantané ; 9 mutants
+      sur 9 tués
 - [~] C-32 Cache — T-380..T-384. Bilan du 2026-11-05, cache par cache :
   - [x] `workload_cache` : la persistance des descripteurs (ADR-064), invalidée par
         l'empreinte (T-380 couvert par T-180/T-181), évincée (T-183)

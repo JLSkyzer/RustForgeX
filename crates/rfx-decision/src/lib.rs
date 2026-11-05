@@ -11,6 +11,7 @@
 pub mod compat;
 pub mod decision;
 pub mod experiment;
+pub mod reasons;
 pub mod risk;
 
 pub use compat::{

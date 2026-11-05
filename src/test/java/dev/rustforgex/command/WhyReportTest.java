@@ -157,6 +157,55 @@ class WhyReportTest {
         assertFalse(text.contains(WhyReport.KEY_PREFIX + "decision_none"), text);
     }
 
+    private static Map<String, Object> reason(long code, String key, String subject,
+            long weight, boolean blocking) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("code", code);
+        r.put("key", key);
+        r.put("subject", subject);
+        r.put("weight", weight);
+        r.put("evidence", "STATIC_FACT");
+        r.put("blocking", blocking);
+        return r;
+    }
+
+    /**
+     * C-43 : la chaîne causale remplace la liste brute des rejets ; une ligne par
+     * contrainte bloquante, sujets regroupés ; contributions et issue avec leur poids.
+     */
+    @Test
+    @DisplayName("La chaîne causale s'affiche, contraintes regroupées par code")
+    void theCausalChainIsShownGroupedByCode() {
+        Map<String, Object> decision = new LinkedHashMap<>();
+        decision.put("mode", "Balanced");
+        decision.put("strategy", "JAVA_ONLY");
+        decision.put("rejected", List.of(Map.of("strategy", "JAVA_BATCH",
+                "reasons", List.of("UnsafeSharedState"))));
+        decision.put("reasons", List.of(
+                reason(202, "level_above_milestone", "JAVA_PARALLEL", 1, true),
+                reason(202, "level_above_milestone", "RUST_PARALLEL", 1, true),
+                reason(102, "unsafe_shared_state", "JAVA_BATCH", 1, true),
+                reason(503, "risk_penalty", "JAVA_BATCH", -2_500, false),
+                reason(602, "java_only_fallback", "JAVA_ONLY", 0, false)));
+        Map<String, Object> card = card(measured(), knownAnalysis(), false);
+        card.put("decision", decision);
+
+        List<Component> lines = WhyReport.lines(card, null, false);
+        String text = flatten(lines);
+
+        assertTrue(text.contains(WhyReport.KEY_PREFIX + "reasons_title"), text);
+        assertTrue(text.contains("JAVA_PARALLEL, RUST_PARALLEL"), "regroupés : " + text);
+        assertTrue(text.contains(WhyReport.REASON_PREFIX + "level_above_milestone"), text);
+        assertTrue(text.contains(WhyReport.REASON_PREFIX + "unsafe_shared_state"), text);
+        assertTrue(text.contains("-2.5"), "pénalité en µs par tick : " + text);
+        assertTrue(text.contains(WhyReport.REASON_PREFIX + "java_only_fallback"), text);
+        assertFalse(text.contains(WhyReport.KEY_PREFIX + "decision_rejected"),
+                "les rejets ne sont pas répétés : " + text);
+        long blockingLines = lines.stream().filter(l -> flatten(List.of(l))
+                .contains(WhyReport.KEY_PREFIX + "reason_blocking")).count();
+        assertEquals(2, blockingLines, "une ligne par code bloquant");
+    }
+
     /** Sans bloc de décision (unité non décrite), la fiche le dit. */
     @Test
     @DisplayName("Sans bloc de décision, la fiche dit qu'il n'y en a pas")

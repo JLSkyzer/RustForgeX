@@ -114,6 +114,12 @@ pub struct Scored {
     pub gain_ns: f64,
     /// Score : gain, moins couts et penalite de risque.
     pub score_ns: f64,
+    /// Cout de soumission des taches retire du gain, en ns par tick.
+    pub scheduling_ns: f64,
+    /// Penalite de risque retiree du gain, en ns par tick.
+    pub risk_penalty_ns: f64,
+    /// `true` si le speedup du genre a ete mesure (R-410).
+    pub measured: bool,
 }
 
 /// Decision de C-15 pour une unite.
@@ -131,6 +137,9 @@ pub struct Decision {
     pub rejected: Vec<Rejected>,
     /// Genres candidats faisables, evalues.
     pub scored: Vec<Scored>,
+    /// Genres ecartes avant le filtre parce que leur niveau depasse celui du mode ou du
+    /// jalon, pour l'explication (C-43).
+    pub capped: Vec<StrategyKind>,
     /// La strategie demande une validation avant d'etre active.
     pub requires_validation: bool,
     /// Ticks avant revision (R-411).
@@ -247,6 +256,9 @@ pub fn score(strategy: StrategyKind, inputs: &DecisionInputs<'_>) -> Scored {
         strategy,
         gain_ns: gain,
         score_ns: gain - scheduling - risk_penalty,
+        scheduling_ns: scheduling,
+        risk_penalty_ns: risk_penalty,
+        measured: measured.is_some(),
     }
 }
 
@@ -256,11 +268,13 @@ pub fn decide(inputs: &DecisionInputs<'_>) -> Decision {
     let policy = ModePolicy::of(inputs.mode);
     let mut rejected = Vec::new();
     let mut scored = Vec::new();
+    let mut capped = Vec::new();
     for strategy in StrategyKind::CANDIDATES {
         if strategy
             .level()
             .is_none_or(|level| level > policy.candidate_level())
         {
+            capped.push(strategy);
             continue;
         }
         let reasons = feasibility(strategy, inputs);
@@ -291,6 +305,7 @@ pub fn decide(inputs: &DecisionInputs<'_>) -> Decision {
         expected_gain_ns: gain,
         rejected,
         scored,
+        capped,
         requires_validation: level > TransformationLevel::Tl2,
         revisit_after_ticks: u32::try_from(MIN_HOLD_TICKS).unwrap_or(u32::MAX),
     }
@@ -427,6 +442,7 @@ mod tests {
                 })
                 .collect(),
             scored: Vec::new(),
+            capped: Vec::new(),
             requires_validation: false,
             revisit_after_ticks: 600,
         }

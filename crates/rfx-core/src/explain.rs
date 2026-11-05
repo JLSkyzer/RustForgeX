@@ -239,6 +239,33 @@ fn card_of(
             })
             .collect(),
         requires_validation: decision.requires_validation,
+        reasons: rfx_decision::reasons::explain(&rfx_decision::reasons::Explained {
+            mode,
+            risk,
+            compat,
+            decision,
+        })
+        .iter()
+        .map(reason_card)
+        .collect(),
+    }
+}
+
+/// Une raison de C-43, prete a traverser la frontiere.
+fn reason_card(reason: &rfx_decision::reasons::Reason) -> rfx_model::ReasonCard {
+    #[allow(clippy::cast_possible_truncation)] // borne par la saturation de `as`
+    let weight = if reason.weight.is_finite() {
+        reason.weight.round() as i64
+    } else {
+        0
+    };
+    rfx_model::ReasonCard {
+        code: reason.code.id(),
+        key: reason.code.key().to_owned(),
+        subject: reason.subject.label(),
+        weight,
+        evidence: reason.evidence.name().to_owned(),
+        blocking: reason.code.is_blocking(),
     }
 }
 
@@ -291,6 +318,25 @@ mod tests {
         assert!(!card.requires_validation);
         assert!(card.rejected.iter().all(|r| !r.reasons.is_empty()));
         assert!(card.correctness_x1000 < 1_000, "{card:?}");
+        // C-43 : la chaine causale est remplie, chaque motif de rejet y figure, et
+        // l'issue vient en dernier.
+        let last = card.reasons.last().expect("des raisons (T-460)");
+        assert_eq!((last.code, last.key.as_str()), (602, "java_only_fallback"));
+        assert!(!last.blocking);
+        for rejected in &card.rejected {
+            assert!(card
+                .reasons
+                .iter()
+                .any(|r| r.blocking && r.subject == rejected.strategy));
+        }
+        assert!(
+            card.reasons
+                .iter()
+                .any(|r| r.key == "level_above_milestone" && r.evidence == "MILESTONE"),
+            "{:?}",
+            card.reasons
+        );
+        assert!(card.reasons.iter().any(|r| r.key == "risk_confidence"));
 
         // ADR-067 : une regle de [overrides] vise l'unite par son proprietaire ; sans
         // identite connue, aucune regle ne peut s'y appliquer.

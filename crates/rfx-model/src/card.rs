@@ -79,6 +79,29 @@ pub struct DecisionCard {
     pub rejected: Vec<RejectedCard>,
     /// La strategie demande une validation avant d'etre active.
     pub requires_validation: bool,
+    /// Chaine causale de la decision (C-43, R-640) : contraintes bloquantes,
+    /// contributions au score, issue.
+    #[serde(default)]
+    pub reasons: Vec<ReasonCard>,
+}
+
+/// Une raison de la decision (C-43).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReasonCard {
+    /// Numero stable (R-641).
+    pub code: u16,
+    /// Nom stable, cle de traduction (`rustforgex.reason.<nom>`).
+    pub key: String,
+    /// Ce sur quoi elle porte : genre, regle ou verdict, non traduit.
+    pub subject: String,
+    /// Contribution arrondie : ns par tick pour une contribution au score (negative pour
+    /// un cout), 1 pour une contrainte bloquante, le score pour l'issue.
+    pub weight: i64,
+    /// Fondement (`MEASUREMENT`, `STATIC_FACT`, `INCIDENT`, `CONFIGURATION`,
+    /// `MILESTONE`).
+    pub evidence: String,
+    /// `true` pour une contrainte bloquante.
+    pub blocking: bool,
 }
 
 /// Un genre rejete et ses motifs.

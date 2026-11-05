@@ -4,6 +4,7 @@ import dev.rustforgex.instrument.ProbeRegistry;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,6 +29,9 @@ public final class WhyReport {
 
     /** Préfixe commun à toutes les clés de traduction de la fiche. */
     public static final String KEY_PREFIX = "rustforgex.why.";
+
+    /** Préfixe des textes de raison, suivi du nom stable du code (C-43, R-641). */
+    public static final String REASON_PREFIX = "rustforgex.reason.";
 
     private WhyReport() {
         throw new AssertionError("classe utilitaire, non instanciable");
@@ -115,7 +119,10 @@ public final class WhyReport {
         lines.add(Component.translatable(KEY_PREFIX + "decision_compat",
                 Component.literal(stringOf(decision, "compat_verdict")),
                 Component.literal(stringOf(decision, "compat_source"))));
-        if (decision.get("rejected") instanceof List<?> rejected) {
+        if (decision.get("reasons") instanceof List<?> reasons && !reasons.isEmpty()) {
+            appendReasons(lines, reasons);
+        } else if (decision.get("rejected") instanceof List<?> rejected) {
+            // Fiche sans chaîne causale : les motifs de rejet seuls.
             for (Object item : rejected) {
                 if (item instanceof Map<?, ?> entry) {
                     @SuppressWarnings("unchecked")
@@ -127,6 +134,44 @@ public final class WhyReport {
             }
         }
         lines.add(Component.translatable(KEY_PREFIX + "decision_not_applied"));
+    }
+
+    /**
+     * Chaîne causale de la décision (C-43, R-640) : une ligne par contrainte bloquante,
+     * ses sujets regroupés ; puis les contributions au score, leur poids en µs par tick ;
+     * puis l'issue. Le texte de chaque raison se traduit par son nom stable (R-641).
+     */
+    private static void appendReasons(List<Component> lines, List<?> reasons) {
+        lines.add(Component.translatable(KEY_PREFIX + "reasons_title"));
+        Map<String, List<String>> blocking = new LinkedHashMap<>();
+        List<Map<String, Object>> others = new ArrayList<>();
+        for (Object item : reasons) {
+            if (!(item instanceof Map<?, ?> entry)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> reason = (Map<String, Object>) entry;
+            if (stringOf(reason, "key") == null) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(reason.get("blocking"))) {
+                blocking.computeIfAbsent(stringOf(reason, "key"), k -> new ArrayList<>())
+                        .add(stringOf(reason, "subject"));
+            } else {
+                others.add(reason);
+            }
+        }
+        blocking.forEach((key, subjects) -> lines.add(Component.translatable(
+                KEY_PREFIX + "reason_blocking",
+                Component.translatable(REASON_PREFIX + key),
+                Component.literal(String.join(", ", subjects)))));
+        for (Map<String, Object> reason : others) {
+            lines.add(Component.translatable(KEY_PREFIX + "reason_weighted",
+                    Component.translatable(REASON_PREFIX + stringOf(reason, "key")),
+                    Component.literal(String.valueOf(stringOf(reason, "subject"))),
+                    Component.literal(String.format(Locale.ROOT, "%.1f",
+                            longOf(reason, "weight") / 1_000.0))));
+        }
     }
 
     private static String perMille(Map<String, Object> table, String key) {
