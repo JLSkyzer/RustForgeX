@@ -105,6 +105,10 @@ pub struct Runtime {
     decision_changes: u64,
     /// Octets de l'analyse comptes dans le budget natif (`Pool::Runtime`).
     analysis_reserved: u64,
+    /// Etalonnage A/A de la chaine de mesure (ADR-069).
+    calibration: crate::calibration::AaCalibration,
+    /// Tick du profileur au dernier choix des unites relevees.
+    traced_at_tick: Option<u64>,
 }
 
 impl Runtime {
@@ -173,6 +177,8 @@ impl Runtime {
             tenures: std::collections::HashMap::new(),
             decision_changes: 0,
             analysis_reserved: 0,
+            calibration: crate::calibration::AaCalibration::default(),
+            traced_at_tick: None,
         }
     }
 
@@ -286,6 +292,7 @@ impl Runtime {
     pub fn publish_analysis(&mut self, status: AnalysisStatus, bytes: u64) -> bool {
         self.analysis_status = status;
         self.refresh_decisions();
+        self.calibrate();
         self.budget.release(Pool::Runtime, self.analysis_reserved);
         self.analysis_reserved = 0;
         if bytes == 0 {
@@ -345,6 +352,51 @@ impl Runtime {
         status.changes = self.decision_changes;
         status.locked = locked;
         self.decision_status = status;
+    }
+
+    /// Vide le releve tick par tick dans l'etalonnage A/A, et renouvelle une fois par
+    /// fenetre de classement le choix des unites relevees : les plus couteuses parmi
+    /// celles que mesure une sonde (ADR-069). Hors du tick.
+    fn calibrate(&mut self) {
+        let calibration = &mut self.calibration;
+        self.profiler
+            .drain_traces(|work_id, ticks| calibration.feed(work_id, ticks));
+        let now = self.profiler.ticks();
+        let due = self
+            .traced_at_tick
+            .is_none_or(|at| now.saturating_sub(at) >= rfx_profiler::store::RANKING_WINDOW_TICKS);
+        if !due {
+            return;
+        }
+        self.traced_at_tick = Some(now);
+        // Une unite deja relevee le reste tant qu'une sonde la mesure : une comparaison
+        // demande un millier de ticks chronometres, et un classement qui bouge d'une
+        // fenetre a l'autre n'en laisserait jamais assez a personne. Seules les places
+        // libres vont aux plus couteuses.
+        let store = self.profiler.store();
+        let probed = |id: rfx_model::WorkId| {
+            store
+                .by_work_id(id)
+                .is_some_and(|entry| entry.cost_source() == rfx_model::CostSource::Probe)
+        };
+        let mut chosen: Vec<rfx_model::WorkId> = self
+            .profiler
+            .traced_ids()
+            .into_iter()
+            .filter(|id| probed(*id))
+            .collect();
+        for entry in store.hottest(rfx_profiler::trace::TRACE_SLOTS * 4) {
+            if chosen.len() >= rfx_profiler::trace::TRACE_SLOTS {
+                break;
+            }
+            if entry.cost_source() == rfx_model::CostSource::Probe
+                && !chosen.contains(&entry.work_id)
+            {
+                chosen.push(entry.work_id);
+            }
+        }
+        self.profiler.select_traced(&chosen);
+        self.calibration.retain(&chosen);
     }
 
     /// Ouvre la base des unites de travail (C-09). Le fichier est relu en arriere-plan :
@@ -786,7 +838,14 @@ impl Runtime {
             scheduler: self.scheduler_status(),
             db: self.db.status(),
             analysis: self.analysis_status,
-            decision: self.decision_status,
+            decision: rfx_model::DecisionStatus {
+                aa_runs: self.calibration.runs(),
+                aa_false_gains: self.calibration.false_gains(),
+                aa_ticks: self.calibration.ticks(),
+                traced: self.profiler.traced_count(),
+                trace_dropped: self.profiler.trace_dropped(),
+                ..self.decision_status
+            },
             tick: {
                 let m = self.tick_window.metrics();
                 TickStatus {
@@ -1346,6 +1405,120 @@ mod tests {
             "trois passages et une sortie"
         );
         assert_eq!(record.dynamics.last_seen_tick, 40);
+    }
+
+    /// ADR-069, de bout en bout : une unite sondee est relevee tick par tick, ses ticks
+    /// sont vides hors du tick dans l'etalonnage A/A, et le statut le dit.
+    #[test]
+    fn a_probed_unit_feeds_the_a_a_calibration() {
+        use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
+
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+        let descriptor = WorkDescriptor {
+            owner_id: "minecraft".to_owned(),
+            class_internal_name: "net/minecraft/world/entity/Mob".to_owned(),
+            method_name: "aiStep".to_owned(),
+            method_descriptor: "()V".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let work_id = rfx_model::WorkId::compute(&descriptor);
+        let probe_id = rt.register_workload(&descriptor, work_id).expect("sondee");
+        assert!(rt.acquire_probe_buffer(3).is_some());
+        let exit = ProbeRecord {
+            probe_id,
+            value: 25_000,
+            kind: RecordKind::Exit.to_byte(),
+            ..ProbeRecord::default()
+        };
+        let run_ticks = |rt: &mut Runtime, from: u64, count: u64| {
+            for tick in from..from + count {
+                rt.tick_begin(tick, Side::Server, Instant::now());
+                let buffer = rt.probe_buffers.get_mut(3).expect("tampon");
+                assert!(buffer.write_at(0, &exit.encode()));
+                assert!(buffer.write_at(PROBE_RECORD_SIZE, &exit.encode()));
+                rt.flush_probe_buffer(3, 2 * PROBE_RECORD_SIZE);
+                rt.tick_end(Instant::now());
+            }
+        };
+
+        run_ticks(&mut rt, 1, 20);
+        assert_eq!(rt.status().decision.traced, 0, "aucun choix avant le pas");
+        assert!(rt.publish_analysis(AnalysisStatus::default(), 0));
+        assert_eq!(rt.status().decision.traced, 1, "l'unite sondee est relevee");
+
+        // Des vidages plus frequents que la capacite du releve : rien ne se perd.
+        for round in 0..8 {
+            run_ticks(&mut rt, 21 + round * 400, 400);
+            assert!(rt.publish_analysis(AnalysisStatus::default(), 0));
+        }
+        let decision = rt.status().decision;
+        assert!(decision.aa_ticks > 2_000, "{decision:?}");
+        assert!(decision.aa_runs >= 1, "{decision:?}");
+        assert_eq!(decision.aa_false_gains, 0, "cout constant : aucun gain");
+        assert_eq!(decision.trace_dropped, 0);
+    }
+
+    /// ADR-069 : une unite relevee le reste tant qu'une sonde la mesure, meme si une
+    /// autre la depasse au classement ; la place libre va a la nouvelle venue.
+    #[test]
+    fn a_traced_unit_keeps_its_slot_while_it_is_probed() {
+        use rfx_memory::probe_buffer::{ProbeRecord, RecordKind, PROBE_RECORD_SIZE};
+
+        let mut rt = Runtime::new(RuntimeConfig::default());
+        rt.start_profiler();
+        let unit = |method: &str| WorkDescriptor {
+            owner_id: "minecraft".to_owned(),
+            class_internal_name: "net/minecraft/world/level/Level".to_owned(),
+            method_name: method.to_owned(),
+            method_descriptor: "()V".to_owned(),
+            ..WorkDescriptor::default()
+        };
+        let mut ids = Vec::new();
+        let mut probes = Vec::new();
+        for method in ["tickA", "tickB", "tickC", "tickD", "tickE"] {
+            let descriptor = unit(method);
+            let id = rfx_model::WorkId::compute(&descriptor);
+            probes.push(rt.register_workload(&descriptor, id).expect("sondee"));
+            ids.push(id);
+        }
+        assert!(rt.acquire_probe_buffer(4).is_some());
+        let exit = |probe_id, value| ProbeRecord {
+            probe_id,
+            value,
+            kind: RecordKind::Exit.to_byte(),
+            ..ProbeRecord::default()
+        };
+        let run = |rt: &mut Runtime, from: u64, count: u64, records: &[ProbeRecord]| {
+            for tick in from..from + count {
+                rt.tick_begin(tick, Side::Server, Instant::now());
+                let buffer = rt.probe_buffers.get_mut(4).expect("tampon");
+                for (index, record) in records.iter().enumerate() {
+                    assert!(buffer.write_at(index * PROBE_RECORD_SIZE, &record.encode()));
+                }
+                rt.flush_probe_buffer(4, records.len() * PROBE_RECORD_SIZE);
+                rt.tick_end(Instant::now());
+            }
+        };
+
+        run(&mut rt, 1, 20, &[exit(probes[0], 1_000)]);
+        assert!(rt.publish_analysis(AnalysisStatus::default(), 0));
+        assert_eq!(rt.profiler.traced_ids(), vec![ids[0]]);
+
+        // Les quatre autres coutent chacune cent fois plus : le classement seul ne
+        // garderait pas la premiere. Une fenetre de classement passe.
+        let all: Vec<ProbeRecord> = probes
+            .iter()
+            .enumerate()
+            .map(|(i, probe)| exit(*probe, if i == 0 { 1_000 } else { 100_000 }))
+            .collect();
+        for round in 0..4 {
+            run(&mut rt, 21 + round * 400, 400, &all);
+            assert!(rt.publish_analysis(AnalysisStatus::default(), 0));
+        }
+        let traced = rt.profiler.traced_ids();
+        assert_eq!(traced.len(), 4);
+        assert_eq!(traced[0], ids[0], "la premiere garde sa place");
     }
 
     /// ADR-064, de bout en bout : un descripteur calcule a une partie est ecrit dans

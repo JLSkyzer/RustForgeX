@@ -235,6 +235,28 @@ séries à libellé ne sont publiées que non nulles ; leurs libellés sont born
 | `rfx.risk.distribution{le=…}` | gauge | unités | Unités par tranche de risque de correction, borne haute incluse (`0.05`, `0.15`, `0.30`, `0.70`, `1.00`) |
 | `rfx.compat.verdicts{verdict=…}` | gauge | unités | Unités par verdict de compatibilité (`ALLOW`… `DISABLE`) |
 
+### `rfx.experiment` — étalonnage A/A de la chaîne de mesure (C-15, ADR-069)
+
+Le profileur relève, tick par tick, le coût chronométré d'au plus 4 unités : les plus
+coûteuses parmi celles que mesure une sonde ; une unité suivie garde sa place tant
+qu'elle est chronométrée, les places libres sont pourvues toutes les 1 200 ticks. Une
+unité `COLD` n'est pas chronométrée : sur un serveur au repos, rien n'est relevé. Le fil
+d'analyse vide ce relevé et affecte chaque tick à l'un de deux bras **identiques**
+(10 % à l'« essai »). Tous les 100 ticks d'essai d'une unité, la chaîne
+`rfx_decision::experiment` compare les bras (appariement au tick de référence le plus
+proche, 20 ticks au plus ; test des signes unilatéral, seuil 0,05). Rien n'est changé au
+jeu : toute conclusion « gain » est fausse, et leur part dit si la chaîne peut être crue
+sur la charge réelle. Attendu : de l'ordre de 5 % ou moins ; ce n'est pas encore mesuré
+en jeu.
+
+| métrique | type | unité | sémantique |
+|---|---|---|---|
+| `rfx.experiment.aa_runs` | counter | — | Comparaisons A/A conclues depuis le démarrage |
+| `rfx.experiment.aa_false_gains` | counter | — | Comparaisons A/A conclues à un gain, toutes fausses |
+| `rfx.experiment.ticks` | counter | — | Ticks relevés intégrés à l'étalonnage |
+| `rfx.experiment.traced` | gauge | unités | Unités relevées tick par tick en ce moment |
+| `rfx.experiment.trace_dropped` | counter | — | Ticks perdus parce qu'un relevé (512 ticks par unité) était plein avant d'être vidé |
+
 ### `rfx.dataflow` — analyse de flux de données (C-11)
 
 | métrique | type | unité | sémantique |

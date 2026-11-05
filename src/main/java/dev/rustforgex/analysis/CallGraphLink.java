@@ -235,7 +235,16 @@ public final class CallGraphLink {
                     + "appliquée au jeu ; le jeu tourne normalement.",
                     dev.rustforgex.diag.ErrorCode.DECISION_OSCILLATION.id(), fresh);
         }
+        CalibrationWatch.Calibration calibration = this.calibration.observe(status);
+        if (calibration != null) {
+            LOGGER.debug("Étalonnage A/A de la chaîne de mesure : {} comparaison(s), dont {} "
+                    + "conclue(s) à tort à un gain ; {} ticks relevés, {} unité(s) suivie(s). "
+                    + "Rien n'est appliqué au jeu.", calibration.runs(),
+                    calibration.falseGains(), calibration.ticks(), calibration.traced());
+        }
     }
+
+    private final CalibrationWatch calibration = new CalibrationWatch();
 
     /** Un pas, compté comme échec s'il est refusé ; cinq échecs de suite arrêtent. */
     private int runStep(ClassLibrary library, Set<String> excluded) {

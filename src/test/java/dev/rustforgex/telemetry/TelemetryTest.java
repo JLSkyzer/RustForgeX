@@ -569,6 +569,11 @@ class TelemetryTest {
         decision.put("correctness", counts(5, 4, 4L));
         decision.put("changes", 7L);
         decision.put("locked", 1L);
+        decision.put("aa_runs", 12L);
+        decision.put("aa_false_gains", 1L);
+        decision.put("aa_ticks", 9000L);
+        decision.put("traced", 4L);
+        decision.put("trace_dropped", 3L);
         Map<String, Object> root = status();
         root.put("decision", decision);
 
@@ -577,6 +582,11 @@ class TelemetryTest {
         assertEquals(4, set.get("rfx.decision.evaluated").value());
         assertEquals(7, set.get("rfx.decision.changes").value());
         assertEquals(1, set.get("rfx.decision.oscillations").value());
+        assertEquals(12, set.get("rfx.experiment.aa_runs").value());
+        assertEquals(1, set.get("rfx.experiment.aa_false_gains").value());
+        assertEquals(9000, set.get("rfx.experiment.ticks").value());
+        assertEquals(4, set.get("rfx.experiment.traced").value());
+        assertEquals(3, set.get("rfx.experiment.trace_dropped").value());
         assertEquals(4, set.get("rfx.decision.count{strategy=JAVA_ONLY}").value());
         assertNull(set.get("rfx.decision.count{strategy=JAVA_BATCH}"), "zéro : non publiée");
         assertEquals(3, set.get("rfx.decision.rejected{reason=InsufficientConfidence}").value());

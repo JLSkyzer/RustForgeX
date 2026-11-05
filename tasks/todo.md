@@ -1259,6 +1259,17 @@ T-390..T-392, T-460..T-461.
         construite sans transformation pour M4 : `rfx_decision::experiment` (affectation
         déterministe, paires au tick voisin, test des signes, étalonnage A/A sur données
         simulées ; le mutant sans test de significativité invente des gains et échoue).
+  - [x] Étalonnage A/A sur les mesures du jeu (2026-11-05) : le profileur relève tick par
+        tick au plus 4 unités sondées (`rfx_profiler::trace`, sans allocation dans le
+        tick), le fil d'analyse les verse dans `rfx_core::calibration` (deux bras
+        identiques, 10 % d'essai, comparaison tous les 100 ticks d'essai) ;
+        `rfx.experiment.*`, ligne DEBUG à chaque nouvelle comparaison. Une unité suivie
+        garde sa place tant qu'une sonde la chronomètre. 8 mutants tués sur 8
+  - [ ] Lire l'étalonnage A/A sur une **vraie partie chargée** (Killian) : sur le
+        serveur de développement sans joueur, les 432 unités restent `COLD`, aucune
+        sortie n'est chronométrée, donc rien n'est relevé (deux essais de 10 min,
+        2026-11-05). Attendu : `rfx.experiment.aa_false_gains` de l'ordre de 5 % de
+        `aa_runs` ou moins
         Ancienne note : l'exploration des modes (2 à 5 %), avec
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles

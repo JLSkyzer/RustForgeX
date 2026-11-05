@@ -35,6 +35,7 @@ pub mod baseline;
 pub mod level;
 pub mod overhead;
 pub mod store;
+pub mod trace;
 
 use rfx_memory::probe_buffer::{ProbeRecord, RecordKind};
 use rfx_model::{Heat, ProfilerStatus};
@@ -168,6 +169,8 @@ pub struct Profiler {
     zero_duration_exits: u64,
     level_changes: u64,
     levels_dirty: bool,
+    /// Releve tick par tick de quelques unites, pour la chaine de mesure (ADR-069).
+    tracer: trace::TickTracer,
 }
 
 impl Profiler {
@@ -206,6 +209,7 @@ impl Profiler {
             zero_duration_exits: 0,
             level_changes: 0,
             levels_dirty: false,
+            tracer: trace::TickTracer::default(),
         }
     }
 
@@ -288,6 +292,8 @@ impl Profiler {
             }
             RecordKind::Exit => {
                 entry.calls_this_tick = entry.calls_this_tick.saturating_add(1);
+                entry.timed_ns_this_tick = entry.timed_ns_this_tick.saturating_add(record.value);
+                entry.timed_exits_this_tick = entry.timed_exits_this_tick.saturating_add(1);
                 entry.dynamics.cpu_ns.record(record.value);
                 entry.dynamics.wall_ns.record(record.value);
                 if record.value == 0 {
@@ -389,6 +395,24 @@ impl Profiler {
 
     /// Integre les compteurs du tick dans les mesures glissantes.
     fn consolidate(&mut self, tick: u64) {
+        // Avant la remise a zero : le releve garde le cout de ce tick-ci, et seulement
+        // les ticks ou l'unite a ete chronometree. Au plus quatre lectures directes.
+        for slot in 0..trace::TRACE_SLOTS {
+            let Some((work_id, probe_id)) = self.tracer.traced().nth(slot) else {
+                break;
+            };
+            let Some(entry) = self.store.get(probe_id) else {
+                continue;
+            };
+            if entry.work_id == work_id && entry.timed_exits_this_tick > 0 {
+                let traced = trace::TickTrace {
+                    tick,
+                    timed_ns: entry.timed_ns_this_tick,
+                    timed_exits: entry.timed_exits_this_tick,
+                };
+                self.tracer.push(probe_id, work_id, traced);
+            }
+        }
         for entry in self.store.iter_mut() {
             let calls = entry.calls_this_tick;
             let sampled = entry.sampled_ns_this_tick;
@@ -419,6 +443,8 @@ impl Profiler {
             entry.calls_this_tick = 0;
             entry.sampled_ns_this_tick = 0;
             entry.alloc_bytes_this_tick = 0;
+            entry.timed_ns_this_tick = 0;
+            entry.timed_exits_this_tick = 0;
         }
         self.store.close_ranking_tick();
     }
@@ -662,6 +688,39 @@ impl Profiler {
     #[cfg(test)]
     fn store_mut(&mut self) -> &mut WorkloadStore {
         &mut self.store
+    }
+
+    /// Choisit les unites relevees tick par tick (ADR-069), au plus
+    /// [`trace::TRACE_SLOTS`] ; les unites inconnues sont ignorees. Hors du tick.
+    pub fn select_traced(&mut self, work_ids: &[rfx_model::WorkId]) {
+        let chosen: Vec<(rfx_model::WorkId, u32)> = work_ids
+            .iter()
+            .filter_map(|id| self.store.probe_id_of(*id).map(|probe| (*id, probe)))
+            .collect();
+        self.tracer.select(&chosen);
+    }
+
+    /// Rend puis oublie les ticks releves de chaque unite. Hors du tick.
+    pub fn drain_traces(&mut self, f: impl FnMut(rfx_model::WorkId, &[trace::TickTrace])) {
+        self.tracer.drain(f);
+    }
+
+    /// Ticks perdus parce qu'un releve etait plein.
+    #[must_use]
+    pub fn trace_dropped(&self) -> u64 {
+        self.tracer.dropped()
+    }
+
+    /// Unites relevees tick par tick en ce moment, dans l'ordre de leur choix.
+    #[must_use]
+    pub fn traced_ids(&self) -> Vec<rfx_model::WorkId> {
+        self.tracer.traced().map(|(id, _)| id).collect()
+    }
+
+    /// Unites relevees tick par tick en ce moment.
+    #[must_use]
+    pub fn traced_count(&self) -> u64 {
+        self.tracer.traced().count() as u64
     }
 
     /// Table des unites de travail.
@@ -1184,6 +1243,38 @@ mod tests {
             profiler.store().get(probe).expect("unite").level,
             ProbeLevel::Off
         );
+    }
+
+    /// ADR-069 : le releve garde le cout exact de chaque tick chronometre de l'unite
+    /// choisie, tick par tick, et rien des ticks muets ni des autres unites.
+    #[test]
+    fn the_tick_trace_keeps_each_timed_tick_of_the_selected_unit() {
+        let mut profiler = started();
+        let traced = profiler.register(WorkId(1)).expect("sonde");
+        let other = profiler.register(WorkId(2)).expect("sonde");
+        profiler.select_traced(&[WorkId(1), WorkId(99)]);
+        assert_eq!(profiler.traced_count(), 1, "l'unite inconnue est ignoree");
+        let first = profiler.ticks() + 1;
+        for i in 0..6_u64 {
+            if i != 2 {
+                // Deux sorties par tick, de duree croissante ; le tick 2 reste muet.
+                profiler.ingest(&record(traced, RecordKind::Exit, 1_000 * (i + 1)));
+                profiler.ingest(&record(traced, RecordKind::Exit, 1_000 * (i + 1)));
+            }
+            profiler.ingest(&record(other, RecordKind::Exit, 7));
+            profiler.end_tick(cheap_tick());
+        }
+        let mut seen = Vec::new();
+        profiler.drain_traces(|id, ticks| seen.push((id, ticks.to_vec())));
+        let expected: Vec<trace::TickTrace> = [0_u64, 1, 3, 4, 5]
+            .iter()
+            .map(|i| trace::TickTrace {
+                tick: first + i,
+                timed_ns: 2_000 * (i + 1),
+                timed_exits: 2,
+            })
+            .collect();
+        assert_eq!(seen, vec![(WorkId(1), expected)]);
     }
 
     /// T-144 : sans aucune sonde, l'echantillonnage suffit a classer une unite.

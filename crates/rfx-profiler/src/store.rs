@@ -51,6 +51,11 @@ pub struct WorkloadEntry {
     pub call_capped_until_tick: u64,
     /// Octets alloues observes pendant le tick courant.
     pub alloc_bytes_this_tick: u64,
+    /// Somme des durees des sorties chronometrees du tick courant, en nanosecondes
+    /// (releve de la chaine de mesure, ADR-069).
+    pub timed_ns_this_tick: u64,
+    /// Sorties chronometrees du tick courant.
+    pub timed_exits_this_tick: u64,
     /// `true` tant que l'entree porte des mesures.
     pub live: bool,
 }
@@ -74,6 +79,8 @@ impl WorkloadEntry {
             last_window_ns_per_tick: None,
             call_capped_until_tick: 0,
             alloc_bytes_this_tick: 0,
+            timed_ns_this_tick: 0,
+            timed_exits_this_tick: 0,
             live: true,
         }
     }
@@ -143,6 +150,8 @@ impl WorkloadEntry {
         self.last_window_ns_per_tick = None;
         self.call_capped_until_tick = 0;
         self.alloc_bytes_this_tick = 0;
+        self.timed_ns_this_tick = 0;
+        self.timed_exits_this_tick = 0;
         self.live = false;
     }
 }
@@ -259,6 +268,14 @@ impl WorkloadStore {
             .get(&work_id)
             .and_then(|&index| self.entries.get(index))
             .filter(|e| e.live)
+    }
+
+    /// Identifiant de sonde d'une unite vivante.
+    #[must_use]
+    pub fn probe_id_of(&self, work_id: WorkId) -> Option<u32> {
+        let index = *self.by_work_id.get(&work_id)?;
+        self.entries.get(index).filter(|e| e.live)?;
+        u32::try_from(index).ok()
     }
 
     /// Parcourt les unites vivantes.

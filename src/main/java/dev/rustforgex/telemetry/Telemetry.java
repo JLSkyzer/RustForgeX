@@ -405,6 +405,18 @@ public final class Telemetry {
                 "Changements de stratégie tenue depuis le démarrage (R-412)."));
         set.add(Metric.gauge("rfx.decision.oscillations", longOf(decision, "locked"), "unités",
                 "Unités verrouillées sur JAVA_ONLY pour oscillation (FM-21, E-2201)."));
+        set.add(Metric.counter("rfx.experiment.aa_runs", longOf(decision, "aa_runs"),
+                "Comparaisons A/A conclues : deux bras identiques (ADR-069)."));
+        set.add(Metric.counter("rfx.experiment.aa_false_gains",
+                longOf(decision, "aa_false_gains"),
+                "Comparaisons A/A conclues à un gain, toutes fausses : leur part doit rester"
+                        + " de l'ordre de 5 %."));
+        set.add(Metric.counter("rfx.experiment.ticks", longOf(decision, "aa_ticks"),
+                "Ticks relevés intégrés à l'étalonnage A/A."));
+        set.add(Metric.gauge("rfx.experiment.traced", longOf(decision, "traced"), "unités",
+                "Unités relevées tick par tick pour la chaîne de mesure."));
+        set.add(Metric.counter("rfx.experiment.trace_dropped", longOf(decision, "trace_dropped"),
+                "Ticks perdus parce qu'un relevé était plein."));
         appendLabelled(set, decision.get("strategies"), STRATEGIES, "rfx.decision.count",
                 "strategy", "unités", "Unités par stratégie retenue.");
         appendLabelled(set, decision.get("rejected"), REJECT_REASONS, "rfx.decision.rejected",

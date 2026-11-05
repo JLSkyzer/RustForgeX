@@ -291,6 +291,22 @@ pub struct DecisionStatus {
     /// `E-2201`).
     #[serde(default)]
     pub locked: u64,
+    /// Comparaisons A/A conclues depuis le demarrage (ADR-069).
+    #[serde(default)]
+    pub aa_runs: u64,
+    /// Comparaisons A/A qui ont conclu a un gain : toutes fausses, les bras etant
+    /// identiques. Leur part doit rester de l'ordre du seuil, 5 %.
+    #[serde(default)]
+    pub aa_false_gains: u64,
+    /// Ticks releves integres a l'etalonnage depuis le demarrage.
+    #[serde(default)]
+    pub aa_ticks: u64,
+    /// Unites relevees tick par tick en ce moment.
+    #[serde(default)]
+    pub traced: u64,
+    /// Ticks perdus parce qu'un releve etait plein.
+    #[serde(default)]
+    pub trace_dropped: u64,
 }
 
 #[cfg(test)]
