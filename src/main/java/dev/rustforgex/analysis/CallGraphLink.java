@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
@@ -176,6 +177,10 @@ public final class CallGraphLink {
                     LOGGER.info("Graphe d'appel : {} graphe(s) construit(s) ; {} classes lues, "
                             + "{} tenues pour inconnues.", graphs, provided, absent);
                 }
+                if (begin - oscillationCheckedAt >= OSCILLATION_CHECK_NANOS) {
+                    oscillationCheckedAt = begin;
+                    reportOscillations();
+                }
                 if (state == STEP_IDLE) {
                     Thread.sleep(idleMs);
                 } else {
@@ -192,6 +197,43 @@ public final class CallGraphLink {
             running = false;
             LOGGER.warn("Graphe d'appel abandonné ({}). Aucune analyse ; le jeu tourne "
                     + "normalement.", e.toString());
+        }
+    }
+
+    /** Relevé des verrouillages pour oscillation : toutes les 30 s au plus (FM-21). */
+    private static final long OSCILLATION_CHECK_NANOS = 30_000_000_000L;
+
+    private final OscillationWatch oscillations = new OscillationWatch();
+    private long oscillationCheckedAt;
+
+    /**
+     * Relit le statut natif et journalise {@code E-2201} pour chaque nouveau verrouillage.
+     * C'est ce fil qui fait recompter les décisions : il est le premier à pouvoir voir un
+     * verrouillage, hors du tick. Un statut illisible ne dit rien.
+     */
+    private void reportOscillations() {
+        byte[] blob = bridge.status(handle);
+        if (blob == null || blob.length == 0) {
+            return;
+        }
+        Map<String, Object> status;
+        try {
+            Object decoded = CborReader.decode(blob);
+            if (!(decoded instanceof Map<?, ?> table)) {
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cast = (Map<String, Object>) table;
+            status = cast;
+        } catch (CborReader.InvalidCbor | RuntimeException e) {
+            return;
+        }
+        long fresh = oscillations.observe(status);
+        if (fresh > 0) {
+            LOGGER.warn("{} : {} unité(s) verrouillée(s) sur JAVA_ONLY, leur décision changeait "
+                    + "trop souvent (plus de 3 fois en 10 minutes). Aucune décision n'est "
+                    + "appliquée au jeu ; le jeu tourne normalement.",
+                    dev.rustforgex.diag.ErrorCode.DECISION_OSCILLATION.id(), fresh);
         }
     }
 

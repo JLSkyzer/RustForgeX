@@ -31,6 +31,12 @@ public enum ErrorCode {
     /** {@code E-1006} : échec de chargement de la bibliothèque. Majeure, mène à DEGRADED. */
     LOAD_FAILED(1006, Severity.MAJOR, "échec de chargement de la bibliothèque"),
 
+    /**
+     * {@code E-2201} : oscillation de décision détectée. Mineure : la stratégie de l'unité
+     * est verrouillée sur {@code JAVA_ONLY} (FM-21).
+     */
+    DECISION_OSCILLATION(2201, Severity.MINOR, "oscillation de décision détectée"),
+
     /** {@code E-3001} : panic Rust capturée à la frontière FFI. Majeure. */
     PANIC_CAUGHT(3001, Severity.MAJOR, "panic Rust capturée à la frontière FFI"),
 

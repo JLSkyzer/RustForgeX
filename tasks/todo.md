@@ -1244,7 +1244,8 @@ T-390..T-392, T-460..T-461.
         fait avancer une `Tenure` — stratégie tenue, adoption, fenêtre de 12 000 ticks,
         verrouillage FM-21 levé à la fin de la fenêtre ; le runtime en tient une par unité
         décrite. `rfx.decision.changes`, `rfx.decision.oscillations`. `E-2201` n'est pas
-        encore journalisé côté Java : le compteur le porte
+        journalisé côté Java depuis le 2026-11-05 (`OscillationWatch`, fil d'analyse,
+        relevé toutes les 30 s, un message par nouveau verrouillage)
   - [ ] `rfx.compat.quarantines`, `rfx.compat.conflicting_transformers`
   - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
         l'application des décisions
