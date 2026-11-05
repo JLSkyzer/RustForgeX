@@ -1256,6 +1256,21 @@ T-390..T-392, T-460..T-461.
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
+- [~] C-32 Cache — T-380..T-384. Bilan du 2026-11-05, cache par cache :
+  - [x] `workload_cache` : la persistance des descripteurs (ADR-064), invalidée par
+        l'empreinte (T-380 couvert par T-180/T-181), évincée (T-183)
+  - [ ] R-542 : contrôle par **entrée**. `workload.db` n'a qu'une somme pour le fichier
+        entier : une entrée corrompue fait mettre tout le fichier de côté (prudent, mais
+        plus large que demandé) — T-382 à refaire par entrée
+  - [ ] `optimization_cache`, `benchmark_cache` : sans producteur tant qu'aucun gain
+        n'est mesuré (exploration, application des décisions)
+  - [ ] `compiled_cache` (IR, M5), `result_cache` (mémoïsation, code déporté, M4)
+  - [ ] `compatibility_cache` : non construit — le verdict se recalcule en quelques
+        microsecondes ; R-544 désactiverait un cache qui ne rapporte rien
+  - [ ] T-384 et l'acceptance (démarrage à chaud) : demandent une vraie partie avec des
+        unités chaudes, deux lancements de suite
+  - [ ] `rfx.cache.*` (hits, misses, evictions, bytes, corrupt) avec le premier cache
+        interrogé en lecture
 
 ---
 
