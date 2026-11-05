@@ -11,6 +11,7 @@ members = [
     "crates/rfx-analyzer",
     "crates/rfx-decision",
     "crates/rfx-exec",
+    "crates/rfx-validate",
     "crates/rfx-core",
     "crates/rfx-ffi",
     "crates/rfx-bench",
@@ -32,6 +33,7 @@ rfx-profiler = { path = "crates/rfx-profiler" }
 rfx-taskgraph = { path = "crates/rfx-taskgraph" }
 rfx-decision = { path = "crates/rfx-decision" }
 rfx-exec = { path = "crates/rfx-exec" }
+rfx-validate = { path = "crates/rfx-validate" }
 rfx-scheduler = { path = "crates/rfx-scheduler" }
 rfx-cache = { path = "crates/rfx-cache" }
 rfx-bytecode = { path = "crates/rfx-bytecode" }

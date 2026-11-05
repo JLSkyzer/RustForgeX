@@ -1327,8 +1327,15 @@ commit, détection de conflits, validation, exécution fantôme, retour arrière
       10 mutants sur 10 tués
 - [x] T-245 / T-392 : le test statique « aucun nom de mod » couvre aussi `reasons.rs`,
       `experiment.rs` et `rfx-exec` (manque de M3 corrigé)
-- [ ] C-24 Validation Engine — T-330..T-334 : SM-03, oracle de comparaison
-- [ ] C-26 Rollback — T-350..T-353
+- [x] Option D choisie par Killian (2026-11-05) : tout le socle d'abord, sans rien
+      activer ; A ou B se décidera sur une mesure d'une partie chargée (ADR-073)
+- [x] C-24 Validation Engine — T-330..T-334 (ADR-074) : oracle strict (réels bit à bit),
+      SM-03 par preuves (64 fantômes, canary 10 % sur 300 ticks, gain mesuré), propriété
+      sur 2 000 séquences ; crate `rfx-validate`
+- [x] C-26 Rollback — T-350..T-352 (ADR-074) : révocation immédiate, plan d'annulation,
+      bannissement sur motif de correction, `JAVA_ONLY` permanent au troisième,
+      déclencheurs. 16 mutants sur 16 tués (C-24 et C-26)
+  - [ ] T-353 (jeu jouable pendant 200 retours arrière) : avec C-22 et le jeu
 - [ ] C-22 Commit Engine — T-310..T-316 ; l'application au jeu attend l'accord de Killian
 - [ ] C-19 Snapshot — T-280..T-284 ; C-25 Shadow Execution — T-340..T-342
 - [ ] **Première transformation réelle du jeu** : seulement avec l'accord explicite de

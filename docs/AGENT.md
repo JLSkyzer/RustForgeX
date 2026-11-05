@@ -46,7 +46,8 @@ RustForgeX/
 ├── tasks/lessons.md              règles apprises + interdits du contrat agent
 └── crates/                       workspace Rust : rfx-model, rfx-memory, rfx-profiler,
                                   rfx-taskgraph, rfx-scheduler, rfx-cache, rfx-bytecode,
-                                  rfx-analyzer, rfx-decision, rfx-exec, rfx-core, rfx-ffi,
+                                  rfx-analyzer, rfx-decision, rfx-exec, rfx-validate,
+                                  rfx-core, rfx-ffi,
                                   rfx-bench
 ```
 
