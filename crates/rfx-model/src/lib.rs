@@ -16,6 +16,7 @@
 pub mod analysis;
 pub mod card;
 pub mod classification;
+pub mod command;
 pub mod config;
 pub mod dynamics;
 pub mod fingerprint;
@@ -32,6 +33,10 @@ pub use card::{AnalysisCard, DecisionCard, ReasonCard, RejectedCard, WorkloadCar
 pub use classification::{
     AccessSet, ClassificationFlags, Confidence, DependencySet, DeterminismFacts, Domain, Domains,
     NonDetSource, Precision, SideEffectSet, ThreadFacts, ThreadRole, ThreadRoles, Tri,
+};
+pub use command::{
+    BlobRef, BlockPos, BlockStateId, Command, CustomCommandId, DimId, EntityKey, EntityPatch,
+    EntityProtoId, JavaCallbackId, PacketTarget, Region, Vec3d,
 };
 pub use config::{RuntimeConfig, RuntimeMode};
 pub use dynamics::{Ewma, Heat, Histogram, VarianceClass, WorkloadDynamics};

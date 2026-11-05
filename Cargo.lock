@@ -428,6 +428,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfx-exec"
+version = "0.1.0"
+dependencies = [
+ "rfx-model",
+]
+
+[[package]]
 name = "rfx-ffi"
 version = "0.1.0"
 dependencies = [

@@ -44,7 +44,10 @@ RustForgeX/
 ├── src/generated/resources/      sortie de datagen (tâche runData)
 ├── tasks/todo.md                 plan de travail courant
 ├── tasks/lessons.md              règles apprises + interdits du contrat agent
-└── crates/                       workspace Rust (rfx-model, rfx-core, rfx-ffi)
+└── crates/                       workspace Rust : rfx-model, rfx-memory, rfx-profiler,
+                                  rfx-taskgraph, rfx-scheduler, rfx-cache, rfx-bytecode,
+                                  rfx-analyzer, rfx-decision, rfx-exec, rfx-core, rfx-ffi,
+                                  rfx-bench
 ```
 
 > **Écart assumé au CDC** : la PARTIE 3.6 place les sources Java sous `java/src/`.

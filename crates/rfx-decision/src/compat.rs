@@ -577,11 +577,30 @@ mod tests {
             "R9",
             "R10",
         ];
+        // C-43 : ses noms stables de codes et de fondements sont normatifs (R-641).
+        let reason_names: Vec<&str> = crate::reasons::ReasonCode::ALL
+            .iter()
+            .map(|c| c.key())
+            .chain(
+                [
+                    crate::reasons::Evidence::Measurement,
+                    crate::reasons::Evidence::StaticFact,
+                    crate::reasons::Evidence::Incident,
+                    crate::reasons::Evidence::Configuration,
+                    crate::reasons::Evidence::Milestone,
+                ]
+                .iter()
+                .map(|e| e.name()),
+            )
+            .chain(["{} ({source:?})"])
+            .collect();
         for (file, source) in [
             ("lib.rs", include_str!("lib.rs")),
             ("risk.rs", include_str!("risk.rs")),
             ("compat.rs", include_str!("compat.rs")),
             ("decision.rs", include_str!("decision.rs")),
+            ("reasons.rs", include_str!("reasons.rs")),
+            ("experiment.rs", include_str!("experiment.rs")),
         ] {
             let code = source.split("#[cfg(test)]").next().unwrap_or("");
             for line in code.lines() {
@@ -593,7 +612,7 @@ mod tests {
                 parts.next();
                 while let Some(literal) = parts.next() {
                     assert!(
-                        ALLOWED.contains(&literal),
+                        ALLOWED.contains(&literal) || reason_names.contains(&literal),
                         "{file} : chaine non autorisee {literal:?} dans {line:?}"
                     );
                     parts.next();

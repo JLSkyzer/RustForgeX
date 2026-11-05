@@ -1314,9 +1314,23 @@ T-390..T-392, T-460..T-461.
 **Composants** : C-19 (Snapshot System) à C-26 (Rollback) : snapshots, command buffers,
 commit, détection de conflits, validation, exécution fantôme, retour arrière.
 
-- [ ] Lire les fiches de C-19 à C-26 (PARTIE 5) et leurs IF, DM et INV, puis la DoD de
+- [x] Lire les fiches de C-19 à C-26 (PARTIE 5) et leurs IF, DM et INV, puis la DoD de
       M4 (PARTIE 29, 30), avant tout code
-- [ ] Plan de M4 : ordre des composants, ADR d'entrée, ce qui demande Killian
+- [x] Plan de M4 (ADR-073) : C-21 et C-23, puis C-24 et C-26, puis C-22, puis C-19 et
+      C-25. **Question à Killian** : quel code Rust exécute le premier `RUST_OFFLOAD` ?
+      Le cahier ne le dit pas avant l'IR (M6) ou le SDK (M8)
+- [x] DM-16 (`Command`, `Region`) dans `rfx-model`
+- [x] C-21 Command Buffer — T-300..T-302 (ADR-073) : append-only, ordre déterministe
+      sur 1 000 ordres d'arrivée, borne qui jette le buffer entier
+- [x] C-23 Conflict Detection — T-320..T-323 (ADR-073) : péremption, conflit dans le
+      tick, plafond ; 10 000 cas synthétiques sans faux négatif ni faux positif.
+      10 mutants sur 10 tués
+- [x] T-245 / T-392 : le test statique « aucun nom de mod » couvre aussi `reasons.rs`,
+      `experiment.rs` et `rfx-exec` (manque de M3 corrigé)
+- [ ] C-24 Validation Engine — T-330..T-334 : SM-03, oracle de comparaison
+- [ ] C-26 Rollback — T-350..T-353
+- [ ] C-22 Commit Engine — T-310..T-316 ; l'application au jeu attend l'accord de Killian
+- [ ] C-19 Snapshot — T-280..T-284 ; C-25 Shadow Execution — T-340..T-342
 - [ ] **Première transformation réelle du jeu** : seulement avec l'accord explicite de
       Killian, donné pour elle
 - [ ] Réserves de M3 à reprendre ici : premier gain par batching, T-205, T-222, T-223,
