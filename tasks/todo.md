@@ -1344,6 +1344,10 @@ commit, détection de conflits, validation, exécution fantôme, retour arrière
   - [ ] Applicateurs Java (R-472) et T-316 : première transformation réelle du jeu,
         **accord de Killian requis**
 - [ ] C-19 Snapshot — T-280..T-284 ; C-25 Shadow Execution — T-340..T-342
+- [ ] **Essai dans un vrai modpack par Killian** (procédure : `docs/guides/essai-modpack.md`,
+      2026-11-05) : unités chaudes pures et leur coût (choix A ou B, ADR-073),
+      étalonnage A/A, démarrage à chaud (T-384). À l'arrivée des fichiers : décoder
+      `workload.db`, lire les rapports et les journaux
 - [ ] **Première transformation réelle du jeu** : seulement avec l'accord explicite de
       Killian, donné pour elle
 - [ ] Réserves de M3 à reprendre ici : premier gain par batching, T-205, T-222, T-223,
