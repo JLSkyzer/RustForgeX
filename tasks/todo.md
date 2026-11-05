@@ -1133,8 +1133,13 @@ demandent une mesure ; les autres sont des tests de justesse.
   - [x] Branchement dans C-08 (`Facts.reads`, `writes`, `side_effects`), métriques
         `rfx.dataflow.*` — reste à observer en jeu sous charge (aucune unité chaude
         dans un serveur sans joueur)
-  - [ ] Acceptance : corpus annoté de 150 méthodes, zéro sous-approximation
-        d'écriture, ≥ 60 % EXACT ; vérification dynamique (R-382, T-205) à part
+  - [x] Acceptance, T-204 (ADR-071, 2026-11-05) : corpus annoté de 150 méthodes en
+        sept familles, règles fixées avant la mesure ; zéro sous-approximation, zéro
+        faux EXACT, 95 EXACT (63,3 %). Perte principale : éléments de tableau toujours
+        `Unknown` (12 méthodes), sûr mais imprécis. Test de graphe tronqué ajouté
+  - [ ] Éléments de tableau : domaine de la source du tableau (PARTIE 5.11) au lieu de
+        `Unknown` — précision seulement, mesurée par le corpus
+  - [ ] Vérification dynamique (R-382, T-205) : avec la validation de M4
 - [x] C-10 Dependency Analyzer — T-191..T-193 (R-370, R-372, FM-19), ADR-056 : dépendances de données au niveau des domaines, toutes les unités décrites supposées
       du même tick ; `data_deps` remplies, `order_deps` absentes faute de C-06 ; 7 mutants sur 7 tués. T-190 attend des régions (C-11), T-194 la planification
       réelle (C-16, C-17)

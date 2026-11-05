@@ -9,6 +9,7 @@ Après toute modification d'une source, recompiler depuis ce répertoire, puis r
 
 ```bash
 javac --release 17 -encoding UTF-8 -d classes src/fixtures/*.java
+javac --release 17 -encoding UTF-8 -d classes src/corpus/*.java $(find src/net -name "*.java")
 ```
 
 Compilé avec `javac 17.0.20.1` (Eclipse Adoptium). Le bytecode couvre ce que les tests
@@ -62,3 +63,11 @@ synchronisée (`Guarded`), écrit seulement par le constructeur (`CtorOnly`) ; e
 méthodes sans source : arithmétique entière en lecture seule, `dadd`, écriture d'un
 statique. Elle sert aussi aux rappels possibles de C-10 (ADR-060) : `first` prend un
 tableau, `doubled` est désignée par une référence de méthode de sa propre classe.
+
+`corpus` est le corpus annoté de C-11 (T-204, ADR-071) : 150 méthodes en sept familles,
+chacune portant sa vérité (`@W.<Domaine>`, les domaines qu'elle écrit réellement). Les
+classes de `src/net/minecraft/...` sont des **bouchons de quelques lignes écrits pour ce
+projet** : seul leur nom compte, celui d'une classe d'ancrage de la table des domaines.
+Aucun code de Minecraft n'y est repris. Le corpus ne se modifie que pour corriger une
+annotation fausse, consignée dans l'ADR-071.
+
