@@ -10,9 +10,10 @@ antérieure**. Il est normatif au sens de la PARTIE 27.2 du cahier des charges.
 
 ## 0. État courant du projet
 
-**Jalon en cours : M3 (Décision).** M0 est clos ; M1 et M2 sont clos avec réserves
-(ADR-042, ADR-065). Le jeu n'est toujours transformé en rien : RF-X observe, mesure,
-analyse, et ordonnance ses propres tâches internes.
+**Jalon en cours : M4 (Exécution sûre).** M0 est clos ; M1, M2 et M3 sont clos avec
+réserves (ADR-042, ADR-065, ADR-072). Le jeu n'est toujours transformé en rien : RF-X
+observe, mesure, analyse, ordonnance ses propres tâches internes, et calcule et explique
+ses décisions sans les appliquer.
 
 L'état détaillé, composant par composant, avec ses réserves et ses mesures, est tenu
 dans [`tasks/todo.md`](../tasks/todo.md) ; les décisions, dans

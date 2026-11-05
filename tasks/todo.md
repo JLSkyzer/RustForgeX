@@ -1,8 +1,8 @@
 # TODO — RUSTFORGE-X
 
-**Jalon courant : M2 (Analyse et ordonnancement).** M0 est livré. M1 est clos avec
-réserves (ADR-042) : ce qui reste à reprendre y est listé, avec le jalon avant lequel le
-faire.
+**Jalon courant : M4 (Exécution sûre).** M0 est livré. M1, M2 et M3 sont clos avec
+réserves (ADR-042, ADR-065, ADR-072) : ce qui reste à reprendre y est listé, avec le
+jalon avant lequel le faire.
 Source de vérité : `docs/spec/RUSTFORGE-X_Cahier_des_Charges_v1.0.md`.
 
 ---
@@ -1184,7 +1184,11 @@ demandent une mesure ; les autres sont des tests de justesse.
 
 ---
 
-## M3 — Décision
+## M3 — Décision ✅ CLOS AVEC RÉSERVES (2026-11-05, ADR-072)
+
+Réserves (ADR-072) : premier gain par batching (M4, ADR-069), T-205, T-222, T-223,
+T-381 (M4) ; T-384 et l'étalonnage A/A (partie chargée de Killian) ; quarantaines (M4).
+Réserves de M2 toujours ouvertes : T-190, T-194, T-262, T-267, T-212.
 
 **Livrable** : décisions calculées et expliquées, appliquées uniquement pour TL0..TL2
 (`JAVA_ONLY`, `JAVA_BATCH`).
@@ -1302,6 +1306,21 @@ T-390..T-392, T-460..T-461.
         unités chaudes, deux lancements de suite
   - [ ] `rfx.cache.*` (hits, misses, evictions, bytes, corrupt) avec le premier cache
         interrogé en lecture
+
+---
+
+## M4 — Exécution sûre
+
+**Composants** : C-19 (Snapshot System) à C-26 (Rollback) : snapshots, command buffers,
+commit, détection de conflits, validation, exécution fantôme, retour arrière.
+
+- [ ] Lire les fiches de C-19 à C-26 (PARTIE 5) et leurs IF, DM et INV, puis la DoD de
+      M4 (PARTIE 29, 30), avant tout code
+- [ ] Plan de M4 : ordre des composants, ADR d'entrée, ce qui demande Killian
+- [ ] **Première transformation réelle du jeu** : seulement avec l'accord explicite de
+      Killian, donné pour elle
+- [ ] Réserves de M3 à reprendre ici : premier gain par batching, T-205, T-222, T-223,
+      T-381, quarantaines (ADR-072)
 
 ---
 
