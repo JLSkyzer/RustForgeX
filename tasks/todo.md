@@ -1216,7 +1216,12 @@ T-390..T-392, T-460..T-461.
         appliqués par `explain` aux unités sondées dont le runtime garde l'identité.
         Sélecteur mal formé écarté seul (divergence à R-590, ADR-067). `disable` ne
         coupe pas encore l'observation. Documenté dans `CONFIGURATION.md`
-  - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`
+  - [ ] Quarantaines : création sur incident, persistance dans `compatibility.db`.
+        **Sans producteur en M3** (2026-11-05) : une quarantaine naît d'un incident lié
+        à une unité (retour arrière, divergence, panic du code déporté) ; rien n'est
+        déporté ni validé avant M4, et les panics confinées du cycle de tick ne portent
+        aucune unité. Le modèle (`Quarantine`, R-551, T-391) est prêt ; le branchement
+        viendra avec la validation (C-29)
   - [x] Propriétés détectées depuis l'analyse : réflexion du graphe, et transformateur
         concurrent (R-552) lu comme « classe racine déclarée absente » — cible de mixin,
         d'access transformer, de coremod, classe réécrite par Forge ou illisible : le
