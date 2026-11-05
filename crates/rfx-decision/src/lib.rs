@@ -10,6 +10,7 @@
 
 pub mod compat;
 pub mod decision;
+pub mod experiment;
 pub mod risk;
 
 pub use compat::{
