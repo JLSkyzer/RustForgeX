@@ -1252,7 +1252,10 @@ T-390..T-392, T-460..T-461.
         journalisé côté Java depuis le 2026-11-05 (`OscillationWatch`, fil d'analyse,
         relevé toutes les 30 s, un message par nouveau verrouillage)
   - [ ] `rfx.compat.quarantines`, `rfx.compat.conflicting_transformers`
-  - [ ] Mesure du speedup de `JAVA_BATCH` : l'exploration des modes (2 à 5 %), avec
+  - [ ] Mesure du speedup de `JAVA_BATCH` : étude du 2026-11-05 (ADR-069, **proposée,
+        à valider par Killian**) — non faisable sûrement en M3 : aucun gain sans quitter le
+        fil Java ou réécrire l'appelant (I-07 l'interdit à chaud), `BATCHABLE` jamais
+        posé. Alternative proposée : chaîne de mesure A/A sans transformation. Ancienne note : l'exploration des modes (2 à 5 %), avec
         l'application des décisions
 - [ ] Précision de C-11 sur les appels par interface (reportée de M2, ADR-055) : cibles
       observées sous la vérification dynamique de R-382
