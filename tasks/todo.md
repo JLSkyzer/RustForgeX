@@ -1259,7 +1259,8 @@ T-390..T-392, T-460..T-461.
 - [~] C-32 Cache — T-380..T-384. Bilan du 2026-11-05, cache par cache :
   - [x] `workload_cache` : la persistance des descripteurs (ADR-064), invalidée par
         l'empreinte (T-380 couvert par T-180/T-181), évincée (T-183)
-  - [ ] R-542 : contrôle par **entrée**. `workload.db` n'a qu'une somme pour le fichier
+  - [x] R-542 : contrôle par **entrée** non retenu pour `workload.db` (ADR-048, 2026-11-05) :
+        écart volontaire, le « tout ou rien » est plus prudent. Ancienne note : une somme pour le fichier
         entier : une entrée corrompue fait mettre tout le fichier de côté (prudent, mais
         plus large que demandé) — T-382 à refaire par entrée
   - [ ] `optimization_cache`, `benchmark_cache` : sans producteur tant qu'aucun gain
