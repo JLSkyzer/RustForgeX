@@ -1,7 +1,8 @@
 //! Execution sure : effets differes et detection de conflits.
 //!
-//! Cahier des charges : PARTIE 5.21 (C-21), PARTIE 5.23 (C-23). Decision : ADR-073.
-//! Maturite : `STABLE` pour ces deux composants ; rien ne les applique encore au jeu
+//! Cahier des charges : PARTIE 5.21 (C-21), PARTIE 5.22 (C-22, cote Rust), PARTIE 5.23
+//! (C-23). Decision : ADR-073.
+//! Maturite : `STABLE` pour ces composants ; rien ne les applique encore au jeu
 //! (C-22, accord de Killian requis pour la premiere transformation reelle).
 //!
 //! Un worker ne touche jamais l'etat autoritatif : il ecrit ses effets dans un
@@ -10,6 +11,7 @@
 //! `rfx-exec` depend de `rfx-model` et de rien d'autre (INV-13).
 
 pub mod buffer;
+pub mod commit;
 pub mod conflict;
 
 /// Version de l'etat autoritatif : le numero du tick au moment d'une capture ou d'une
@@ -26,6 +28,7 @@ mod tests {
         for (file, source) in [
             ("lib.rs", include_str!("lib.rs")),
             ("buffer.rs", include_str!("buffer.rs")),
+            ("commit.rs", include_str!("commit.rs")),
             ("conflict.rs", include_str!("conflict.rs")),
         ] {
             let code = source.split("#[cfg(test)]").next().unwrap_or("");

@@ -1336,7 +1336,13 @@ commit, détection de conflits, validation, exécution fantôme, retour arrière
       bannissement sur motif de correction, `JAVA_ONLY` permanent au troisième,
       déclencheurs. 16 mutants sur 16 tués (C-24 et C-26)
   - [ ] T-353 (jeu jouable pendant 200 retours arrière) : avec C-22 et le jeu
-- [ ] C-22 Commit Engine — T-310..T-316 ; l'application au jeu attend l'accord de Killian
+- [x] C-22 Commit Engine, côté Rust — T-310..T-315 (ADR-073) : `rfx_exec::commit`,
+      tri, validation par C-23, budget dur qui rejette sans reporter, atomicité par
+      buffer avec compensation, incident fatal si non compensable (FM-30), aucune
+      commande vers un chunk déchargé, publication des epochs ; application par un
+      trait `Applicator`. 9 mutants sur 9 tués
+  - [ ] Applicateurs Java (R-472) et T-316 : première transformation réelle du jeu,
+        **accord de Killian requis**
 - [ ] C-19 Snapshot — T-280..T-284 ; C-25 Shadow Execution — T-340..T-342
 - [ ] **Première transformation réelle du jeu** : seulement avec l'accord explicite de
       Killian, donné pour elle
